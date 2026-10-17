@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>PaydayFlow</title>
+  <title>Easy Budget</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = { darkMode: 'class' };
@@ -23,7 +23,7 @@
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2.5">
           <div class="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center font-bold text-slate-950 text-base">£</div>
-          <span class="font-bold text-base tracking-tight text-white">PaydayFlow</span>
+          <span class="font-bold text-base tracking-tight text-white">Easy Budget</span>
         </div>
         <button onclick="cycleTheme()" id="themeBtnDesktop" title="Theme: Auto / Light / Dark"
                 class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-xs font-bold">
@@ -91,7 +91,7 @@
 
   <script>
     // DUAL-MODE API WRAPPER: Automatically detects if running on custom domain or Apps Script
-    const APPS_SCRIPT_EXEC_URL = 'YOUR_APPS_SCRIPT_DEPLOYMENT_URL_HERE';
+    const APPS_SCRIPT_EXEC_URL = 'https://script.google.com/macros/s/AKfycbwVV17u72vob53GWdfOO1X5tEiR29IxzD6oMulbnFAic7pvXJUaTIjNI21Q6YxoBVcUjQ/exec';
 
     async function apiCall(action, payload = {}) {
       if (typeof google !== 'undefined' && google.script && google.script.run) {
