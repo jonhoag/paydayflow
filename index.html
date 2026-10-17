@@ -651,7 +651,7 @@
             case 'toggleNeedFlag': return runner.toggleNeedFlag(payload.sheetName, payload.row, payload.setNeed);
             case 'settleAllNeeds': return runner.settleAllNeeds(payload.sheetName, payload.rows);
             case 'updateBudgetRow': return runner.updateBudgetRow(payload.sheetName, payload.row, payload.newAmount, payload.originalBudget);
-            case 'saveBudgetItem': return runner.saveBudgetItem(payload.sheetName, payload.row, payload.name, payload.amount);
+            case 'saveBudgetItem': return runner.saveBudgetItem(payload.sheetName, payload.row, payload.name, payload.amount, payload.isRecurring);
             case 'deleteBudgetItem': return runner.deleteBudgetItem(payload.sheetName, payload.row);
             case 'startNewMonth': return runner.startNewMonth(payload);
             default: return reject(new Error('Unknown action: ' + action));
@@ -1064,9 +1064,13 @@ function forceSyncSheet() {
       savePhoneCache(activeMonth, state);
       renderAll();
 
-      apiCall('saveBudgetItem', { sheetName: activeMonth, row: row || null, name: name, amount: signedAmt })
-        .then(applyServerState)
-        .catch(console.error);
+      apiCall('saveBudgetItem', {
+        sheetName: activeMonth,
+        row: row || null,
+        name: name,
+        amount: signedAmt,
+        isRecurring: budFormIsRecurring
+      }).then(applyServerState).catch(err => console.error('Budget save error:', err));
     }
 
     function removeBudgetRow(row) {
