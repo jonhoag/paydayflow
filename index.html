@@ -602,38 +602,38 @@
     }
 
     function initGoogleAuthButton() {
-      if (IS_GAS_ENV) return;
-      if (!window.google || !window.google.accounts || !window.google.accounts.id) {
-        setTimeout(initGoogleAuthButton, 150);
-        return;
+  if (IS_GAS_ENV) return;
+  if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+    setTimeout(initGoogleAuthButton, 150);
+    return;
+  }
+  google.accounts.id.initialize({
+    client_id: GOOGLE_CLIENT_ID,
+    callback: (response) => {
+      if (response && response.credential) {
+        localStorage.setItem(TOKEN_STORAGE_KEY, response.credential);
+        hideLockScreen();
+        if (loadPhoneCache(activeMonth)) renderAll();
+        apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
+          .then(applyServerState)
+          .catch(err => alert('Sync failed: ' + err.message));
       }
-      google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: (response) => {
-          if (response && response.credential) {
-            localStorage.setItem(TOKEN_STORAGE_KEY, response.credential);
-            hideLockScreen();
-            // Load cached UI state if available and immediately fetch fresh state
-            const cached = localStorage.getItem('pf_cache_' + activeMonth);
-            if (cached) { try { state = JSON.parse(cached); renderAll(); } catch (e) {} }
-            forceSyncSheet();
-          }
-        },
-        auto_select: true
-      });
-      const btnContainer = document.getElementById('googleSignInBtn');
-      if (btnContainer) {
-        btnContainer.innerHTML = '';
-        google.accounts.id.renderButton(btnContainer, {
-          theme: 'filled_black',
-          size: 'large',
-          shape: 'pill',
-          text: 'continue_with',
-          width: 260
-        });
-      }
-      google.accounts.id.prompt();
-    }
+    },
+    auto_select: true
+  });
+  const btnContainer = document.getElementById('googleSignInBtn');
+  if (btnContainer) {
+    btnContainer.innerHTML = '';
+    google.accounts.id.renderButton(btnContainer, {
+      theme: 'filled_black',
+      size: 'large',
+      shape: 'pill',
+      text: 'continue_with',
+      width: 260
+    });
+  }
+  google.accounts.id.prompt();
+}
 
     async function apiCall(action, payload = {}) {
       // Mode 1: Running inside Google Apps Script UAT iframe
@@ -864,29 +864,27 @@
     }
 
     function switchMonth(monthName) {
-      activeMonth = monthName;
-      skippedBudgetRows.clear();
-      if (loadPhoneCache(monthName)) renderAll();
-      
-      apiCall('getCachedSheetState', { sheetName: monthName, forceRefresh: false })
-        .then(applyServerState)
-        .catch(console.error);
-    }
+  activeMonth = monthName;
+  skippedBudgetRows.clear();
+  if (loadPhoneCache(monthName)) renderAll();
+  apiCall('getCachedSheetState', { sheetName: monthName, forceRefresh: false })
+    .then(applyServerState)
+    .catch(err => console.error('Switch month error:', err));
+}
 
-    function forceSyncSheet() {
-      const btn = document.getElementById('syncBtn');
-      if (btn) btn.classList.add('animate-spin');
-      
-      apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
-        .then(s => {
-          if (btn) btn.classList.remove('animate-spin');
-          applyServerState(s);
-        })
-        .catch(err => {
-          if (btn) btn.classList.remove('animate-spin');
-          console.error(err);
-        });
-    }
+function forceSyncSheet() {
+  const btn = document.getElementById('syncBtn');
+  if (btn) btn.classList.add('animate-spin');
+  apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
+    .then(s => {
+      if (btn) btn.classList.remove('animate-spin');
+      applyServerState(s);
+    })
+    .catch(err => {
+      if (btn) btn.classList.remove('animate-spin');
+      alert('Sync error: ' + (err && err.message ? err.message : err));
+    });
+}
 
     function applyServerState(s) {
       if (!s) return;
@@ -1630,25 +1628,30 @@
     }
 
     window.onload = () => {
-      if (!IS_GAS_ENV && 'serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(() => {}); }
-      
-      if (!IS_GAS_ENV && !hasValidToken()) { 
-        showLockScreen(); 
-        return; 
+      if (!IS_GAS_ENV && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
       }
 
+      // 1. Always initialize bank logos and theme first
       document.getElementById('logoCardAmex').innerHTML = getBankLogo('amex', 'w-7 h-7');
       document.getElementById('logoCardBarclays').innerHTML = getBankLogo('barclays', 'w-7 h-7');
       document.getElementById('logoCardChecking').innerHTML = getBankLogo('checking', 'w-7 h-7');
       document.getElementById('logoCardMarcus').innerHTML = getBankLogo('marcus', 'w-7 h-7');
-
       applyThemeMode();
-      loadPhoneCache(activeMonth);
-      renderAll();
-      
-      apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: false })
+
+      // 2. If on jonhoag.co.uk without a valid token, stop here and show Lock Screen
+      if (!IS_GAS_ENV && !hasValidToken()) {
+        showLockScreen();
+        return;
+      }
+
+      // 3. Otherwise load local cache and immediately pull fresh live data from Sheet
+      if (loadPhoneCache(activeMonth)) {
+        renderAll();
+      }
+      apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
         .then(applyServerState)
-        .catch(console.error);
+        .catch(err => console.error('Initial load error:', err));
     };
   </script>
 </body>
