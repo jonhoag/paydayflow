@@ -1613,7 +1613,7 @@ function forceSyncSheet() {
 
     function closeNewMonthModal() { document.getElementById('newMonthModal').classList.add('hidden'); }
 
-    function confirmStartNewMonth() {
+      function confirmStartNewMonth() {
       const newMonthName = document.getElementById('nmName').value.trim();
       const paycheck = Number(document.getElementById('nmPaycheck').value || 0);
       const savingsAmount = Number(document.getElementById('nmSavings').value || 0);
@@ -1621,14 +1621,13 @@ function forceSyncSheet() {
       if (!newMonthName) return;
 
       closeNewMonthModal();
-      
       apiCall('startNewMonth', {
         sourceSheetName: activeMonth,
         newMonthName,
         paycheck,
         savingsAmount,
         keepBudgetRows
-      }).then(applyServerState).catch(console.error);
+      }).then(applyServerState).catch(err => alert('Error creating month: ' + err.message));
     }
 
     window.onload = () => {
