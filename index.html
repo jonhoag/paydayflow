@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Payday Flow</title>
+  <title>PaydayFlow</title>
+  <link rel="manifest" href="manifest.json">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = { darkMode: 'class' };
@@ -17,13 +19,22 @@
 </head>
 <body class="bg-[#F4F7FA] dark:bg-[#0B0F19] text-slate-800 dark:text-slate-100 min-h-screen flex flex-col lg:flex-row pb-20 lg:pb-0">
 
+  <div id="authLockScreen" style="display:none; position:fixed; inset:0; z-index:99999; background:#0B0F19; color:#F8FAFC; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center; font-family:inherit;">
+    <div style="background:#111827; border:1px solid #1E293B; border-radius:20px; padding:32px 24px; max-width:360px; width:100%; box-shadow:0 20px 50px rgba(0,0,0,0.5);">
+      <div style="width:52px; height:52px; border-radius:14px; background:rgba(16,185,129,0.15); color:#10B981; display:flex; align-items:center; justify-content:center; font-size:24px; margin:0 auto 16px;">🔒</div>
+      <h2 style="margin:0 0 8px; font-size:20px; font-weight:700;">PaydayFlow Locked</h2>
+      <p id="authLockMsg" style="margin:0 0 24px; font-size:13px; color:#94A3B8; line-height:1.5;">Sign in with your authorized Google account or Passkey to unlock your live ledger.</p>
+      <div id="googleSignInBtn" style="display:flex; justify-content:center; min-height:44px;"></div>
+    </div>
+  </div>
+
   <!-- DESKTOP LEFT SIDEBAR -->
   <aside class="sidebar hidden lg:flex lg:w-60 lg:flex-col lg:fixed lg:inset-y-0 p-5 justify-between z-30 border-r border-slate-800">
     <div class="space-y-5">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2.5">
           <div class="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center font-bold text-slate-950 text-base">£</div>
-          <span class="font-bold text-base tracking-tight text-white">Payday Flow</span>
+          <span class="font-bold text-base tracking-tight text-white">PaydayFlow</span>
         </div>
         <button onclick="cycleTheme()" id="themeBtnDesktop" title="Theme: Auto / Light / Dark"
                 class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-xs font-bold">
@@ -32,7 +43,7 @@
       </div>
 
       <button onclick="openAddModal()" class="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm transition flex items-center justify-center gap-1.5">
-        <span>＋ Add Spend</span>
+        <span>＋ Add Transaction</span>
       </button>
 
       <nav class="space-y-1 text-sm">
@@ -41,89 +52,1604 @@
         </button>
         <button onclick="jumpToSection('budgets')" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800/60 font-medium">
           <div class="flex items-center gap-3"><span>📅</span> <span>Bills &amp; Budgets</span></div>
-          <span id="sideBadgeBudgets" class="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300">0</span>
+          <span id="sideBadgeBudgets" class="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300">10</span>
         </button>
         <button onclick="jumpToSection('pending')" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800/60 font-medium">
           <div class="flex items-center gap-3"><span>⏳</span> <span>To Settle</span></div>
-          <span id="sideBadgePending" class="text-xs px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300">0</span>
+          <span id="sideBadgePending" class="text-xs px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300">8</span>
         </button>
         <button onclick="jumpToSection('activity')" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800/60 font-medium">
           <span>💳</span> <span>Activity</span>
         </button>
       </nav>
     </div>
+
+    <div class="space-y-2 pt-4 border-t border-slate-700/70">
+      <button onclick="openNewMonthModal()" class="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium">
+        ＋ Start New Month
+      </button>
+      <a id="rawSheetBtn" href="https://docs.google.com/spreadsheets/d/1lEbcQBdPMSt7QNHGBrShcZErU9ANffaQM4jWQQSfPWE/edit" target="_blank"
+         class="w-full py-2 px-3 rounded-xl bg-slate-800/50 hover:bg-slate-800 text-emerald-400 text-xs font-medium flex items-center justify-center gap-1">
+        <span>Open Sheet ↗</span>
+      </a>
+    </div>
   </aside>
 
   <!-- MAIN CONTENT WRAPPER -->
   <div class="flex-1 lg:pl-60">
-    <header class="sticky top-0 z-25 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3.5 lg:px-8 py-2.5 flex items-center justify-between gap-2">
+
+    <!-- Clean Single-Line Header -->
+    <header class="sticky top-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3.5 lg:px-8 py-2.5 flex items-center justify-between gap-2">
       <div class="relative flex items-center min-w-0 flex-1 max-w-xs">
         <select id="monthSelector" onchange="switchMonth(this.value)"
                 class="w-full appearance-none bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold text-xs sm:text-sm rounded-xl pl-3 pr-7 py-2 border border-slate-200 dark:border-slate-700 truncate focus:outline-none cursor-pointer">
           <option value="October Payday 2026">October Payday 2026</option>
+          <option value="September Payday 2026">September Payday 2026</option>
         </select>
         <span class="pointer-events-none absolute right-2.5 text-slate-400 text-[10px]">▼</span>
       </div>
+
       <div class="flex items-center gap-1.5 shrink-0">
-        <button onclick="forceSyncSheet()" id="syncBtn" title="Sync latest from Sheet"
+        <button onclick="forceSyncSheet()" id="syncBtn" title="Sync latest from Google Sheet"
                 class="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-xs font-bold">
           ↻
         </button>
-        <button onclick="openAddModal()" class="text-xs font-semibold px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 whitespace-nowrap">
-          ＋ Add Spend
+        <button onclick="cycleTheme()" id="themeBtnMobile" title="Theme: Auto / Light / Dark"
+                class="px-2 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-1 text-[11px] font-semibold">
+          <span id="themeIconMobile">◐</span>
+          <span id="themeLabelMobile" class="text-[10px] text-slate-400">Auto</span>
+        </button>
+        <button onclick="openNewMonthModal()" class="text-xs font-semibold px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 whitespace-nowrap">
+          ＋ Month
+        </button>
+        <button onclick="openAddModal()" class="hidden lg:inline-flex text-xs font-semibold px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 whitespace-nowrap">
+          ＋ Add
         </button>
       </div>
     </header>
 
+    <!-- Page Canvas -->
     <main class="max-w-5xl mx-auto p-3.5 lg:p-6 space-y-3.5">
-      <!-- HERO BANNER -->
+
+      <!-- 1. HERO BANNER AT VERY TOP: MONEY LEFT -->
       <section class="rounded-2xl p-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm">
         <div class="flex items-center justify-between">
           <div>
-            <div class="text-xs font-semibold uppercase tracking-wider text-emerald-50">Money Left</div>
-            <div id="kpiSurplus" class="text-2xl sm:text-3xl font-bold mt-0.5 tracking-tight">£0.00</div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-semibold uppercase tracking-wider text-emerald-50">Money Left</span>
+              <span id="simBadge" class="hidden text-[10px] px-2 py-0.5 rounded-full bg-black/20 font-semibold">What-If</span>
+            </div>
+            <div id="kpiSurplus" class="text-2xl sm:text-3xl font-bold mt-0.5 tracking-tight">£356.59</div>
             <div class="text-[11px] text-emerald-50/90">Left after cards &amp; bills</div>
           </div>
+          <button onclick="document.getElementById('mathDrawer').classList.toggle('hidden')"
+                  class="text-[11px] font-medium px-2.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white whitespace-nowrap">
+            Breakdown ▾
+          </button>
+        </div>
+
+        <div id="mathDrawer" class="hidden mt-3 pt-2.5 border-t border-white/20 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          <div><span class="text-emerald-100 block text-[10px]">Nationwide</span><strong id="mathNCA" class="font-mono">£5,823.55</strong></div>
+          <div><span class="text-emerald-100 block text-[10px]">Bills Left</span><strong id="mathBud" class="font-mono">-£545.00</strong></div>
+          <div><span class="text-emerald-100 block text-[10px]">Amex</span><strong id="mathAmex" class="font-mono">-£1,200.39</strong></div>
+          <div><span class="text-emerald-100 block text-[10px]">Barclays</span><strong id="mathBarclays" class="font-mono">-£3,721.57</strong></div>
         </div>
       </section>
+
+      <!-- 2. COMPACT 2x2 ACCOUNT BALANCES GRID WITH BANK LOGOS -->
+      <section class="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 flex items-center justify-between">
+          <div class="min-w-0">
+            <div class="text-[11px] font-medium text-slate-400">Amex</div>
+            <div id="kpiAmex" class="text-base sm:text-lg font-bold text-slate-900 dark:text-white whitespace-nowrap">-£1,200.39</div>
+          </div>
+          <div id="logoCardAmex" class="shrink-0"></div>
+        </div>
+
+        <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 flex items-center justify-between">
+          <div class="min-w-0">
+            <div class="text-[11px] font-medium text-slate-400">Barclays</div>
+            <div id="kpiBarclays" class="text-base sm:text-lg font-bold text-slate-900 dark:text-white whitespace-nowrap">-£3,721.57</div>
+          </div>
+          <div id="logoCardBarclays" class="shrink-0"></div>
+        </div>
+
+        <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 flex items-center justify-between">
+          <div class="min-w-0">
+            <div class="text-[11px] font-medium text-slate-400">Nationwide</div>
+            <div id="kpiNCA" class="text-base sm:text-lg font-bold text-slate-900 dark:text-white whitespace-nowrap">£5,823.55</div>
+          </div>
+          <div id="logoCardChecking" class="shrink-0"></div>
+        </div>
+
+        <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 flex items-center justify-between">
+          <div class="min-w-0">
+            <div class="text-[11px] font-medium text-slate-400">Marcus</div>
+            <div id="kpiMarcus" class="text-base sm:text-lg font-bold text-slate-900 dark:text-white whitespace-nowrap">£3,788.43</div>
+          </div>
+          <div id="logoCardMarcus" class="shrink-0"></div>
+        </div>
+      </section>
+
+      <!-- MAIN SECTIONS GRID -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+        <!-- SECTION A: BILLS & BUDGETS -->
+        <div id="sec_budgets" class="lg:col-span-6">
+          <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('budgetsBody', 'chevBudgets')">
+              <div class="min-w-0 flex items-center gap-2">
+                <h2 class="text-sm font-bold text-slate-900 dark:text-white">Bills &amp; Budgets</h2>
+                <span id="budLeftVal" class="text-xs font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">-£545.00 left</span>
+              </div>
+              <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation()">
+                <button onclick="openBudgetForm()" class="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 rounded-lg whitespace-nowrap">
+                  ＋ Add
+                </button>
+                <button onclick="toggleSection('budgetsBody', 'chevBudgets')" id="chevBudgets" class="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
+                  ▾
+                </button>
+              </div>
+            </div>
+
+            <div id="budgetsBody" class="px-4 pb-4 space-y-3 border-t border-slate-100 dark:border-slate-800/80 pt-3">
+              <div class="space-y-1">
+                <div class="flex justify-between text-[11px] text-slate-400">
+                  <span id="budClearedCount">15 of 25 paid</span>
+                  <span>🔄 = rolls to next month • 🎉 = one-off</span>
+                </div>
+                <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                  <div id="budProgressBar" class="bg-emerald-500 h-full rounded-full transition-all duration-300" style="width: 60%"></div>
+                </div>
+              </div>
+
+              <!-- UPGRADED ADD / EDIT BUDGET FORM (With Bill vs Event & Out vs In Toggles) -->
+              <div id="budgetFormBox" class="hidden bg-slate-50 dark:bg-slate-800/70 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2.5">
+                <div class="flex items-center justify-between text-xs font-semibold">
+                  <span id="budFormTitle">Add Bill or Event</span>
+                  <button onclick="closeBudgetForm()" class="text-slate-400 font-bold">✕</button>
+                </div>
+                <input type="hidden" id="editBudRow" value="" />
+
+                <!-- 1. Choose Type: Monthly Bill (rolls over) vs One-Off Event -->
+                <div class="grid grid-cols-2 gap-1.5 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-xl text-[11px] font-semibold">
+                  <button type="button" onclick="setBudFormType(false)" id="btype_event" class="py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs">
+                    🎉 One-Off Event
+                  </button>
+                  <button type="button" onclick="setBudFormType(true)" id="btype_bill" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
+                    🔄 Monthly Bill (Rolls Over)
+                  </button>
+                </div>
+
+                <!-- 2. Choose Sign: Expense (-) vs Carry-In (+) (No minus key needed!) -->
+                <div class="grid grid-cols-2 gap-1.5 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-xl text-[11px] font-semibold">
+                  <button type="button" onclick="setBudFormSign(-1)" id="bsign_neg" class="py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs">
+                    💸 Money Out (-)
+                  </button>
+                  <button type="button" onclick="setBudFormSign(1)" id="bsign_pos" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
+                    💰 Money In / Carry (+)
+                  </button>
+                </div>
+
+                <!-- 3. Name & Positive Amount Input -->
+                <div class="grid grid-cols-12 gap-2">
+                  <input id="inpBudName" type="text" placeholder="e.g. Comedy, Petrol"
+                         class="col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-xs text-slate-900 dark:text-white" />
+                  <input id="inpBudAmt" type="number" step="0.01" inputmode="decimal" placeholder="40.00"
+                         class="col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-xs font-mono font-semibold text-slate-900 dark:text-white" />
+                </div>
+
+                <button onclick="submitBudgetForm()" class="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold py-2 rounded-lg">
+                  Save to Budgets
+                </button>
+              </div>
+
+              <!-- Filter Chips -->
+              <div class="flex gap-1.5 text-[11px] font-semibold">
+                <button onclick="setBudFilter('all')" id="bf_all" class="px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900">All Left</button>
+                <button onclick="setBudFilter('recurring')" id="bf_recurring" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">🔄 Monthly Bills</button>
+                <button onclick="setBudFilter('events')" id="bf_events" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">🎉 One-Off Events</button>
+              </div>
+
+              <!-- Active Unpaid Budgets -->
+              <div id="upcomingBudgetsList" class="divide-y divide-slate-100 dark:divide-slate-800/70 max-h-64 overflow-y-auto"></div>
+
+              <!-- Internal Expansion: Already Paid / Zeroed Out -->
+              <details class="pt-2 border-t border-slate-100 dark:border-slate-800 group">
+                <summary class="text-xs font-semibold text-slate-500 dark:text-slate-400 cursor-pointer flex items-center justify-between py-1 select-none">
+                  <span>Already Paid / Zeroed (<span id="clearedBudCount">15</span>)</span>
+                  <span class="text-slate-400 group-open:rotate-180 transition text-[10px]">▼</span>
+                </summary>
+                <div id="clearedBudgetsList" class="divide-y divide-slate-100 dark:divide-slate-800/60 mt-1.5 max-h-48 overflow-y-auto"></div>
+              </details>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT COLUMN: TO SETTLE (PENDING) + RECENT ACTIVITY -->
+        <div class="lg:col-span-6 space-y-4">
+
+          <!-- SECTION B: TO SETTLE -->
+          <div id="sec_pending" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('pendingBody', 'chevPending')">
+              <div class="flex items-center gap-2 min-w-0">
+                <h2 class="text-sm font-bold text-slate-900 dark:text-white">To Settle</h2>
+                <span class="text-xs font-mono font-semibold px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-500">
+                  <span id="cntPending">8</span> • <span id="sumPending">£436.88</span>
+                </span>
+              </div>
+              <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation()">
+                <button id="btnSettleAll" onclick="handleSettleAll()" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-sky-500/10 text-sky-500 whitespace-nowrap">
+                  ✓ Settle All
+                </button>
+                <button onclick="toggleSection('pendingBody', 'chevPending')" id="chevPending" class="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
+                  ▾
+                </button>
+              </div>
+            </div>
+
+            <div id="pendingBody" class="px-4 pb-4 space-y-3 border-t border-slate-100 dark:border-slate-800/80 pt-3">
+              <div class="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit text-[11px] font-semibold">
+                <button onclick="setSplitPanel('pending')" id="pill_pending" class="px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">
+                  Owing (<span id="cntPendingTab">8</span>)
+                </button>
+                <button onclick="setSplitPanel('settled')" id="pill_settled" class="px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400">
+                  Settled (<span id="cntSettled">23</span>)
+                </button>
+              </div>
+
+              <div id="panel_pending" class="divide-y divide-slate-100 dark:divide-slate-800/70 max-h-60 overflow-y-auto"></div>
+              <div id="panel_settled" class="hidden divide-y divide-slate-100 dark:divide-slate-800/70 max-h-60 overflow-y-auto"></div>
+            </div>
+          </div>
+
+          <!-- SECTION C: RECENT ACTIVITY -->
+          <div id="sec_activity" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('activityBody', 'chevActivity')">
+              <div class="flex items-center gap-2">
+                <h2 class="text-sm font-bold text-slate-900 dark:text-white">Recent Activity</h2>
+                <span class="text-[11px] text-slate-400 font-medium">Tap any row to edit or move</span>
+              </div>
+              <button onclick="event.stopPropagation(); toggleSection('activityBody', 'chevActivity')" id="chevActivity" class="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
+                ▾
+              </button>
+            </div>
+
+            <div id="activityBody" class="px-4 pb-4 space-y-3 border-t border-slate-100 dark:border-slate-800/80 pt-3">
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-[11px] font-semibold overflow-x-auto">
+                  <button onclick="setTxFilter('all')" id="txf_all" class="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">All</button>
+                  <button onclick="setTxFilter('amex')" id="txf_amex" class="px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Amex</button>
+                  <button onclick="setTxFilter('barclays')" id="txf_barclays" class="px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Barclays</button>
+                  <button onclick="setTxFilter('checking')" id="txf_checking" class="px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Nationwide</button>
+                  <button onclick="setTxFilter('marcus')" id="txf_marcus" class="px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Marcus</button>
+                </div>
+              </div>
+              <input id="txSearch" type="text" placeholder="Filter merchant..." oninput="renderTransactions()"
+                     class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none" />
+              <div id="txListContainer" class="divide-y divide-slate-100 dark:divide-slate-800/70 max-h-64 overflow-y-auto"></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
     </main>
   </div>
 
+  <!-- MOBILE BOTTOM NAVIGATION BAR -->
+  <nav class="lg:hidden fixed bottom-0 inset-x-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 px-3 py-1.5 flex justify-around items-center z-30 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+    <button onclick="jumpToSection('top')" class="flex flex-col items-center gap-0.5 text-emerald-500 font-semibold py-1">
+      <span>🏠</span><span>Home</span>
+    </button>
+    <button onclick="jumpToSection('budgets')" class="flex flex-col items-center gap-0.5 py-1">
+      <span>📅</span><span>Budgets</span>
+    </button>
+    <button onclick="openAddModal()" class="w-11 h-11 -mt-4 rounded-full bg-emerald-500 text-slate-950 font-bold text-xl shadow-lg flex items-center justify-center">
+      ＋
+    </button>
+    <button onclick="jumpToSection('pending')" class="flex flex-col items-center gap-0.5 py-1">
+      <span>⏳</span><span>Pending</span>
+    </button>
+    <button onclick="jumpToSection('activity')" class="flex flex-col items-center gap-0.5 py-1">
+      <span>💳</span><span>Activity</span>
+    </button>
+  </nav>
+
+  <!-- MODAL 1: ADD SPEND OR REFUND / MONEY IN (+ DYNAMIC GROUP SPLIT BUILDER) -->
+  <div id="addModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <h3 id="addModalTitle" class="text-sm font-bold text-slate-900 dark:text-white">Add Transaction</h3>
+        <button onclick="closeAddModal()" class="text-slate-400 hover:text-slate-600 text-base font-bold">✕</button>
+      </div>
+
+      <!-- Spend (-) vs Refund / Money In (+) Toggle -->
+      <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
+        <button type="button" onclick="setTxDirection('spend')" id="dir_spend" class="py-2 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">
+          💸 Spend (-)
+        </button>
+        <button type="button" onclick="setTxDirection('refund')" id="dir_refund" class="py-2 rounded-lg text-slate-500 dark:text-slate-400">
+          💰 Refund / Money In (+)
+        </button>
+      </div>
+
+      <div class="grid grid-cols-12 gap-2.5">
+        <div class="col-span-7">
+          <label class="text-[11px] font-medium text-slate-400 block mb-1">Where / Description</label>
+          <input id="inpMerchant" type="text" placeholder="e.g. Waitrose, YouTube"
+                 class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
+        </div>
+        <div class="col-span-5">
+          <label class="text-[11px] font-medium text-slate-400 block mb-1">Amount (£)</label>
+          <input id="inpAmount" type="number" step="0.01" inputmode="decimal" placeholder="0.00" oninput="onGrossAmountInput()"
+                 class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
+        </div>
+      </div>
+
+      <div>
+        <label id="lblPaidWith" class="text-[11px] font-medium text-slate-400 block mb-1">Card / Account</label>
+        <div class="grid grid-cols-4 gap-1.5 text-xs font-semibold">
+          <button type="button" onclick="selectAcct('amex')" id="acct_amex" class="py-2 rounded-xl bg-emerald-500 text-slate-950">Amex</button>
+          <button type="button" onclick="selectAcct('barclays')" id="acct_barclays" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
+          <button type="button" onclick="selectAcct('checking')" id="acct_checking" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Nationwide</button>
+          <button type="button" onclick="selectAcct('marcus')" id="acct_marcus" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Marcus</button>
+        </div>
+      </div>
+
+      <!-- Split Section (Hidden when logging a Refund / Money In) -->
+      <div id="splitSectionWrap" class="space-y-3">
+        <div>
+          <label class="text-[11px] font-medium text-slate-400 block mb-1">Who's Paying?</label>
+          <div class="flex flex-wrap gap-1.5 text-xs font-semibold">
+            <button type="button" onclick="selectSplit('100_me')" id="sp_100_me" class="px-2.5 py-1.5 rounded-xl bg-emerald-500 text-slate-950">Just Me</button>
+            <button type="button" onclick="selectSplit('50_amanda')" id="sp_50_amanda" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Half w/ Amanda</button>
+            <button type="button" onclick="selectSplit('100_amanda')" id="sp_100_amanda" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">All Amanda's</button>
+            <button type="button" onclick="selectSplit('custom')" id="sp_custom" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Group / Custom Split</button>
+            <button type="button" onclick="selectSplit('marcus')" id="sp_marcus" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">From Marcus</button>
+          </div>
+        </div>
+
+        <!-- DYNAMIC MULTI-PERSON / GROUP SPLIT DRAWER -->
+        <div id="customSplitBox" class="hidden bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2.5 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-semibold text-slate-500 dark:text-slate-300">1. Tap people to include:</span>
+            <button type="button" onclick="applyEqualGroupSplit()" class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+              ÷ Split Equally
+            </button>
+          </div>
+
+          <!-- Quick-Tap Person Chips -->
+          <div class="flex flex-wrap gap-1.5">
+            <button type="button" onclick="togglePersonChip('amanda')" id="chip_amanda" class="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-medium">＋ Amanda</button>
+            <button type="button" onclick="togglePersonChip('nita')" id="chip_nita" class="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-medium">＋ Nita</button>
+            <button type="button" onclick="togglePersonChip('alex')" id="chip_alex" class="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-medium">＋ Alex</button>
+            <button type="button" onclick="togglePersonChip('matt')" id="chip_matt" class="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-medium">＋ Matt</button>
+            <button type="button" onclick="togglePersonChip('cheps')" id="chip_cheps" class="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-medium">＋ Cheps</button>
+            <button type="button" onclick="togglePersonChip('marcus')" id="chip_marcus" class="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-amber-500/40 text-amber-600 dark:text-amber-400 font-medium">＋ Marcus</button>
+            <button type="button" onclick="addBlankPersonRow()" class="px-2.5 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 font-semibold">＋ Other</button>
+          </div>
+
+          <!-- Equal Split Option: Include Me -->
+          <div class="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+            <label class="flex items-center gap-1.5 cursor-pointer">
+              <input id="chkEqualIncludeMe" type="checkbox" checked onchange="if(autoEqualActive) applyEqualGroupSplit()" class="rounded text-emerald-500" />
+              <span>Include me when splitting equally</span>
+            </label>
+          </div>
+
+          <!-- Dynamic Rows Container -->
+          <div id="dynamicSplitRows" class="space-y-1.5 pt-1"></div>
+        </div>
+      </div>
+
+      <!-- Summary Pill -->
+      <div class="bg-slate-50 dark:bg-slate-800/80 rounded-xl px-3 py-2.5 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
+        <div id="cleanSplitPill" class="font-medium text-slate-700 dark:text-slate-200 truncate">Personal spend • <strong>£0.00</strong></div>
+        <label id="needToggleWrap" class="hidden flex items-center gap-1.5 text-slate-500 dark:text-slate-300 cursor-pointer font-medium shrink-0 ml-2">
+          <input id="chkNeed" type="checkbox" checked class="rounded text-emerald-500" />
+          <span>Add to "To Settle"</span>
+        </label>
+      </div>
+
+      <button id="btnSubmitTx" onclick="submitExpense()" class="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
+        Save Spend
+      </button>
+    </div>
+  </div>
+
+  <!-- MODAL 2: EDIT OR MOVE SPEND (With Spend (-) vs Credit (+) Toggle) -->
+  <div id="editTxModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Edit or Move Transaction</h3>
+          <p class="text-[11px] text-slate-400">Change card, amount, or flip between spend &amp; credit</p>
+        </div>
+        <button onclick="closeEditTxModal()" class="text-slate-400 hover:text-slate-600 text-base font-bold">✕</button>
+      </div>
+
+      <input type="hidden" id="editTxRow" />
+      <input type="hidden" id="editTxOldAcct" />
+
+      <!-- Sign Toggle for Edit Modal -->
+      <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
+        <button type="button" onclick="setEditTxSign(-1)" id="etsign_neg" class="py-1.5 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">
+          ➖ Spend / Out (-)
+        </button>
+        <button type="button" onclick="setEditTxSign(1)" id="etsign_pos" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
+          ➕ Credit / In (+)
+        </button>
+      </div>
+
+      <div class="grid grid-cols-12 gap-2.5">
+        <div class="col-span-7">
+          <label class="text-[11px] font-medium text-slate-400 block mb-1">Where / Description</label>
+          <input id="editTxDesc" type="text"
+                 class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
+        </div>
+        <div class="col-span-5">
+          <label class="text-[11px] font-medium text-slate-400 block mb-1">Amount (£)</label>
+          <input id="editTxAmt" type="number" step="0.01" inputmode="decimal"
+                 class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
+        </div>
+      </div>
+
+      <div>
+        <label class="text-[11px] font-medium text-slate-400 block mb-1">Card / Account</label>
+        <div class="grid grid-cols-4 gap-1.5 text-xs font-semibold">
+          <button type="button" onclick="selectEditTxAcct('amex')" id="etx_amex" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Amex</button>
+          <button type="button" onclick="selectEditTxAcct('barclays')" id="etx_barclays" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
+          <button type="button" onclick="selectEditTxAcct('checking')" id="etx_checking" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Nationwide</button>
+          <button type="button" onclick="selectEditTxAcct('marcus')" id="etx_marcus" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Marcus</button>
+        </div>
+      </div>
+
+      <div class="flex gap-2 pt-1">
+        <button type="button" onclick="deleteCurrentTx()" class="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 font-bold text-xs transition">
+          🗑 Delete
+        </button>
+        <button type="button" onclick="saveEditedTx()" class="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
+          Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: START NEW MONTH (With Interactive Rollover Checklist) -->
+  <div id="newMonthModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white">Start New Month</h3>
+        <button onclick="closeNewMonthModal()" class="text-slate-400 hover:text-slate-600 text-base font-bold">✕</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="font-medium text-slate-400 block mb-1">New Month Name</label>
+          <input id="nmName" type="text" value="November Payday 2026"
+                 class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-semibold text-slate-900 dark:text-white" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="font-medium text-slate-400 block mb-1">My Pay (£)</label>
+            <input id="nmPaycheck" type="number" step="0.01" inputmode="decimal" value="2921.03"
+                   class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-mono font-semibold text-emerald-500" />
+          </div>
+          <div>
+            <label class="font-medium text-slate-400 block mb-1">Moving to Marcus (£)</label>
+            <input id="nmSavings" type="number" step="1" inputmode="decimal" value="300" placeholder="0"
+                   class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-mono font-semibold text-amber-400" />
+          </div>
+        </div>
+
+        <div class="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1">
+          <div class="font-semibold text-slate-400 mb-1">Balances Rolling Over:</div>
+          <div class="flex justify-between"><span>Nationwide:</span><strong id="roNCA" class="font-mono">£5,823.55</strong></div>
+          <div class="flex justify-between"><span>Marcus:</span><strong id="roMarcus" class="font-mono">£3,788.43</strong></div>
+          <div class="flex justify-between"><span>Amex:</span><strong id="roAmex" class="font-mono text-slate-900 dark:text-white">-£1,200.39</strong></div>
+          <div class="flex justify-between"><span>Barclays:</span><strong id="roBarclays" class="font-mono text-slate-900 dark:text-white">-£3,721.57</strong></div>
+        </div>
+
+        <!-- Explicit Checklist of Which Bills & Events Roll Over -->
+        <details class="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700 group" open>
+          <summary class="font-semibold text-slate-700 dark:text-slate-200 cursor-pointer flex items-center justify-between select-none">
+            <span>Bills Pulling Into New Month (<span id="roBudCount">18</span> selected)</span>
+            <span class="text-[10px] text-slate-400 group-open:rotate-180 transition">▼</span>
+          </summary>
+          <p class="text-[11px] text-slate-400 mt-1">🔄 Monthly Bills are ticked by default; 🎉 One-Off Events are unticked.</p>
+          <div id="roBudgetChecklist" class="mt-2 space-y-1.5 max-h-40 overflow-y-auto divide-y divide-slate-200/50 dark:divide-slate-700/50"></div>
+        </details>
+      </div>
+
+      <button onclick="confirmStartNewMonth()" class="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
+        Create Month
+      </button>
+    </div>
+  </div>
+
   <script>
-    // DUAL-MODE API WRAPPER: Automatically detects if running on custom domain or Apps Script
-    const APPS_SCRIPT_EXEC_URL = 'https://script.google.com/macros/s/AKfycbwVV17u72vob53GWdfOO1X5tEiR29IxzD6oMulbnFAic7pvXJUaTIjNI21Q6YxoBVcUjQ/exec';
+    const APPS_SCRIPT_EXEC_URL = 'https://script.google.com/macros/s/AKfycbwiuLsruSCA-k2EeMn8bH6AZygi0ISA2WDTB_UJmetDOJdU6S4qLE21WmjyJK1ktCMrUA/exec';
+    const GOOGLE_CLIENT_ID = '1074590107449-b3clq41r6un84qma18lomq7ip2f833pk.apps.googleusercontent.com';
+    const IS_GAS_ENV = (typeof google !== 'undefined' && google.script && google.script.run);
+    const TOKEN_STORAGE_KEY = 'pf_google_id_token';
+
+    function hasValidToken() {
+      if (IS_GAS_ENV) return true;
+      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+      if (!token) return false;
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        // Valid if token expires more than 60 seconds from now
+        return (payload.exp * 1000) > (Date.now() + 60000);
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function showLockScreen(msg) {
+      if (IS_GAS_ENV) return;
+      const lockEl = document.getElementById('authLockScreen');
+      const msgEl = document.getElementById('authLockMsg');
+      if (msg && msgEl) msgEl.textContent = msg;
+      if (lockEl) lockEl.style.display = 'flex';
+      initGoogleAuthButton();
+    }
+
+    function hideLockScreen() {
+      const lockEl = document.getElementById('authLockScreen');
+      if (lockEl) lockEl.style.display = 'none';
+    }
+
+    function initGoogleAuthButton() {
+      if (IS_GAS_ENV) return;
+      if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+        setTimeout(initGoogleAuthButton, 150);
+        return;
+      }
+      google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (response) => {
+          if (response && response.credential) {
+            localStorage.setItem(TOKEN_STORAGE_KEY, response.credential);
+            hideLockScreen();
+            // Load cached UI state if available and immediately fetch fresh state
+            const cached = localStorage.getItem('pf_cache_' + activeMonth);
+            if (cached) { try { state = JSON.parse(cached); renderAll(); } catch (e) {} }
+            forceSyncSheet();
+          }
+        },
+        auto_select: true
+      });
+      const btnContainer = document.getElementById('googleSignInBtn');
+      if (btnContainer) {
+        btnContainer.innerHTML = '';
+        google.accounts.id.renderButton(btnContainer, {
+          theme: 'filled_black',
+          size: 'large',
+          shape: 'pill',
+          text: 'continue_with',
+          width: 260
+        });
+      }
+      google.accounts.id.prompt();
+    }
 
     async function apiCall(action, payload = {}) {
-      if (typeof google !== 'undefined' && google.script && google.script.run) {
+      // Mode 1: Running inside Google Apps Script UAT iframe
+      if (IS_GAS_ENV) {
         return new Promise((resolve, reject) => {
-          google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[action](payload);
+          const runner = google.script.run
+            .withSuccessHandler(resolve)
+            .withFailureHandler(reject);
+
+          switch (action) {
+            case 'getCachedSheetState': return runner.getCachedSheetState(payload.sheetName, payload.forceRefresh);
+            case 'addTransactionBundle': return runner.addTransactionBundle(payload);
+            case 'editOrMoveTransaction': return runner.editOrMoveTransaction(payload);
+            case 'deleteTransactionRow': return runner.deleteTransactionRow(payload.sheetName, payload.acct, payload.row);
+            case 'toggleNeedFlag': return runner.toggleNeedFlag(payload.sheetName, payload.row, payload.setNeed);
+            case 'settleAllNeeds': return runner.settleAllNeeds(payload.sheetName, payload.rows);
+            case 'updateBudgetRow': return runner.updateBudgetRow(payload.sheetName, payload.row, payload.newAmount, payload.originalBudget);
+            case 'saveBudgetItem': return runner.saveBudgetItem(payload.sheetName, payload.row, payload.name, payload.amount);
+            case 'deleteBudgetItem': return runner.deleteBudgetItem(payload.sheetName, payload.row);
+            case 'startNewMonth': return runner.startNewMonth(payload);
+            default: return reject(new Error('Unknown action: ' + action));
+          }
+        });
+      }
+
+      // Mode 2: Running externally on https://jonhoag.co.uk
+      if (!hasValidToken()) {
+        showLockScreen('Session expired. Please tap below to unlock.');
+        throw new Error('Authentication required');
+      }
+
+      const idToken = localStorage.getItem(TOKEN_STORAGE_KEY);
+      const res = await fetch(APPS_SCRIPT_EXEC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action, payload, idToken })
+      });
+
+      const json = await res.json();
+      if (!json.ok) {
+        if (json.authError) {
+          localStorage.removeItem(TOKEN_STORAGE_KEY);
+          showLockScreen(json.error || 'Unauthorized account.');
+        }
+        throw new Error(json.error || 'API request failed');
+      }
+      return json.data;
+    }
+
+    function getBankLogo(acct, sizeCls = 'w-7 h-7') {
+      if (acct === 'amex') {
+        return `<div class="${sizeCls} rounded-lg bg-[#006FCF] flex items-center justify-center shadow-2xs shrink-0 overflow-hidden" title="American Express">
+          <svg viewBox="0 0 36 36" class="w-full h-full">
+            <rect x="3" y="10" width="30" height="16" rx="2" fill="none" stroke="#FFFFFF" stroke-width="1.5" stroke-opacity="0.35"/>
+            <text x="18" y="21.5" text-anchor="middle" fill="#FFFFFF" font-family="Inter, Arial, sans-serif" font-weight="800" font-size="9.5" letter-spacing="0.4">AMEX</text>
+          </svg>
+        </div>`;
+      }
+      if (acct === 'barclays') {
+        return `<div class="${sizeCls} rounded-lg bg-[#00AEEF] flex items-center justify-center shadow-2xs shrink-0" title="Barclays">
+          <svg viewBox="0 0 24 24" class="w-4 h-4 fill-white">
+            <path d="M21.5 6.5c-2.6.2-4.8 1.6-6.1 3.6-.5-.8-1.4-1.3-2.4-1.3-1.2 0-2.2.7-2.8 1.7-1.3-2-3.5-3.3-6.2-3.5.6 2.7 2.5 4.8 5.1 5.6-.8 1.2-1.1 2.7-.8 4.2 1.7-.9 3.1-2.2 3.8-3.8.7 1.6 2.1 2.9 3.8 3.8.3-1.5 0-3-.8-4.2 2.6-.8 4.5-2.9 5.1-5.6z"/>
+          </svg>
+        </div>`;
+      }
+      if (acct === 'checking') {
+        return `<div class="${sizeCls} rounded-lg bg-[#00205B] flex items-center justify-center shadow-2xs shrink-0 relative overflow-hidden" title="Nationwide">
+          <svg viewBox="0 0 24 24" class="w-4 h-4">
+            <circle cx="15.5" cy="8.5" r="4" fill="#E4002B"/>
+            <path d="M4 13.5L10.5 7L17 13.5V19H4V13.5Z" fill="#FFFFFF"/>
+            <rect x="8.5" y="14.5" width="4" height="4.5" fill="#00205B"/>
+          </svg>
+        </div>`;
+      }
+      return `<div class="${sizeCls} rounded-lg bg-[#111827] border border-amber-500/40 flex items-center justify-center shadow-2xs shrink-0" title="Marcus Savings">
+        <svg viewBox="0 0 24 24" class="w-4 h-4">
+          <text x="12" y="16.5" text-anchor="middle" fill="#F59E0B" font-family="Georgia, serif" font-weight="700" font-size="13.5">M</text>
+        </svg>
+      </div>`;
+    }
+
+    const MOCK_DB = {
+      'October Payday 2026': {
+        summary: { nCA: 5823.55, mSAV: 3788.43, amex: -1200.39, barclays: -3721.57, budgetRem: -545.00, checkingExpected: 5278.55, eomSavingsJ: 356.59 },
+        budgets: [
+          { row: 7, name: 'Petrol Week 4', amount: -40, originalBudget: -40, isRecurring: true },
+          { row: 9, name: 'Spotify', amount: -10, originalBudget: -10, isRecurring: true },
+          { row: 13, name: 'sky glass', amount: -9, originalBudget: -9, isRecurring: true },
+          { row: 19, name: 'life insurance', amount: -81, originalBudget: -81, isRecurring: true },
+          { row: 22, name: 'barclays cc', amount: -20, originalBudget: -20, isRecurring: false },
+          { row: 24, name: 'haircut', amount: -20, originalBudget: -20, isRecurring: false },
+          { row: 25, name: 'Halloween', amount: -40, originalBudget: -40, isRecurring: false },
+          { row: 26, name: 'brighton comedy', amount: -50, originalBudget: -50, isRecurring: false },
+          { row: 27, name: 'extra paycheck', amount: -300, originalBudget: -300, isRecurring: false },
+          { row: 28, name: 'beer next month', amount: 25, originalBudget: 25, isRecurring: false }
+        ],
+        checking: [
+          { row: 62, acct: 'checking', desc: 'amanda waitrose', amount: 43.05, need: true, relOrder: 0.02 },
+          { row: 61, acct: 'checking', desc: 'savings drivers license', amount: 22, need: true, relOrder: 0.05 },
+          { row: 58, acct: 'checking', desc: 'Matt yt', amount: 3.33, need: true, relOrder: 0.10 },
+          { row: 53, acct: 'checking', desc: 'amanda vinted', amount: 3.5, need: true, relOrder: 0.15 },
+          { row: 49, acct: 'checking', desc: 'savings gatwick parking', amount: 91, need: true, relOrder: 0.20 },
+          { row: 44, acct: 'checking', desc: 'savings avios', amount: 89, need: true, relOrder: 0.25 },
+          { row: 43, acct: 'checking', desc: 'savings hue', amount: 35, need: true, relOrder: 0.30 },
+          { row: 42, acct: 'checking', desc: 'savings for investment', amount: 150, need: true, relOrder: 0.35 }
+        ],
+        amex: [
+          { row: 37, acct: 'amex', desc: 'morgans', amount: -30.00, relOrder: 0.01 },
+          { row: 36, acct: 'amex', desc: 'waitrose', amount: -86.10, relOrder: 0.04 },
+          { row: 35, acct: 'amex', desc: 'yt premium', amount: -19.99, relOrder: 0.08 }
+        ],
+        barclays: [
+          { row: 21, acct: 'barclays', desc: 'kenitos', amount: -15.00, relOrder: 0.015 },
+          { row: 20, acct: 'barclays', desc: 'taxi', amount: -8.10, relOrder: 0.03 }
+        ],
+        marcus: [
+          { row: 12, acct: 'marcus', desc: 'us dl', amount: -22.00, relOrder: 0.06 }
+        ]
+      }
+    };
+
+    let activeMonth = localStorage.getItem('pf_last_month') || 'October Payday 2026';
+    let state = JSON.parse(JSON.stringify(MOCK_DB['October Payday 2026']));
+    let skippedBudgetRows = new Set();
+    let budFilter = 'all';
+
+    // Budget Form State
+    let budFormIsRecurring = false;
+    let budFormSign = -1; // -1 for Expense (-), +1 for Carry-In (+)
+
+    // Transaction Modal State
+    let txDirection = 'spend'; // 'spend' (-) or 'refund' (+)
+    let formAcct = 'amex';
+    let formSplit = '100_me';
+    let customSplitEntries = []; // [{ person: 'amanda', amount: 3.33 }, ...]
+    let autoEqualActive = false;
+
+    // Edit Transaction Modal State
+    let editTxNewAcct = 'amex';
+    let editTxSign = -1;
+
+    let splitPanelMode = 'pending';
+    let txFilter = 'all';
+
+    function getLocalTimestamps() {
+      try { return JSON.parse(localStorage.getItem('pf_tx_ts_' + activeMonth) || '{}'); } catch (e) { return {}; }
+    }
+
+    function recordLocalTimestamp(acct, desc, amount) {
+      try {
+        const map = getLocalTimestamps();
+        const key = `${acct}|${String(desc).toLowerCase()}|${Number(amount)}`;
+        map[key] = Date.now();
+        localStorage.setItem('pf_tx_ts_' + activeMonth, JSON.stringify(map));
+      } catch (e) {}
+    }
+
+    function loadPhoneCache(monthName) {
+      try {
+        const raw = localStorage.getItem('pf_cache_' + monthName);
+        if (raw) { state = JSON.parse(raw); return true; }
+      } catch (e) {}
+      if (MOCK_DB[monthName]) state = JSON.parse(JSON.stringify(MOCK_DB[monthName]));
+      return false;
+    }
+
+    function savePhoneCache(monthName, dataObj) {
+      try {
+        localStorage.setItem('pf_last_month', monthName);
+        localStorage.setItem('pf_cache_' + monthName, JSON.stringify(dataObj));
+      } catch (e) {}
+    }
+
+    const osDarkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+    function applyThemeMode() {
+      const pref = localStorage.getItem('pf_theme_mode') || 'auto';
+      const isDark = pref === 'auto' ? osDarkQuery.matches : (pref === 'dark');
+      document.documentElement.classList.toggle('dark', isDark);
+
+      const icon = pref === 'auto' ? '◐' : (isDark ? '🌙' : '☀️');
+      const label = pref === 'auto' ? 'Auto' : (isDark ? 'Dark' : 'Light');
+      const d = document.getElementById('themeBtnDesktop');
+      const mIcon = document.getElementById('themeIconMobile');
+      const mLbl = document.getElementById('themeLabelMobile');
+      if (d) d.textContent = icon;
+      if (mIcon) mIcon.textContent = icon;
+      if (mLbl) mLbl.textContent = label;
+    }
+
+    function cycleTheme() {
+      const cur = localStorage.getItem('pf_theme_mode') || 'auto';
+      const next = cur === 'auto' ? 'light' : (cur === 'light' ? 'dark' : 'auto');
+      localStorage.setItem('pf_theme_mode', next);
+      applyThemeMode();
+    }
+
+    if (osDarkQuery.addEventListener) {
+      osDarkQuery.addEventListener('change', () => {
+        if ((localStorage.getItem('pf_theme_mode') || 'auto') === 'auto') applyThemeMode();
+      });
+    }
+
+    function toggleSection(bodyId, chevId) {
+      const body = document.getElementById(bodyId);
+      const chev = document.getElementById(chevId);
+      const isHidden = body.classList.toggle('hidden');
+      if (chev) chev.textContent = isHidden ? '▸' : '▾';
+    }
+
+    function jumpToSection(target) {
+      if (target === 'top') return window.scrollTo({ top: 0, behavior: 'smooth' });
+      const map = {
+        budgets: ['sec_budgets', 'budgetsBody', 'chevBudgets'],
+        pending: ['sec_pending', 'pendingBody', 'chevPending'],
+        activity: ['sec_activity', 'activityBody', 'chevActivity']
+      };
+      const [secId, bodyId, chevId] = map[target] || [];
+      if (bodyId && document.getElementById(bodyId).classList.contains('hidden')) {
+        toggleSection(bodyId, chevId);
+      }
+      if (secId) document.getElementById(secId).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function fmtGBP(val) {
+      const n = Number(val || 0);
+      return (n < 0 ? '-' : '') + '£' + Math.abs(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function switchMonth(monthName) {
+      activeMonth = monthName;
+      skippedBudgetRows.clear();
+      if (loadPhoneCache(monthName)) renderAll();
+      
+      apiCall('getCachedSheetState', { sheetName: monthName, forceRefresh: false })
+        .then(applyServerState)
+        .catch(console.error);
+    }
+
+    function forceSyncSheet() {
+      const btn = document.getElementById('syncBtn');
+      if (btn) btn.classList.add('animate-spin');
+      
+      apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
+        .then(s => {
+          if (btn) btn.classList.remove('animate-spin');
+          applyServerState(s);
+        })
+        .catch(err => {
+          if (btn) btn.classList.remove('animate-spin');
+          console.error(err);
+        });
+    }
+
+    function applyServerState(s) {
+      if (!s) return;
+      activeMonth = s.activeMonth;
+      state = s;
+      savePhoneCache(activeMonth, s);
+      const sel = document.getElementById('monthSelector');
+      if (s.availableMonths && s.availableMonths.length) {
+        sel.innerHTML = s.availableMonths.map(m => `<option value="${m}" ${m === activeMonth ? 'selected' : ''}>${m}</option>`).join('');
+      }
+      if (s.sheetUrl) document.getElementById('rawSheetBtn').href = s.sheetUrl;
+      renderAll();
+    }
+
+    function recomputeSummary() {
+      const s = state.summary;
+      s.budgetRem = +state.budgets
+        .filter(b => !skippedBudgetRows.has(b.row))
+        .reduce((a, b) => a + Number(b.amount || 0), 0).toFixed(2);
+      s.checkingExpected = +(s.nCA + s.budgetRem).toFixed(2);
+      s.eomSavingsJ = +(s.checkingExpected + s.amex + s.barclays).toFixed(2);
+    }
+
+    function renderAll() {
+      recomputeSummary();
+      const s = state.summary;
+      document.getElementById('kpiAmex').textContent = fmtGBP(s.amex);
+      document.getElementById('kpiBarclays').textContent = fmtGBP(s.barclays);
+      document.getElementById('kpiNCA').textContent = fmtGBP(s.nCA);
+      document.getElementById('kpiMarcus').textContent = fmtGBP(s.mSAV);
+      document.getElementById('kpiSurplus').textContent = fmtGBP(s.eomSavingsJ);
+
+      document.getElementById('mathNCA').textContent = fmtGBP(s.nCA);
+      document.getElementById('mathBud').textContent = fmtGBP(s.budgetRem);
+      document.getElementById('mathAmex').textContent = fmtGBP(s.amex);
+      document.getElementById('mathBarclays').textContent = fmtGBP(s.barclays);
+
+      document.getElementById('simBadge').classList.toggle('hidden', skippedBudgetRows.size === 0);
+
+      renderBudgets();
+      renderSplits();
+      renderTransactions();
+    }
+
+    // ================= BUDGETS & EVENTS LOGIC =================
+    function setBudFilter(f) {
+      budFilter = f;
+      ['all', 'recurring', 'events'].forEach(k => {
+        document.getElementById('bf_' + k).className = k === f
+          ? 'px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900'
+          : 'px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400';
+      });
+      renderBudgets();
+    }
+
+    function setBudFormType(isRec) {
+      budFormIsRecurring = Boolean(isRec);
+      document.getElementById('btype_bill').className = budFormIsRecurring
+        ? 'py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs'
+        : 'py-1.5 rounded-lg text-slate-500 dark:text-slate-400';
+      document.getElementById('btype_event').className = !budFormIsRecurring
+        ? 'py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs'
+        : 'py-1.5 rounded-lg text-slate-500 dark:text-slate-400';
+    }
+
+    function setBudFormSign(sign) {
+      budFormSign = sign < 0 ? -1 : 1;
+      document.getElementById('bsign_neg').className = budFormSign < 0
+        ? 'py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs'
+        : 'py-1.5 rounded-lg text-slate-500 dark:text-slate-400';
+      document.getElementById('bsign_pos').className = budFormSign > 0
+        ? 'py-1.5 rounded-lg bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-2xs'
+        : 'py-1.5 rounded-lg text-slate-500 dark:text-slate-400';
+    }
+
+    function toggleWhatIf(row) {
+      if (skippedBudgetRows.has(row)) skippedBudgetRows.delete(row);
+      else skippedBudgetRows.add(row);
+      renderAll();
+    }
+
+    function renderBudgets() {
+      const allUpcoming = state.budgets.filter(b => Number(b.amount) !== 0);
+      const upcoming = allUpcoming.filter(b => {
+        if (budFilter === 'recurring') return b.isRecurring;
+        if (budFilter === 'events') return !b.isRecurring;
+        return true;
+      });
+      const cleared = state.budgets.filter(b => Number(b.amount) === 0);
+      const totalCount = state.budgets.length || 1;
+      const pct = Math.round((cleared.length / totalCount) * 100);
+
+      document.getElementById('sideBadgeBudgets').textContent = allUpcoming.length;
+      document.getElementById('budLeftVal').textContent = `${fmtGBP(state.summary.budgetRem)} left`;
+      document.getElementById('budClearedCount').textContent = `${cleared.length} of ${totalCount} paid`;
+      document.getElementById('budProgressBar').style.width = `${pct}%`;
+      document.getElementById('clearedBudCount').textContent = cleared.length;
+
+      document.getElementById('upcomingBudgetsList').innerHTML = upcoming.length ? upcoming.map(b => {
+        const isSkipped = skippedBudgetRows.has(b.row);
+        return `
+          <div class="py-2 flex items-center justify-between gap-2 text-xs ${isSkipped ? 'opacity-40 line-through' : ''}">
+            <div class="flex items-center gap-2 min-w-0">
+              <button onclick="toggleWhatIf(${b.row})" title="Tap to simulate skipping"
+                      class="w-6 h-6 rounded-md shrink-0 ${b.isRecurring ? 'bg-indigo-500/10 text-indigo-400' : 'bg-amber-500/10 text-amber-400'} flex items-center justify-center text-[11px]">
+                ${isSkipped ? '🚫' : (b.isRecurring ? '🔄' : '🎉')}
+              </button>
+              <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${b.name}</span>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <span class="font-mono font-bold whitespace-nowrap ${b.amount < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'}">${b.amount > 0 ? '+' : ''}${fmtGBP(b.amount)}</span>
+              <button onclick="openBudgetForm(${b.row}, '${b.name.replace(/'/g, "\\'")}', ${b.amount}, ${b.isRecurring})"
+                      class="px-1.5 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-white">✎</button>
+              <button onclick="markBudgetPaid(${b.row}, 0, ${b.amount}, ${b.isRecurring})"
+                      class="px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap">
+                Paid ✓
+              </button>
+              <button onclick="removeBudgetRow(${b.row})" title="Delete" class="text-slate-400 hover:text-rose-500 px-1">✕</button>
+            </div>
+          </div>
+        `;
+      }).join('') : '<div class="py-3 text-xs text-slate-400 text-center">All clear! 🎉</div>';
+
+      document.getElementById('clearedBudgetsList').innerHTML = cleared.map(b => `
+        <div class="py-1.5 flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+          <span class="truncate">${b.isRecurring ? '🔄' : '🎉'} ${b.name} ${b.originalBudget ? `<span class="font-mono text-[11px] text-slate-400">(${fmtGBP(b.originalBudget)})</span>` : ''}</span>
+          <div class="flex items-center gap-2 shrink-0">
+            <button onclick="markBudgetPaid(${b.row}, ${b.originalBudget || -20}, ${b.originalBudget || -20}, ${b.isRecurring})"
+                    class="text-[11px] text-emerald-500 hover:underline">Restore</button>
+            <button onclick="removeBudgetRow(${b.row})" class="text-[11px] text-slate-400 hover:text-rose-500">✕</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function openBudgetForm(row = '', name = '', amount = '', isRecurring = false) {
+      document.getElementById('editBudRow').value = row;
+      document.getElementById('inpBudName').value = name;
+      const numAmt = Number(amount || 0);
+      document.getElementById('inpBudAmt').value = numAmt !== 0 ? Math.abs(numAmt) : '';
+      setBudFormType(row ? isRecurring : false);
+      setBudFormSign(numAmt > 0 ? 1 : -1);
+      document.getElementById('budFormTitle').textContent = row ? `Edit ${name}` : 'Add Bill or Event';
+      document.getElementById('budgetFormBox').classList.remove('hidden');
+    }
+
+    function closeBudgetForm() {
+      document.getElementById('budgetFormBox').classList.add('hidden');
+    }
+
+    function submitBudgetForm() {
+      const row = document.getElementById('editBudRow').value;
+      const name = document.getElementById('inpBudName').value.trim();
+      const rawAbs = Math.abs(Number(document.getElementById('inpBudAmt').value || 0));
+      if (!name || !rawAbs) return;
+
+      const signedAmt = +(rawAbs * budFormSign).toFixed(2);
+
+      if (row) {
+        const existing = state.budgets.find(b => b.row === Number(row));
+        if (existing) {
+          existing.name = name;
+          existing.amount = signedAmt;
+          existing.originalBudget = signedAmt;
+          existing.isRecurring = budFormIsRecurring;
+        }
+      } else {
+        state.budgets.unshift({
+          row: state.budgets.length + 20,
+          name,
+          amount: signedAmt,
+          originalBudget: signedAmt,
+          isRecurring: budFormIsRecurring
+        });
+      }
+      closeBudgetForm();
+      savePhoneCache(activeMonth, state);
+      renderAll();
+
+      apiCall('saveBudgetItem', { sheetName: activeMonth, row: row || null, name: name, amount: signedAmt })
+        .then(applyServerState)
+        .catch(console.error);
+    }
+
+    function removeBudgetRow(row) {
+      state.budgets = state.budgets.filter(b => b.row !== row);
+      skippedBudgetRows.delete(row);
+      savePhoneCache(activeMonth, state);
+      renderAll();
+      
+      apiCall('deleteBudgetItem', { sheetName: activeMonth, row })
+        .then(applyServerState)
+        .catch(console.error);
+    }
+
+    function markBudgetPaid(row, newAmt, origAmt, isRec) {
+      const item = state.budgets.find(b => b.row === row);
+      if (item) {
+        if (newAmt === 0 && item.amount !== 0) item.originalBudget = item.amount;
+        item.amount = Number(newAmt);
+      }
+      savePhoneCache(activeMonth, state);
+      renderAll();
+
+      apiCall('updateBudgetRow', { sheetName: activeMonth, row, newAmount: newAmt, originalBudget: origAmt })
+        .then(applyServerState)
+        .catch(console.error);
+    }
+
+    // ================= TO SETTLE & SPLITS PANEL =================
+    function setSplitPanel(mode) {
+      splitPanelMode = mode;
+      document.getElementById('panel_pending').classList.toggle('hidden', mode !== 'pending');
+      document.getElementById('panel_settled').classList.toggle('hidden', mode !== 'settled');
+      document.getElementById('pill_pending').className = mode === 'pending'
+        ? 'px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+        : 'px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400';
+      document.getElementById('pill_settled').className = mode === 'settled'
+        ? 'px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+        : 'px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400';
+    }
+
+    function renderSplits() {
+      const reimb = state.checking.filter(r => r.amount > 0 && !['start', 'paycheck'].includes(r.desc.toLowerCase()));
+      const pending = reimb.filter(r => r.need);
+      const settled = reimb.filter(r => !r.need);
+      const pendingSum = pending.reduce((a, b) => a + b.amount, 0);
+
+      document.getElementById('cntPending').textContent = pending.length;
+      document.getElementById('cntPendingTab').textContent = pending.length;
+      document.getElementById('sideBadgePending').textContent = pending.length;
+      document.getElementById('sumPending').textContent = fmtGBP(pendingSum);
+      document.getElementById('cntSettled').textContent = settled.length;
+      document.getElementById('btnSettleAll').classList.toggle('hidden', pending.length === 0);
+
+      document.getElementById('panel_pending').innerHTML = pending.length ? pending.map(r => {
+        const isMarcus = r.desc.toLowerCase().startsWith('savings');
+        return `
+          <div class="py-2 flex items-center justify-between gap-2 text-xs">
+            <div class="flex items-center gap-2 min-w-0">
+              ${isMarcus ? getBankLogo('marcus', 'w-6 h-6') : '<span class="w-6 h-6 rounded-md shrink-0 bg-sky-500/10 text-sky-400 flex items-center justify-center text-[11px]">👤</span>'}
+              <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${r.desc}</span>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <span class="font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">+${fmtGBP(r.amount)}</span>
+              <button onclick="toggleSplitNeed(${r.row}, false)"
+                      class="px-2.5 py-1 rounded-md bg-sky-500 text-slate-950 font-semibold whitespace-nowrap">
+                Settle ✓
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('') : '<div class="py-4 text-xs text-slate-400 text-center">Nothing owing ✨</div>';
+
+      document.getElementById('panel_settled').innerHTML = settled.map(r => `
+        <div class="py-1.5 flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+          <span class="truncate">✓ ${r.desc}</span>
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="font-mono text-emerald-500 whitespace-nowrap">+${fmtGBP(r.amount)}</span>
+            <button onclick="toggleSplitNeed(${r.row}, true)" class="text-[11px] text-slate-400 hover:underline">Undo</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function toggleSplitNeed(row, setNeed) {
+      const item = state.checking.find(r => r.row === row);
+      if (item) item.need = setNeed;
+      savePhoneCache(activeMonth, state);
+      renderAll();
+
+      apiCall('toggleNeedFlag', { sheetName: activeMonth, row, setNeed })
+        .then(applyServerState)
+        .catch(console.error);
+    }
+
+    function handleSettleAll() {
+      const rows = state.checking.filter(r => r.need).map(r => r.row);
+      state.checking.forEach(r => { if (r.need) r.need = false; });
+      savePhoneCache(activeMonth, state);
+      renderAll();
+      
+      apiCall('settleAllNeeds', { sheetName: activeMonth, rows })
+        .then(applyServerState)
+        .catch(console.error);
+    }
+
+    // ================= TRANSACTIONS & INTERLEAVED FEED =================
+    function setTxFilter(flt) {
+      txFilter = flt;
+      ['all', 'amex', 'barclays', 'marcus', 'checking'].forEach(k => {
+        document.getElementById('txf_' + k).className = k === flt
+          ? 'px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+          : 'px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400';
+      });
+      renderTransactions();
+    }
+
+    function renderTransactions() {
+      const q = (document.getElementById('txSearch').value || '').toLowerCase();
+      const tsMap = getLocalTimestamps();
+
+      const tagRows = (arr, acct) => {
+        const valid = (arr || []).filter(r => r.desc.toLowerCase() !== 'start');
+        const len = Math.max(valid.length, 1);
+        return valid.map((r, i) => {
+          const tsKey = `${acct}|${r.desc.toLowerCase()}|${Number(r.amount)}`;
+          const clientTs = r.clientTs || tsMap[tsKey] || 0;
+          const relOrder = typeof r.relOrder === 'number' ? r.relOrder : (i / len);
+          return { ...r, acct, clientTs, sortScore: relOrder };
+        });
+      };
+
+      let list = [];
+      if (txFilter === 'all') {
+        list = [
+          ...tagRows(state.amex, 'amex'),
+          ...tagRows(state.barclays, 'barclays'),
+          ...tagRows(state.checking, 'checking'),
+          ...tagRows(state.marcus, 'marcus')
+        ];
+        list.sort((a, b) => {
+          if (b.clientTs !== a.clientTs) return b.clientTs - a.clientTs;
+          return a.sortScore - b.sortScore;
         });
       } else {
-        const res = await fetch(APPS_SCRIPT_EXEC_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action, payload, token: localStorage.getItem('pf_auth_token') })
+        list = tagRows(state[txFilter], txFilter);
+      }
+
+      const filtered = list.filter(r => r.desc.toLowerCase().includes(q));
+      document.getElementById('txListContainer').innerHTML = filtered.map(r => `
+        <div onclick="openEditTxModal('${r.acct}', ${r.row}, '${r.desc.replace(/'/g, "\\'")}', ${r.amount})"
+             class="py-2 px-1.5 -mx-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 flex items-center justify-between gap-2 text-xs cursor-pointer transition">
+          <div class="flex items-center gap-2.5 min-w-0">
+            ${getBankLogo(r.acct, 'w-6 h-6')}
+            <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${r.desc}</span>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="font-mono font-semibold whitespace-nowrap ${r.amount < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'}">${r.amount > 0 ? '+' : ''}${fmtGBP(r.amount)}</span>
+            <span class="text-slate-400 text-[11px]">✎</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // ================= ADD TRANSACTION & DYNAMIC GROUP SPLIT =================
+    function openAddModal() {
+      setTxDirection('spend');
+      selectSplit('100_me');
+      customSplitEntries = [];
+      autoEqualActive = false;
+      renderDynamicSplitRows();
+      document.getElementById('addModal').classList.remove('hidden');
+    }
+    function closeAddModal() { document.getElementById('addModal').classList.add('hidden'); }
+
+    function setTxDirection(dir) {
+      txDirection = dir;
+      const isRefund = dir === 'refund';
+      document.getElementById('dir_spend').className = !isRefund
+        ? 'py-2 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+        : 'py-2 rounded-lg text-slate-500 dark:text-slate-400';
+      document.getElementById('dir_refund').className = isRefund
+        ? 'py-2 rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs'
+        : 'py-2 rounded-lg text-slate-500 dark:text-slate-400';
+
+      document.getElementById('splitSectionWrap').classList.toggle('hidden', isRefund);
+      document.getElementById('needToggleWrap').classList.toggle('hidden', isRefund || formSplit === '100_me');
+      document.getElementById('btnSubmitTx').textContent = isRefund ? 'Save Refund / Money In (+)' : 'Save Spend';
+      updateSplitSummary();
+    }
+
+    function selectAcct(a) {
+      formAcct = a;
+      ['amex', 'barclays', 'checking', 'marcus'].forEach(k => {
+        document.getElementById('acct_' + k).className = k === a
+          ? 'py-2 rounded-xl bg-emerald-500 text-slate-950'
+          : 'py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
+      });
+    }
+
+    function selectSplit(s) {
+      formSplit = s;
+      ['100_me', '50_amanda', '100_amanda', 'custom', 'marcus'].forEach(k => {
+        document.getElementById('sp_' + k).className = k === s
+          ? 'px-2.5 py-1.5 rounded-xl bg-emerald-500 text-slate-950'
+          : 'px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
+      });
+      document.getElementById('customSplitBox').classList.toggle('hidden', s !== 'custom');
+      document.getElementById('needToggleWrap').classList.toggle('hidden', txDirection === 'refund' || s === '100_me');
+      if (s === 'custom' && customSplitEntries.length === 0) {
+        togglePersonChip('amanda');
+      }
+      updateSplitSummary();
+    }
+
+    function togglePersonChip(personKey) {
+      const idx = customSplitEntries.findIndex(e => e.person.toLowerCase() === personKey.toLowerCase());
+      if (idx > -1) {
+        customSplitEntries.splice(idx, 1);
+      } else {
+        customSplitEntries.push({ person: personKey, amount: 0 });
+      }
+      if (autoEqualActive) applyEqualGroupSplit();
+      else {
+        renderDynamicSplitRows();
+        updateSplitSummary();
+      }
+    }
+
+    function addBlankPersonRow() {
+      customSplitEntries.push({ person: '', amount: 0 });
+      renderDynamicSplitRows();
+    }
+
+    function removePersonRow(idx) {
+      customSplitEntries.splice(idx, 1);
+      if (autoEqualActive) applyEqualGroupSplit();
+      else {
+        renderDynamicSplitRows();
+        updateSplitSummary();
+      }
+    }
+
+    function updatePersonRowName(idx, val) {
+      if (customSplitEntries[idx]) customSplitEntries[idx].person = val;
+      updateSplitSummary();
+    }
+
+    function updatePersonRowAmt(idx, val) {
+      autoEqualActive = false;
+      if (customSplitEntries[idx]) customSplitEntries[idx].amount = Math.abs(Number(val || 0));
+      updateSplitSummary();
+    }
+
+    function applyEqualGroupSplit() {
+      if (customSplitEntries.length === 0) return;
+      autoEqualActive = true;
+      const gross = Math.abs(Number(document.getElementById('inpAmount').value || 0));
+      const incMe = document.getElementById('chkEqualIncludeMe').checked;
+      const divisor = customSplitEntries.length + (incMe ? 1 : 0);
+      const each = divisor > 0 ? +(gross / divisor).toFixed(2) : 0;
+      customSplitEntries.forEach(e => { e.amount = each; });
+      renderDynamicSplitRows();
+      updateSplitSummary();
+    }
+
+    function onGrossAmountInput() {
+      if (formSplit === 'custom' && autoEqualActive && customSplitEntries.length > 0) {
+        applyEqualGroupSplit();
+      } else {
+        updateSplitSummary();
+      }
+    }
+
+    function renderDynamicSplitRows() {
+      ['amanda', 'nita', 'alex', 'matt', 'cheps', 'marcus'].forEach(p => {
+        const btn = document.getElementById('chip_' + p);
+        if (!btn) return;
+        const active = customSplitEntries.some(e => e.person.toLowerCase() === p);
+        btn.className = active
+          ? 'px-2.5 py-1 rounded-lg bg-emerald-500 text-slate-950 font-bold'
+          : 'px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-medium';
+      });
+
+      const container = document.getElementById('dynamicSplitRows');
+      if (customSplitEntries.length === 0) {
+        container.innerHTML = '<div class="text-[11px] text-slate-400 py-1">Tap any name above to split this spend...</div>';
+        return;
+      }
+
+      container.innerHTML = customSplitEntries.map((entry, idx) => `
+        <div class="flex items-center gap-2">
+          <input type="text" value="${entry.person}" placeholder="Name (e.g. Will)" oninput="updatePersonRowName(${idx}, this.value)"
+                 class="w-32 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-900 dark:text-white capitalize" />
+          <div class="relative flex-1">
+            <span class="absolute left-2.5 top-1.5 text-slate-400 text-xs font-mono">£</span>
+            <input type="number" step="0.01" inputmode="decimal" value="${entry.amount || ''}" placeholder="0.00" oninput="updatePersonRowAmt(${idx}, this.value)"
+                   class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-6 pr-2.5 py-1.5 text-xs font-mono font-semibold text-slate-900 dark:text-white" />
+          </div>
+          <button type="button" onclick="removePersonRow(${idx})" class="text-slate-400 hover:text-rose-500 px-1.5 font-bold">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function buildSplitData() {
+      const gross = Math.abs(Number(document.getElementById('inpAmount').value || 0));
+      const isRefund = txDirection === 'refund';
+      if (isRefund) {
+        return { gross, isRefund: true, need: false, splits: [], marcusShare: 0 };
+      }
+
+      const need = formSplit !== '100_me' && document.getElementById('chkNeed').checked;
+      const splits = [];
+      let marcusShare = 0;
+
+      if (formSplit === '50_amanda') {
+        splits.push({ person: 'amanda', amount: +(gross / 2).toFixed(2), need });
+      } else if (formSplit === '100_amanda') {
+        splits.push({ person: 'amanda', amount: gross, need });
+      } else if (formSplit === 'marcus') {
+        marcusShare = gross;
+      } else if (formSplit === 'custom') {
+        customSplitEntries.forEach(e => {
+          const p = (e.person || '').trim().toLowerCase();
+          const amt = Math.abs(Number(e.amount || 0));
+          if (amt > 0 && p) {
+            if (p === 'marcus') marcusShare += amt;
+            else splits.push({ person: p, amount: amt, need });
+          }
         });
-        const json = await res.json();
-        if (!json.success) throw new Error(json.error || 'API Error');
-        return json.data;
       }
+      return { gross, isRefund: false, need, splits, marcusShare };
     }
 
-    function switchMonth(m) { loadState(m); }
-    function forceSyncSheet() { loadState(document.getElementById('monthSelector').value, true); }
-    function openAddModal() {}
-    function jumpToSection() {}
-    function cycleTheme() {}
-
-    async function loadState(monthName, force = false) {
-      try {
-        const state = await apiCall('getCachedSheetState', { sheetName: monthName, forceRefresh: force });
-        // Render state into UI elements here
-      } catch (err) {
-        console.error(err);
+    function updateSplitSummary() {
+      const { gross, isRefund, splits, marcusShare } = buildSplitData();
+      if (isRefund) {
+        document.getElementById('cleanSplitPill').innerHTML = `Money in / refund • <strong class="text-emerald-500">+${fmtGBP(gross)}</strong>`;
+        return;
       }
+      if (formSplit === '100_me') {
+        document.getElementById('cleanSplitPill').innerHTML = `Personal spend • <strong>${fmtGBP(gross)}</strong>`;
+        return;
+      }
+      const others = splits.reduce((a, b) => a + b.amount, 0) + marcusShare;
+      const myNet = +(gross - others).toFixed(2);
+      const parts = [`You pay: <strong>${fmtGBP(Math.max(0, myNet))}</strong>`];
+      if (splits.length === 1) {
+        parts.push(`${splits[0].person}: <strong>${fmtGBP(splits[0].amount)}</strong>`);
+      } else if (splits.length > 1) {
+        const spSum = splits.reduce((a, b) => a + b.amount, 0);
+        parts.push(`${splits.length} people owe: <strong>${fmtGBP(spSum)}</strong>`);
+      }
+      if (marcusShare > 0) parts.push(`Marcus: <strong>${fmtGBP(marcusShare)}</strong>`);
+      document.getElementById('cleanSplitPill').innerHTML = parts.join(' • ');
     }
+
+    function submitExpense() {
+      const merchant = document.getElementById('inpMerchant').value.trim();
+      const { gross, isRefund, need, splits, marcusShare } = buildSplitData();
+      if (!merchant || !gross) return;
+
+      const now = Date.now();
+      const primarySigned = isRefund ? gross : -gross;
+      recordLocalTimestamp(formAcct, merchant, primarySigned);
+
+      if (formAcct === 'amex') { state.amex.unshift({ row: 99, acct: 'amex', desc: merchant, amount: primarySigned, clientTs: now, relOrder: 0 }); state.summary.amex += primarySigned; }
+      if (formAcct === 'barclays') { state.barclays.unshift({ row: 99, acct: 'barclays', desc: merchant, amount: primarySigned, clientTs: now, relOrder: 0 }); state.summary.barclays += primarySigned; }
+      if (formAcct === 'checking') { state.checking.unshift({ row: 99, acct: 'checking', desc: merchant, amount: primarySigned, need: false, clientTs: now, relOrder: 0 }); state.summary.nCA += primarySigned; }
+      if (formAcct === 'marcus') { state.marcus.unshift({ row: 99, acct: 'marcus', desc: merchant, amount: primarySigned, clientTs: now, relOrder: 0 }); state.summary.mSAV += primarySigned; }
+
+      if (!isRefund) {
+        if (marcusShare > 0) {
+          recordLocalTimestamp('marcus', merchant, -marcusShare);
+          recordLocalTimestamp('checking', 'savings ' + merchant, marcusShare);
+          state.marcus.unshift({ row: 100, acct: 'marcus', desc: merchant, amount: -marcusShare, clientTs: now, relOrder: 0 });
+          state.summary.mSAV -= marcusShare;
+          state.checking.unshift({ row: 101, acct: 'checking', desc: 'savings ' + merchant, amount: marcusShare, need, clientTs: now, relOrder: 0 });
+          state.summary.nCA += marcusShare;
+        }
+        splits.forEach((s, i) => {
+          const spDesc = `${s.person} ${merchant}`;
+          recordLocalTimestamp('checking', spDesc, s.amount);
+          state.checking.unshift({ row: 102 + i, acct: 'checking', desc: spDesc, amount: s.amount, need: s.need, clientTs: now, relOrder: 0 });
+          state.summary.nCA += s.amount;
+        });
+      }
+
+      closeAddModal();
+      document.getElementById('inpMerchant').value = '';
+      document.getElementById('inpAmount').value = '';
+      savePhoneCache(activeMonth, state);
+      renderAll();
+
+      apiCall('addTransactionBundle', {
+        sheetName: activeMonth,
+        merchant,
+        grossAmount: gross,
+        isRefund,
+        account: formAcct,
+        splits,
+        marcusShare,
+        markNeed: need
+      }).then(applyServerState).catch(console.error);
+    }
+
+    // ================= EDIT OR MOVE TRANSACTION MODAL =================
+    function setEditTxSign(sign) {
+      editTxSign = sign < 0 ? -1 : 1;
+      document.getElementById('etsign_neg').className = editTxSign < 0
+        ? 'py-1.5 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+        : 'py-1.5 rounded-lg text-slate-500 dark:text-slate-400';
+      document.getElementById('etsign_pos').className = editTxSign > 0
+        ? 'py-1.5 rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs'
+        : 'py-1.5 rounded-lg text-slate-500 dark:text-slate-400';
+    }
+
+    function openEditTxModal(acct, row, desc, amount) {
+      document.getElementById('editTxOldAcct').value = acct;
+      document.getElementById('editTxRow').value = row;
+      document.getElementById('editTxDesc').value = desc;
+      const num = Number(amount || 0);
+      document.getElementById('editTxAmt').value = Math.abs(num);
+      setEditTxSign(num >= 0 ? 1 : -1);
+      selectEditTxAcct(acct);
+      document.getElementById('editTxModal').classList.remove('hidden');
+    }
+
+    function closeEditTxModal() {
+      document.getElementById('editTxModal').classList.add('hidden');
+    }
+
+    function selectEditTxAcct(a) {
+      editTxNewAcct = a;
+      ['amex', 'barclays', 'checking', 'marcus'].forEach(k => {
+        document.getElementById('etx_' + k).className = k === a
+          ? 'py-2 rounded-xl bg-emerald-500 text-slate-950'
+          : 'py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
+      });
+    }
+
+    function updateSummaryBalance(acct, delta) {
+      if (acct === 'amex') state.summary.amex = +(state.summary.amex + delta).toFixed(2);
+      if (acct === 'barclays') state.summary.barclays = +(state.summary.barclays + delta).toFixed(2);
+      if (acct === 'checking') state.summary.nCA = +(state.summary.nCA + delta).toFixed(2);
+      if (acct === 'marcus') state.summary.mSAV = +(state.summary.mSAV + delta).toFixed(2);
+    }
+
+    function saveEditedTx() {
+      const oldAcct = document.getElementById('editTxOldAcct').value;
+      const newAcct = editTxNewAcct;
+      const row = Number(document.getElementById('editTxRow').value);
+      const newDesc = document.getElementById('editTxDesc').value.trim();
+      const rawAbs = Math.abs(Number(document.getElementById('editTxAmt').value || 0));
+      if (!newDesc || !rawAbs) return;
+
+      const newAmount = +(rawAbs * editTxSign).toFixed(2);
+      const now = Date.now();
+      recordLocalTimestamp(newAcct, newDesc, newAmount);
+
+      const oldArr = state[oldAcct] || [];
+      const idx = oldArr.findIndex(r => r.row === row);
+      if (idx > -1) {
+        const oldItem = oldArr[idx];
+        updateSummaryBalance(oldAcct, -oldItem.amount);
+        if (oldAcct === newAcct) {
+          oldItem.desc = newDesc;
+          oldItem.amount = newAmount;
+          oldItem.clientTs = now;
+        } else {
+          oldArr.splice(idx, 1);
+          state[newAcct].unshift({ row: 98, acct: newAcct, desc: newDesc, amount: newAmount, need: false, clientTs: now, relOrder: 0 });
+        }
+        updateSummaryBalance(newAcct, newAmount);
+      }
+
+      closeEditTxModal();
+      savePhoneCache(activeMonth, state);
+      renderAll();
+
+      apiCall('editOrMoveTransaction', {
+        sheetName: activeMonth,
+        oldAcct,
+        newAcct,
+        row,
+        newDesc,
+        newAmount
+      }).then(applyServerState).catch(console.error);
+    }
+
+    function deleteCurrentTx() {
+      const oldAcct = document.getElementById('editTxOldAcct').value;
+      const row = Number(document.getElementById('editTxRow').value);
+
+      const oldArr = state[oldAcct] || [];
+      const idx = oldArr.findIndex(r => r.row === row);
+      if (idx > -1) {
+        updateSummaryBalance(oldAcct, -oldArr[idx].amount);
+        oldArr.splice(idx, 1);
+      }
+
+      closeEditTxModal();
+      savePhoneCache(activeMonth, state);
+      renderAll();
+
+      apiCall('deleteTransactionRow', { sheetName: activeMonth, acct: oldAcct, row })
+        .then(applyServerState)
+        .catch(console.error);
+    }
+
+    // ================= START NEW MONTH ROLLOVER MODAL =================
+    function openNewMonthModal() {
+      const s = state.summary;
+      document.getElementById('roNCA').textContent = fmtGBP(s.nCA);
+      document.getElementById('roMarcus').textContent = fmtGBP(s.mSAV);
+      document.getElementById('roAmex').textContent = fmtGBP(s.amex);
+      document.getElementById('roBarclays').textContent = fmtGBP(s.barclays);
+
+      // Render interactive checklist of bills/events to pull into the new month
+      const listEl = document.getElementById('roBudgetChecklist');
+      listEl.innerHTML = state.budgets.map(b => {
+        const resetAmt = b.originalBudget !== 0 ? b.originalBudget : b.amount;
+        return `
+          <label class="py-1.5 flex items-center justify-between gap-2 cursor-pointer">
+            <div class="flex items-center gap-2 min-w-0">
+              <input type="checkbox" class="ro-bud-chk rounded text-emerald-500" value="${b.row}" ${b.isRecurring ? 'checked' : ''} onchange="updateRolloverCount()" />
+              <span class="truncate text-slate-700 dark:text-slate-200">${b.isRecurring ? '🔄' : '🎉'} ${b.name}</span>
+            </div>
+            <span class="font-mono text-[11px] text-slate-500 shrink-0">${fmtGBP(resetAmt)}</span>
+          </label>
+        `;
+      }).join('');
+      updateRolloverCount();
+      document.getElementById('newMonthModal').classList.remove('hidden');
+    }
+
+    function updateRolloverCount() {
+      const checked = document.querySelectorAll('.ro-bud-chk:checked').length;
+      document.getElementById('roBudCount').textContent = checked;
+    }
+
+    function closeNewMonthModal() { document.getElementById('newMonthModal').classList.add('hidden'); }
+
+    function confirmStartNewMonth() {
+      const newMonthName = document.getElementById('nmName').value.trim();
+      const paycheck = Number(document.getElementById('nmPaycheck').value || 0);
+      const savingsAmount = Number(document.getElementById('nmSavings').value || 0);
+      const keepBudgetRows = Array.from(document.querySelectorAll('.ro-bud-chk:checked')).map(el => Number(el.value));
+      if (!newMonthName) return;
+
+      closeNewMonthModal();
+      
+      apiCall('startNewMonth', {
+        sourceSheetName: activeMonth,
+        newMonthName,
+        paycheck,
+        savingsAmount,
+        keepBudgetRows
+      }).then(applyServerState).catch(console.error);
+    }
+
+    window.onload = () => {
+      if (!IS_GAS_ENV && 'serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(() => {}); }
+      
+      if (!IS_GAS_ENV && !hasValidToken()) { 
+        showLockScreen(); 
+        return; 
+      }
+
+      document.getElementById('logoCardAmex').innerHTML = getBankLogo('amex', 'w-7 h-7');
+      document.getElementById('logoCardBarclays').innerHTML = getBankLogo('barclays', 'w-7 h-7');
+      document.getElementById('logoCardChecking').innerHTML = getBankLogo('checking', 'w-7 h-7');
+      document.getElementById('logoCardMarcus').innerHTML = getBankLogo('marcus', 'w-7 h-7');
+
+      applyThemeMode();
+      loadPhoneCache(activeMonth);
+      renderAll();
+      
+      apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: false })
+        .then(applyServerState)
+        .catch(console.error);
+    };
   </script>
 </body>
 </html>
