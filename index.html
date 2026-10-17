@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>PaydayFlow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+    .sidebar { background: #1E2631; color: #F8FAFC; }
+    input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  </style>
+</head>
+<body class="bg-[#F4F7FA] dark:bg-[#0B0F19] text-slate-800 dark:text-slate-100 min-h-screen flex flex-col lg:flex-row pb-20 lg:pb-0">
+
+  <!-- DESKTOP LEFT SIDEBAR -->
+  <aside class="sidebar hidden lg:flex lg:w-60 lg:flex-col lg:fixed lg:inset-y-0 p-5 justify-between z-30 border-r border-slate-800">
+    <div class="space-y-5">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center font-bold text-slate-950 text-base">£</div>
+          <span class="font-bold text-base tracking-tight text-white">PaydayFlow</span>
+        </div>
+        <button onclick="cycleTheme()" id="themeBtnDesktop" title="Theme: Auto / Light / Dark"
+                class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-xs font-bold">
+          ◐
+        </button>
+      </div>
+
+      <button onclick="openAddModal()" class="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm transition flex items-center justify-center gap-1.5">
+        <span>＋ Add Spend</span>
+      </button>
+
+      <nav class="space-y-1 text-sm">
+        <button onclick="jumpToSection('top')" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl bg-slate-700/70 text-white font-medium">
+          <span>🏠</span> <span>Overview</span>
+        </button>
+        <button onclick="jumpToSection('budgets')" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800/60 font-medium">
+          <div class="flex items-center gap-3"><span>📅</span> <span>Bills &amp; Budgets</span></div>
+          <span id="sideBadgeBudgets" class="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300">0</span>
+        </button>
+        <button onclick="jumpToSection('pending')" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800/60 font-medium">
+          <div class="flex items-center gap-3"><span>⏳</span> <span>To Settle</span></div>
+          <span id="sideBadgePending" class="text-xs px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300">0</span>
+        </button>
+        <button onclick="jumpToSection('activity')" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800/60 font-medium">
+          <span>💳</span> <span>Activity</span>
+        </button>
+      </nav>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT WRAPPER -->
+  <div class="flex-1 lg:pl-60">
+    <header class="sticky top-0 z-25 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3.5 lg:px-8 py-2.5 flex items-center justify-between gap-2">
+      <div class="relative flex items-center min-w-0 flex-1 max-w-xs">
+        <select id="monthSelector" onchange="switchMonth(this.value)"
+                class="w-full appearance-none bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold text-xs sm:text-sm rounded-xl pl-3 pr-7 py-2 border border-slate-200 dark:border-slate-700 truncate focus:outline-none cursor-pointer">
+          <option value="October Payday 2026">October Payday 2026</option>
+        </select>
+        <span class="pointer-events-none absolute right-2.5 text-slate-400 text-[10px]">▼</span>
+      </div>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <button onclick="forceSyncSheet()" id="syncBtn" title="Sync latest from Sheet"
+                class="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-xs font-bold">
+          ↻
+        </button>
+        <button onclick="openAddModal()" class="text-xs font-semibold px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 whitespace-nowrap">
+          ＋ Add Spend
+        </button>
+      </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto p-3.5 lg:p-6 space-y-3.5">
+      <!-- HERO BANNER -->
+      <section class="rounded-2xl p-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-emerald-50">Money Left</div>
+            <div id="kpiSurplus" class="text-2xl sm:text-3xl font-bold mt-0.5 tracking-tight">£0.00</div>
+            <div class="text-[11px] text-emerald-50/90">Left after cards &amp; bills</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // DUAL-MODE API WRAPPER: Automatically detects if running on custom domain or Apps Script
+    const APPS_SCRIPT_EXEC_URL = 'YOUR_APPS_SCRIPT_DEPLOYMENT_URL_HERE';
+
+    async function apiCall(action, payload = {}) {
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        return new Promise((resolve, reject) => {
+          google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[action](payload);
+        });
+      } else {
+        const res = await fetch(APPS_SCRIPT_EXEC_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action, payload, token: localStorage.getItem('pf_auth_token') })
+        });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || 'API Error');
+        return json.data;
+      }
+    }
+
+    function switchMonth(m) { loadState(m); }
+    function forceSyncSheet() { loadState(document.getElementById('monthSelector').value, true); }
+    function openAddModal() {}
+    function jumpToSection() {}
+    function cycleTheme() {}
+
+    async function loadState(monthName, force = false) {
+      try {
+        const state = await apiCall('getCachedSheetState', { sheetName: monthName, forceRefresh: force });
+        // Render state into UI elements here
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  </script>
+</body>
+</html>
