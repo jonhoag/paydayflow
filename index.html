@@ -19,7 +19,7 @@
 </head>
 <body class="bg-[#F4F7FA] dark:bg-[#0B0F19] text-slate-800 dark:text-slate-100 min-h-screen flex flex-col lg:flex-row pb-20 lg:pb-0">
 
-  <div id="authLockScreen" style="display:none; position:fixed; inset:0; z-index:99999; background:#0B0F19; color:#F8FAFC; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center; font-family:inherit;">
+ <div id="authLockScreen" style="display:flex; position:fixed; inset:0; z-index:99999; background:#0B0F19; color:#F8FAFC; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center; font-family:inherit;">
     <div style="background:#111827; border:1px solid #1E293B; border-radius:20px; padding:32px 24px; max-width:360px; width:100%; box-shadow:0 20px 50px rgba(0,0,0,0.5);">
       <div style="width:52px; height:52px; border-radius:14px; background:rgba(16,185,129,0.15); color:#10B981; display:flex; align-items:center; justify-content:center; font-size:24px; margin:0 auto 16px;">🔒</div>
       <h2 style="margin:0 0 8px; font-size:20px; font-weight:700;">PaydayFlow Locked</h2>
@@ -571,37 +571,47 @@
   <script>
     const APPS_SCRIPT_EXEC_URL = 'https://script.google.com/macros/s/AKfycbwiuLsruSCA-k2EeMn8bH6AZygi0ISA2WDTB_UJmetDOJdU6S4qLE21WmjyJK1ktCMrUA/exec';
     const GOOGLE_CLIENT_ID = '1074590107449-b3clq41r6un84qma18lomq7ip2f833pk.apps.googleusercontent.com';
-    const IS_GAS_ENV = (typeof google !== 'undefined' && google.script && google.script.run);
-    const TOKEN_STORAGE_KEY = 'pf_google_id_token';
+    const ALLOWED_EMAIL = 'jonfhoag@gmail.com';
+const IS_GAS_ENV = (typeof google !== 'undefined' && google.script && google.script.run);
+const TOKEN_STORAGE_KEY = 'pf_google_id_token';
 
-    function hasValidToken() {
-      if (IS_GAS_ENV) return true;
-      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
-      if (!token) return false;
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-        // Valid if token expires more than 60 seconds from now
-        return (payload.exp * 1000) > (Date.now() + 60000);
-      } catch (e) {
-        return false;
-      }
-    }
+function parseJwtPayload(token) {
+  try {
+    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+  } catch (e) {
+    return null;
+  }
+}
 
-    function showLockScreen(msg) {
-      if (IS_GAS_ENV) return;
-      const lockEl = document.getElementById('authLockScreen');
-      const msgEl = document.getElementById('authLockMsg');
-      if (msg && msgEl) msgEl.textContent = msg;
-      if (lockEl) lockEl.style.display = 'flex';
-      initGoogleAuthButton();
-    }
+function hasValidToken() {
+  if (IS_GAS_ENV) return true;
+  const token = localStorage.getItem(TOKEN_STORAGE_KEY);
+  if (!token) return false;
+  const payload = parseJwtPayload(token);
+  if (!payload) return false;
+  const emailOk = String(payload.email || '').toLowerCase() === ALLOWED_EMAIL.toLowerCase();
+  const notExpired = (payload.exp * 1000) > (Date.now() + 60000);
+  return emailOk && notExpired;
+}
 
-    function hideLockScreen() {
-      const lockEl = document.getElementById('authLockScreen');
-      if (lockEl) lockEl.style.display = 'none';
-    }
+function showLockScreen(msg) {
+  if (IS_GAS_ENV) return;
+  const lockEl = document.getElementById('authLockScreen');
+  const msgEl = document.getElementById('authLockMsg');
+  if (msg && msgEl) {
+    msgEl.textContent = msg;
+    msgEl.style.color = msg.indexOf('Access Denied') === 0 ? '#F87171' : '#94A3B8';
+  }
+  if (lockEl) lockEl.style.display = 'flex';
+  initGoogleAuthButton();
+}
 
-    function initGoogleAuthButton() {
+function hideLockScreen() {
+  const lockEl = document.getElementById('authLockScreen');
+  if (lockEl) lockEl.style.display = 'none';
+}
+
+function initGoogleAuthButton() {
   if (IS_GAS_ENV) return;
   if (!window.google || !window.google.accounts || !window.google.accounts.id) {
     setTimeout(initGoogleAuthButton, 150);
@@ -611,12 +621,27 @@
     client_id: GOOGLE_CLIENT_ID,
     callback: (response) => {
       if (response && response.credential) {
+        const payload = parseJwtPayload(response.credential);
+        const signedInEmail = String((payload && payload.email) || '').toLowerCase();
+
+        // Immediately block any non-whitelisted Google account right on the Lock Screen
+        if (signedInEmail !== ALLOWED_EMAIL.toLowerCase()) {
+          localStorage.removeItem(TOKEN_STORAGE_KEY);
+          google.accounts.id.disableAutoSelect();
+          showLockScreen('Access Denied: ' + (signedInEmail || 'This account') + ' is not authorized.');
+          return;
+        }
+
         localStorage.setItem(TOKEN_STORAGE_KEY, response.credential);
-        hideLockScreen();
         if (loadPhoneCache(activeMonth)) renderAll();
         apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
-          .then(applyServerState)
-          .catch(err => alert('Sync failed: ' + err.message));
+          .then(s => {
+            hideLockScreen();
+            applyServerState(s);
+          })
+          .catch(err => {
+            showLockScreen('Access Denied: ' + err.message);
+          });
       }
     },
     auto_select: true
@@ -717,41 +742,15 @@
 
     const MOCK_DB = {
       'October Payday 2026': {
-        summary: { nCA: 5823.55, mSAV: 3788.43, amex: -1200.39, barclays: -3721.57, budgetRem: -545.00, checkingExpected: 5278.55, eomSavingsJ: 356.59 },
-        budgets: [
-          { row: 7, name: 'Petrol Week 4', amount: -40, originalBudget: -40, isRecurring: true },
-          { row: 9, name: 'Spotify', amount: -10, originalBudget: -10, isRecurring: true },
-          { row: 13, name: 'sky glass', amount: -9, originalBudget: -9, isRecurring: true },
-          { row: 19, name: 'life insurance', amount: -81, originalBudget: -81, isRecurring: true },
-          { row: 22, name: 'barclays cc', amount: -20, originalBudget: -20, isRecurring: false },
-          { row: 24, name: 'haircut', amount: -20, originalBudget: -20, isRecurring: false },
-          { row: 25, name: 'Halloween', amount: -40, originalBudget: -40, isRecurring: false },
-          { row: 26, name: 'brighton comedy', amount: -50, originalBudget: -50, isRecurring: false },
-          { row: 27, name: 'extra paycheck', amount: -300, originalBudget: -300, isRecurring: false },
-          { row: 28, name: 'beer next month', amount: 25, originalBudget: 25, isRecurring: false }
-        ],
-        checking: [
-          { row: 62, acct: 'checking', desc: 'amanda waitrose', amount: 43.05, need: true, relOrder: 0.02 },
-          { row: 61, acct: 'checking', desc: 'savings drivers license', amount: 22, need: true, relOrder: 0.05 },
-          { row: 58, acct: 'checking', desc: 'Matt yt', amount: 3.33, need: true, relOrder: 0.10 },
-          { row: 53, acct: 'checking', desc: 'amanda vinted', amount: 3.5, need: true, relOrder: 0.15 },
-          { row: 49, acct: 'checking', desc: 'savings gatwick parking', amount: 91, need: true, relOrder: 0.20 },
-          { row: 44, acct: 'checking', desc: 'savings avios', amount: 89, need: true, relOrder: 0.25 },
-          { row: 43, acct: 'checking', desc: 'savings hue', amount: 35, need: true, relOrder: 0.30 },
-          { row: 42, acct: 'checking', desc: 'savings for investment', amount: 150, need: true, relOrder: 0.35 }
-        ],
-        amex: [
-          { row: 37, acct: 'amex', desc: 'morgans', amount: -30.00, relOrder: 0.01 },
-          { row: 36, acct: 'amex', desc: 'waitrose', amount: -86.10, relOrder: 0.04 },
-          { row: 35, acct: 'amex', desc: 'yt premium', amount: -19.99, relOrder: 0.08 }
-        ],
-        barclays: [
-          { row: 21, acct: 'barclays', desc: 'kenitos', amount: -15.00, relOrder: 0.015 },
-          { row: 20, acct: 'barclays', desc: 'taxi', amount: -8.10, relOrder: 0.03 }
-        ],
-        marcus: [
-          { row: 12, acct: 'marcus', desc: 'us dl', amount: -22.00, relOrder: 0.06 }
-        ]
+        sheetUrl: '#',
+        availableMonths: ['October Payday 2026'],
+        activeMonth: 'October Payday 2026',
+        summary: { nCA: 0, mSAV: 0, amex: 0, barclays: 0, budgetRem: 0, checkingExpected: 0, eomSavingsJ: 0 },
+        budgets: [],
+        checking: [],
+        amex: [],
+        barclays: [],
+        marcus: []
       }
     };
 
@@ -1647,6 +1646,7 @@ function forceSyncSheet() {
         showLockScreen();
         return;
       }
+      hideLockScreen();
 
       // 3. Otherwise load local cache and immediately pull fresh live data from Sheet
       if (loadPhoneCache(activeMonth)) {
