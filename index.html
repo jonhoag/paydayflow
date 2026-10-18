@@ -577,7 +577,17 @@ const TOKEN_STORAGE_KEY = 'pf_google_id_token';
 
 function parseJwtPayload(token) {
   try {
-    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    let base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4 !== 0) {
+      base64 += '=';
+    }
+    const jsonStr = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonStr);
   } catch (e) {
     return null;
   }
@@ -685,28 +695,36 @@ function initGoogleAuthButton() {
       }
 
       // Mode 2: Running externally on https://jonhoag.co.uk
-      if (!hasValidToken()) {
-        showLockScreen('Session expired. Please tap below to unlock.');
-        throw new Error('Authentication required');
-      }
+  if (!hasValidToken()) {
+    showLockScreen('Session expired. Please tap below to unlock.');
+    throw new Error('Authentication required');
+  }
 
-      const idToken = localStorage.getItem(TOKEN_STORAGE_KEY);
-      const res = await fetch(APPS_SCRIPT_EXEC_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action, payload, idToken })
-      });
+  const idToken = localStorage.getItem(TOKEN_STORAGE_KEY);
+  const res = await fetch(APPS_SCRIPT_EXEC_URL, {
+    method: 'POST',
+    redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action, payload, idToken })
+  });
 
-      const json = await res.json();
-      if (!json.ok) {
-        if (json.authError) {
-          localStorage.removeItem(TOKEN_STORAGE_KEY);
-          showLockScreen(json.error || 'Unauthorized account.');
-        }
-        throw new Error(json.error || 'API request failed');
-      }
-      return json.data;
+  const rawText = await res.text();
+  let json;
+  try {
+    json = JSON.parse(rawText);
+  } catch (e) {
+    throw new Error('Server returned non-JSON (' + rawText.slice(0, 60) + '). Check that APPS_SCRIPT_EXEC_URL matches your "Anyone" deployment.');
+  }
+
+  if (!json.ok) {
+    if (json.authError) {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+      showLockScreen(json.error || 'Unauthorized account.');
     }
+    throw new Error(json.error || 'API request failed');
+  }
+  return json.data;
+}
 
     function getBankLogo(acct, sizeCls = 'w-7 h-7') {
       if (acct === 'amex') {
