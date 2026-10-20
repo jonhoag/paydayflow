@@ -1129,20 +1129,25 @@ function forceSyncSheet() {
     }
 
     function renderSplits() {
-      const reimb = state.checking.filter(r => r.amount > 0 && !['start', 'paycheck'].includes(r.desc.toLowerCase()));
+      const reimb = state.checking.filter(r =>
+        (r.need || r.amount > 0) && !['start', 'paycheck'].includes(r.desc.toLowerCase())
+      );
       const pending = reimb.filter(r => r.need);
-      const settled = reimb.filter(r => !r.need);
+      const settled = reimb.filter(r => !r.need && (r.amount > 0 || /^(amanda|nita|alex|matt|cheps|savings)\b/i.test(r.desc.trim())));
       const pendingSum = pending.reduce((a, b) => a + b.amount, 0);
 
       document.getElementById('cntPending').textContent = pending.length;
       document.getElementById('cntPendingTab').textContent = pending.length;
       document.getElementById('sideBadgePending').textContent = pending.length;
-      document.getElementById('sumPending').textContent = fmtGBP(pendingSum);
+      document.getElementById('sumPending').textContent = (pendingSum < 0 ? '-' : '') + fmtGBP(Math.abs(pendingSum));
       document.getElementById('cntSettled').textContent = settled.length;
       document.getElementById('btnSettleAll').classList.toggle('hidden', pending.length === 0);
 
       document.getElementById('panel_pending').innerHTML = pending.length ? pending.map(r => {
         const isMarcus = r.desc.toLowerCase().startsWith('savings');
+        const isPayOut = r.amount < 0;
+        const amtColor = isPayOut ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400';
+        const signPrefix = r.amount > 0 ? '+' : '';
         return `
           <div class="py-2 flex items-center justify-between gap-2 text-xs">
             <div class="flex items-center gap-2 min-w-0">
@@ -1150,7 +1155,7 @@ function forceSyncSheet() {
               <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${r.desc}</span>
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <span class="font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">+${fmtGBP(r.amount)}</span>
+              <span class="font-mono font-bold ${amtColor} whitespace-nowrap">${signPrefix}${fmtGBP(r.amount)}</span>
               <button onclick="toggleSplitNeed(${r.row}, false)"
                       class="px-2.5 py-1 rounded-md bg-sky-500 text-slate-950 font-semibold whitespace-nowrap">
                 Settle ✓
@@ -1160,15 +1165,20 @@ function forceSyncSheet() {
         `;
       }).join('') : '<div class="py-4 text-xs text-slate-400 text-center">Nothing owing ✨</div>';
 
-      document.getElementById('panel_settled').innerHTML = settled.map(r => `
-        <div class="py-1.5 flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-          <span class="truncate">✓ ${r.desc}</span>
-          <div class="flex items-center gap-2 shrink-0">
-            <span class="font-mono text-emerald-500 whitespace-nowrap">+${fmtGBP(r.amount)}</span>
-            <button onclick="toggleSplitNeed(${r.row}, true)" class="text-[11px] text-slate-400 hover:underline">Undo</button>
+      document.getElementById('panel_settled').innerHTML = settled.map(r => {
+        const isPayOut = r.amount < 0;
+        const amtColor = isPayOut ? 'text-rose-400' : 'text-emerald-500';
+        const signPrefix = r.amount > 0 ? '+' : '';
+        return `
+          <div class="py-1.5 flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <span class="truncate">✓ ${r.desc}</span>
+            <div class="flex items-center gap-2 shrink-0">
+              <span class="font-mono ${amtColor} whitespace-nowrap">${signPrefix}${fmtGBP(r.amount)}</span>
+              <button onclick="toggleSplitNeed(${r.row}, true)" class="text-[11px] text-slate-400 hover:underline">Undo</button>
+            </div>
           </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
 
     function toggleSplitNeed(row, setNeed) {
@@ -1176,10 +1186,9 @@ function forceSyncSheet() {
       if (item) item.need = setNeed;
       savePhoneCache(activeMonth, state);
       renderAll();
-
       apiCall('toggleNeedFlag', { sheetName: activeMonth, row, setNeed })
         .then(applyServerState)
-        .catch(console.error);
+        .catch(err => console.error('Toggle need error:', err));
     }
 
     function handleSettleAll() {
@@ -1187,10 +1196,9 @@ function forceSyncSheet() {
       state.checking.forEach(r => { if (r.need) r.need = false; });
       savePhoneCache(activeMonth, state);
       renderAll();
-      
       apiCall('settleAllNeeds', { sheetName: activeMonth, rows })
         .then(applyServerState)
-        .catch(console.error);
+        .catch(err => console.error('Settle all error:', err));
     }
 
     // ================= TRANSACTIONS & INTERLEAVED FEED =================
@@ -1272,8 +1280,9 @@ function forceSyncSheet() {
         ? 'py-2 rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs'
         : 'py-2 rounded-lg text-slate-500 dark:text-slate-400';
 
-      document.getElementById('splitSectionWrap').classList.toggle('hidden', isRefund);
-      document.getElementById('needToggleWrap').classList.toggle('hidden', isRefund || formSplit === '100_me');
+      // Keep split options visible for both Spend AND Refund / Cashback
+      document.getElementById('splitSectionWrap').classList.remove('hidden');
+      document.getElementById('needToggleWrap').classList.toggle('hidden', formSplit === '100_me');
       document.getElementById('btnSubmitTx').textContent = isRefund ? 'Save Refund / Money In (+)' : 'Save Spend';
       updateSplitSummary();
     }
@@ -1295,7 +1304,7 @@ function forceSyncSheet() {
           : 'px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
       });
       document.getElementById('customSplitBox').classList.toggle('hidden', s !== 'custom');
-      document.getElementById('needToggleWrap').classList.toggle('hidden', txDirection === 'refund' || s === '100_me');
+      document.getElementById('needToggleWrap').classList.toggle('hidden', s === '100_me');
       if (s === 'custom' && customSplitEntries.length === 0) {
         togglePersonChip('amanda');
       }
@@ -1373,7 +1382,7 @@ function forceSyncSheet() {
 
       const container = document.getElementById('dynamicSplitRows');
       if (customSplitEntries.length === 0) {
-        container.innerHTML = '<div class="text-[11px] text-slate-400 py-1">Tap any name above to split this spend...</div>';
+        container.innerHTML = '<div class="text-[11px] text-slate-400 py-1">Tap any name above to split this transaction...</div>';
         return;
       }
 
@@ -1394,10 +1403,6 @@ function forceSyncSheet() {
     function buildSplitData() {
       const gross = Math.abs(Number(document.getElementById('inpAmount').value || 0));
       const isRefund = txDirection === 'refund';
-      if (isRefund) {
-        return { gross, isRefund: true, need: false, splits: [], marcusShare: 0 };
-      }
-
       const need = formSplit !== '100_me' && document.getElementById('chkNeed').checked;
       const splits = [];
       let marcusShare = 0;
@@ -1418,21 +1423,31 @@ function forceSyncSheet() {
           }
         });
       }
-      return { gross, isRefund: false, need, splits, marcusShare };
+      return { gross, isRefund, need, splits, marcusShare };
     }
 
     function updateSplitSummary() {
       const { gross, isRefund, splits, marcusShare } = buildSplitData();
-      if (isRefund) {
-        document.getElementById('cleanSplitPill').innerHTML = `Money in / refund • <strong class="text-emerald-500">+${fmtGBP(gross)}</strong>`;
-        return;
-      }
       if (formSplit === '100_me') {
-        document.getElementById('cleanSplitPill').innerHTML = `Personal spend • <strong>${fmtGBP(gross)}</strong>`;
+        document.getElementById('cleanSplitPill').innerHTML = isRefund
+          ? `Money in / refund • <strong class="text-emerald-500">+${fmtGBP(gross)}</strong>`
+          : `Personal spend • <strong>${fmtGBP(gross)}</strong>`;
         return;
       }
       const others = splits.reduce((a, b) => a + b.amount, 0) + marcusShare;
       const myNet = +(gross - others).toFixed(2);
+      if (isRefund) {
+        const parts = [`You keep: <strong class="text-emerald-500">+${fmtGBP(Math.max(0, myNet))}</strong>`];
+        if (splits.length === 1) {
+          parts.push(`Pay ${splits[0].person}: <strong class="text-rose-500">-${fmtGBP(splits[0].amount)}</strong>`);
+        } else if (splits.length > 1) {
+          const spSum = splits.reduce((a, b) => a + b.amount, 0);
+          parts.push(`Pay ${splits.length} people: <strong class="text-rose-500">-${fmtGBP(spSum)}</strong>`);
+        }
+        if (marcusShare > 0) parts.push(`To Marcus: <strong class="text-rose-500">-${fmtGBP(marcusShare)}</strong>`);
+        document.getElementById('cleanSplitPill').innerHTML = parts.join(' • ');
+        return;
+      }
       const parts = [`You pay: <strong>${fmtGBP(Math.max(0, myNet))}</strong>`];
       if (splits.length === 1) {
         parts.push(`${splits[0].person}: <strong>${fmtGBP(splits[0].amount)}</strong>`);
@@ -1451,6 +1466,7 @@ function forceSyncSheet() {
 
       const now = Date.now();
       const primarySigned = isRefund ? gross : -gross;
+      const splitSign = isRefund ? -1 : 1;
       recordLocalTimestamp(formAcct, merchant, primarySigned);
 
       if (formAcct === 'amex') { state.amex.unshift({ row: 99, acct: 'amex', desc: merchant, amount: primarySigned, clientTs: now, relOrder: 0 }); state.summary.amex += primarySigned; }
@@ -1458,22 +1474,24 @@ function forceSyncSheet() {
       if (formAcct === 'checking') { state.checking.unshift({ row: 99, acct: 'checking', desc: merchant, amount: primarySigned, need: false, clientTs: now, relOrder: 0 }); state.summary.nCA += primarySigned; }
       if (formAcct === 'marcus') { state.marcus.unshift({ row: 99, acct: 'marcus', desc: merchant, amount: primarySigned, clientTs: now, relOrder: 0 }); state.summary.mSAV += primarySigned; }
 
-      if (!isRefund) {
-        if (marcusShare > 0) {
-          recordLocalTimestamp('marcus', merchant, -marcusShare);
-          recordLocalTimestamp('checking', 'savings ' + merchant, marcusShare);
-          state.marcus.unshift({ row: 100, acct: 'marcus', desc: merchant, amount: -marcusShare, clientTs: now, relOrder: 0 });
-          state.summary.mSAV -= marcusShare;
-          state.checking.unshift({ row: 101, acct: 'checking', desc: 'savings ' + merchant, amount: marcusShare, need, clientTs: now, relOrder: 0 });
-          state.summary.nCA += marcusShare;
-        }
-        splits.forEach((s, i) => {
-          const spDesc = `${s.person} ${merchant}`;
-          recordLocalTimestamp('checking', spDesc, s.amount);
-          state.checking.unshift({ row: 102 + i, acct: 'checking', desc: spDesc, amount: s.amount, need: s.need, clientTs: now, relOrder: 0 });
-          state.summary.nCA += s.amount;
-        });
+      if (marcusShare > 0) {
+        const mAmt = -splitSign * marcusShare;
+        const cAmt = splitSign * marcusShare;
+        recordLocalTimestamp('marcus', merchant, mAmt);
+        recordLocalTimestamp('checking', 'savings ' + merchant, cAmt);
+        state.marcus.unshift({ row: 100, acct: 'marcus', desc: merchant, amount: mAmt, clientTs: now, relOrder: 0 });
+        state.summary.mSAV += mAmt;
+        state.checking.unshift({ row: 101, acct: 'checking', desc: 'savings ' + merchant, amount: cAmt, need, clientTs: now, relOrder: 0 });
+        state.summary.nCA += cAmt;
       }
+
+      splits.forEach((s, i) => {
+        const spDesc = `${s.person} ${merchant}`;
+        const signedSplitAmt = +(splitSign * Math.abs(s.amount)).toFixed(2);
+        recordLocalTimestamp('checking', spDesc, signedSplitAmt);
+        state.checking.unshift({ row: 102 + i, acct: 'checking', desc: spDesc, amount: signedSplitAmt, need: s.need, clientTs: now, relOrder: 0 });
+        state.summary.nCA += signedSplitAmt;
+      });
 
       closeAddModal();
       document.getElementById('inpMerchant').value = '';
@@ -1490,9 +1508,8 @@ function forceSyncSheet() {
         splits,
         marcusShare,
         markNeed: need
-      }).then(applyServerState).catch(console.error);
+      }).then(applyServerState).catch(err => console.error('Add transaction error:', err));
     }
-
     // ================= EDIT OR MOVE TRANSACTION MODAL =================
     function setEditTxSign(sign) {
       editTxSign = sign < 0 ? -1 : 1;
