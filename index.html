@@ -549,6 +549,10 @@
           <div class="flex justify-between"><span>Marcus:</span><strong id="roMarcus" class="font-mono">£3,788.43</strong></div>
           <div class="flex justify-between"><span>Amex:</span><strong id="roAmex" class="font-mono text-slate-900 dark:text-white">-£1,200.39</strong></div>
           <div class="flex justify-between"><span>Barclays:</span><strong id="roBarclays" class="font-mono text-slate-900 dark:text-white">-£3,721.57</strong></div>
+          <div class="flex justify-between pt-1 mt-1 border-t border-slate-200/70 dark:border-slate-700/70 text-sky-500">
+            <span>To Settle Carrying Over:</span>
+            <strong id="roSettle" class="font-mono">7 items (+£129.68)</strong>
+          </div>
         </div>
 
         <!-- Explicit Checklist of Which Bills & Events Roll Over -->
@@ -1621,6 +1625,17 @@ function forceSyncSheet() {
       document.getElementById('roMarcus').textContent = fmtGBP(s.mSAV);
       document.getElementById('roAmex').textContent = fmtGBP(s.amex);
       document.getElementById('roBarclays').textContent = fmtGBP(s.barclays);
+
+      // Calculate unsettled ("To Settle") items carrying over
+      const pendingItems = (state.checking || []).filter(r => r.need);
+      const pendingSum = +pendingItems.reduce((acc, r) => acc + Number(r.amount || 0), 0).toFixed(2);
+      const signPrefix = pendingSum > 0 ? '+' : (pendingSum < 0 ? '-' : '');
+      const settleEl = document.getElementById('roSettle');
+      if (settleEl) {
+        settleEl.textContent = pendingItems.length
+          ? `${pendingItems.length} item${pendingItems.length === 1 ? '' : 's'} (${signPrefix}${fmtGBP(Math.abs(pendingSum))})`
+          : 'None ✨';
+      }
 
       // Render interactive checklist of bills/events to pull into the new month
       const listEl = document.getElementById('roBudgetChecklist');
