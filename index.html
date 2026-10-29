@@ -776,7 +776,7 @@ function initGoogleAuthButton() {
       }
     };
 
-    let activeMonth = localStorage.getItem('pf_last_month') || 'October Payday 2026';
+    let activeMonth = localStorage.getItem('pf_last_month') || '';
     let state = JSON.parse(JSON.stringify(MOCK_DB['October Payday 2026']));
     let skippedBudgetRows = new Set();
     let budFilter = 'all';
