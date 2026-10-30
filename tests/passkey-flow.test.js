@@ -101,7 +101,7 @@ test('login: happy path returns a session that works for reads AND writes, witho
   const env = fresh(); const a = enrolled(env);
   const r = login(env, a); assert.strictEqual(r.finish.ok, true, JSON.stringify(r.finish));
   const s = r.finish.data.session; assert.ok(s && s.includes('.'));
-  assert.ok(r.finish.data.expiresAt > Date.now() + 11 * 3600 * 1000 && r.finish.data.expiresAt < Date.now() + 13 * 3600 * 1000, 'session should last about 12 hours');
+  assert.ok(r.finish.data.expiresAt > Date.now() + 0.9 * 3600 * 1000 && r.finish.data.expiresAt < Date.now() + 1.1 * 3600 * 1000, 'session should last about 1 hour');
   assert.strictEqual(call(env, 'getCachedSheetState', { sheetName: 'Real Month', forceRefresh: true }, { session: s }).ok, true);
   assert.strictEqual(call(env, 'deleteBudgetItem', { sheetName: 'Real Month', row: 5 }, { session: s }).ok, true);
   assert.ok(env.writes.count > 0);
@@ -174,10 +174,10 @@ test('throttle: a success resets the failure count', () => {
 });
 
 // ================= sessions =================
-test('session: expires after 12 hours', () => {
+test('session: expires after 1 hour', () => {
   const env = fresh(); const a = enrolled(env); const s = login(env, a).finish.data.session;
-  env.clock.offsetMs += 11.5 * 3600 * 1000; assert.strictEqual(call(env, 'getCachedSheetState', { sheetName: 'Real Month' }, { session: s }).ok, true);
-  env.clock.offsetMs += 1 * 3600 * 1000;
+  env.clock.offsetMs += 0.9 * 3600 * 1000; assert.strictEqual(call(env, 'getCachedSheetState', { sheetName: 'Real Month' }, { session: s }).ok, true);
+  env.clock.offsetMs += 0.2 * 3600 * 1000;
   const r = call(env, 'getCachedSheetState', { sheetName: 'Real Month' }, { session: s });
   assert.strictEqual(r.ok, false); assert.strictEqual(r.authError, true);
 });

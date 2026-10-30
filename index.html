@@ -442,7 +442,7 @@
         <div class="text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">Devices with fingerprint sign-in</div>
         <div id="pkDevices" class="divide-y divide-slate-100 dark:divide-slate-800/70"></div>
       </div>
-      <p class="text-[11px] text-slate-500 dark:text-slate-400">Your fingerprint never leaves your device. Signing in this way lasts 12 hours, and Google sign-in always still works. Adding a device needs a fresh Google sign-in.</p>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400">Your fingerprint never leaves your device. Signing in this way lasts 1 hour, and Google sign-in always still works. Adding a device needs a fresh Google sign-in.</p>
     </div>
   </div>
 
@@ -856,7 +856,7 @@ function initGoogleAuthButton() {
 // ================= FINGERPRINT (PASSKEY) SIGN-IN =================
 // Your device keeps a private key behind its fingerprint / face / screen lock. To unlock, the server sends a
 // random challenge, the device signs it after you verify yourself, and the server (which only holds the public
-// key) swaps the signature for a 12-hour session. Google sign-in stays as the fallback and is needed to add a device.
+// key) swaps the signature for a 1-hour session. Google sign-in stays as the fallback and is needed to add a device.
 function b64uToBytes(s) {
   s = String(s).replace(/-/g, '+').replace(/_/g, '/');
   while (s.length % 4) s += '=';
