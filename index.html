@@ -677,7 +677,17 @@ function initGoogleAuthButton() {
   google.accounts.id.prompt();
 }
 
-    async function apiCall(action, payload = {}) {
+    // Requests go to the server strictly one at a time. Apps Script can answer two quick requests out of
+    // order, and a late, older reply would otherwise overwrite newer screen state.
+    let apiQueue = Promise.resolve();
+    function apiCall(action, payload = {}) {
+      const run = () => apiCallNow(action, payload);
+      const p = apiQueue.then(run, run);
+      apiQueue = p.catch(() => {});
+      return p;
+    }
+
+    async function apiCallNow(action, payload = {}) {
       // Mode 1: Running inside Google Apps Script UAT iframe
       if (IS_GAS_ENV) {
         return new Promise((resolve, reject) => {
@@ -708,14 +718,24 @@ function initGoogleAuthButton() {
   }
 
   const idToken = localStorage.getItem(TOKEN_STORAGE_KEY);
-  const res = await fetch(APPS_SCRIPT_EXEC_URL, {
-    method: 'POST',
-    redirect: 'follow',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action, payload, idToken })
-  });
-
-  const rawText = await res.text();
+  // Give up after 45s so one stuck request can't block every request queued behind it.
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), 45000);
+  let rawText;
+  try {
+    const res = await fetch(APPS_SCRIPT_EXEC_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action, payload, idToken }),
+      signal: abort.signal
+    });
+    rawText = await res.text();
+  } catch (e) {
+    throw new Error(e && e.name === 'AbortError' ? 'The server took too long to respond.' : (e && e.message) || 'Network error');
+  } finally {
+    clearTimeout(timer);
+  }
   let json;
   try {
     json = JSON.parse(rawText);
@@ -824,9 +844,9 @@ function initGoogleAuthButton() {
       return false;
     }
 
-    function savePhoneCache(monthName, dataObj) {
+    function savePhoneCache(monthName, dataObj, remember = true) {
       try {
-        localStorage.setItem('pf_last_month', monthName);
+        if (remember) localStorage.setItem('pf_last_month', monthName);
         localStorage.setItem('pf_cache_' + monthName, JSON.stringify(dataObj));
       } catch (e) {}
     }
@@ -882,19 +902,40 @@ function initGoogleAuthButton() {
       if (secId) document.getElementById(secId).scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    // Escape text from the sheet before it goes into innerHTML.
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    // Click handlers pass only an account and row number; the text is looked up from state, so awkward
+    // characters in a description can never break the markup. Pending (unsaved) rows are skipped.
+    function openEditTxForRow(acct, row) {
+      const r = (state[acct] || []).find(x => x.row === row && !x.pending);
+      if (r) openEditTxModal(acct, r.row, r.desc, r.amount);
+    }
+    function openBudgetFormForRow(row) {
+      const b = state.budgets.find(x => x.row === row && !x.pending);
+      if (b) openBudgetForm(b.row, b.name, b.amount, b.isRecurring);
+    }
+
     function fmtGBP(val) {
       const n = Number(val || 0);
       return (n < 0 ? '-' : '') + '£' + Math.abs(n).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
+    // While a month switch is in flight, replies for any other month (e.g. a slow save started before the
+    // switch) are cached but not shown, so they can't flip the screen back.
+    let pendingSwitchTarget = null;
+
     function switchMonth(monthName) {
       activeMonth = monthName;
+      pendingSwitchTarget = monthName;
       skippedBudgetRows.clear();
       if (loadPhoneCache(monthName)) renderAll();
-      
+
       apiCall('getCachedSheetState', { sheetName: monthName, forceRefresh: false })
-        .then(applyServerState)
-        .catch(console.error);
+        .then(s => { pendingSwitchTarget = null; applyServerState(s); })
+        .catch(err => { pendingSwitchTarget = null; console.error(err); });
     }
 
     function forceSyncSheet() {
@@ -914,12 +955,16 @@ function initGoogleAuthButton() {
 
     function applyServerState(s) {
       if (!s) return;
+      if (pendingSwitchTarget && s.activeMonth !== pendingSwitchTarget) {
+        savePhoneCache(s.activeMonth, s, false);
+        return;
+      }
       activeMonth = s.activeMonth;
       state = s;
       savePhoneCache(activeMonth, s);
       const sel = document.getElementById('monthSelector');
       if (s.availableMonths && s.availableMonths.length) {
-        sel.innerHTML = s.availableMonths.map(m => `<option value="${m}" ${m === activeMonth ? 'selected' : ''}>${m}</option>`).join('');
+        sel.innerHTML = s.availableMonths.map(m => `<option value="${esc(m)}" ${m === activeMonth ? 'selected' : ''}>${esc(m)}</option>`).join('');
       }
       if (s.sheetUrl) document.getElementById('rawSheetBtn').href = s.sheetUrl;
       renderAll();
@@ -1037,11 +1082,11 @@ function initGoogleAuthButton() {
                       class="w-6 h-6 rounded-md shrink-0 ${b.isRecurring ? 'bg-indigo-500/10 text-indigo-400' : 'bg-amber-500/10 text-amber-400'} flex items-center justify-center text-[11px]">
                 ${isSkipped ? '🚫' : (b.isRecurring ? '🔄' : '🎉')}
               </button>
-              <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${b.name}</span>
+              <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${esc(b.name)}</span>
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
               <span class="font-mono font-bold whitespace-nowrap ${b.amount < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'}">${b.amount > 0 ? '+' : ''}${fmtGBP(b.amount)}</span>
-              ${b.pending ? '<span class="text-[11px] text-slate-400">saving…</span>' : `<button onclick="openBudgetForm(${b.row}, '${b.name.replace(/'/g, "\\'")}', ${b.amount}, ${b.isRecurring})"
+              ${b.pending ? '<span class="text-[11px] text-slate-400">saving…</span>' : `<button onclick="openBudgetFormForRow(${b.row})"
                       class="px-1.5 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-white">✎</button>
               <button onclick="markBudgetPaid(${b.row}, 0, ${b.amount}, ${b.isRecurring})"
                       class="px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap">
@@ -1055,7 +1100,7 @@ function initGoogleAuthButton() {
 
       document.getElementById('clearedBudgetsList').innerHTML = cleared.map(b => `
         <div class="py-1.5 flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-          <span class="truncate">${b.isRecurring ? '🔄' : '🎉'} ${b.name} ${b.originalBudget ? `<span class="font-mono text-[11px] text-slate-400">(${fmtGBP(b.originalBudget)})</span>` : ''}</span>
+          <span class="truncate">${b.isRecurring ? '🔄' : '🎉'} ${esc(b.name)} ${b.originalBudget ? `<span class="font-mono text-[11px] text-slate-400">(${fmtGBP(b.originalBudget)})</span>` : ''}</span>
           <div class="flex items-center gap-2 shrink-0">
             <button onclick="markBudgetPaid(${b.row}, ${b.originalBudget || -20}, ${b.originalBudget || -20}, ${b.isRecurring})"
                     class="text-[11px] text-emerald-500 hover:underline">Restore</button>
@@ -1115,7 +1160,7 @@ function initGoogleAuthButton() {
       savePhoneCache(activeMonth, state);
       renderAll();
 
-      if (typeof apiCall === 'function') {
+      {
         apiCall('saveBudgetItem', {
           sheetName: activeMonth,
           row: row || null,
@@ -1123,8 +1168,6 @@ function initGoogleAuthButton() {
           amount: signedAmt,
           isRecurring: budFormIsRecurring
         }).then(applyServerState).catch(err => handleSaveError('the bill', err));
-      } else if (typeof google !== 'undefined' && google.script && google.script.run) {
-        google.script.run.withSuccessHandler(applyServerState).saveBudgetItem(activeMonth, row || null, name, signedAmt, budFormIsRecurring);
       }
     }
 
@@ -1190,7 +1233,7 @@ function initGoogleAuthButton() {
           <div class="py-2 flex items-center justify-between gap-2 text-xs">
             <div class="flex items-center gap-2 min-w-0">
               ${isMarcus ? getBankLogo('marcus', 'w-6 h-6') : '<span class="w-6 h-6 rounded-md shrink-0 bg-sky-500/10 text-sky-400 flex items-center justify-center text-[11px]">👤</span>'}
-              <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${r.desc}</span>
+              <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${esc(r.desc)}</span>
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <span class="font-mono font-bold ${amtColor} whitespace-nowrap">${signPrefix}${fmtGBP(r.amount)}</span>
@@ -1211,7 +1254,7 @@ function initGoogleAuthButton() {
         const signPrefix = r.amount > 0 ? '+' : '';
         return `
           <div class="py-1.5 flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-            <span class="truncate">✓ ${r.desc}</span>
+            <span class="truncate">✓ ${esc(r.desc)}</span>
             <div class="flex items-center gap-2 shrink-0">
               <span class="font-mono ${amtColor} whitespace-nowrap">${signPrefix}${fmtGBP(r.amount)}</span>
               <button onclick="toggleSplitNeed(${r.row}, true)" class="text-[11px] text-slate-400 hover:underline">Undo</button>
@@ -1285,11 +1328,11 @@ function initGoogleAuthButton() {
 
       const filtered = list.filter(r => r.desc.toLowerCase().includes(q));
       document.getElementById('txListContainer').innerHTML = filtered.map(r => `
-        <div ${r.pending ? '' : `onclick="openEditTxModal('${r.acct}', ${r.row}, '${r.desc.replace(/'/g, "\\'")}', ${r.amount})"`}
+        <div ${r.pending ? '' : `onclick="openEditTxForRow('${r.acct}', ${r.row})"`}
              class="py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-xs transition ${r.pending ? 'opacity-60' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer'}">
           <div class="flex items-center gap-2.5 min-w-0">
             ${getBankLogo(r.acct, 'w-6 h-6')}
-            <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${r.desc}</span>
+            <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${esc(r.desc)}</span>
           </div>
           <div class="flex items-center gap-2 shrink-0">
             <span class="font-mono font-semibold whitespace-nowrap ${r.amount < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'}">${r.amount > 0 ? '+' : ''}${fmtGBP(r.amount)}</span>
@@ -1428,7 +1471,7 @@ function initGoogleAuthButton() {
 
       container.innerHTML = customSplitEntries.map((entry, idx) => `
         <div class="flex items-center gap-2">
-          <input type="text" value="${entry.person}" placeholder="Name (e.g. Will)" oninput="updatePersonRowName(${idx}, this.value)"
+          <input type="text" value="${esc(entry.person)}" placeholder="Name (e.g. Will)" oninput="updatePersonRowName(${idx}, this.value)"
                  class="w-32 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-900 dark:text-white capitalize" />
           <div class="relative flex-1">
             <span class="absolute left-2.5 top-1.5 text-slate-400 text-xs font-mono">£</span>
@@ -1479,7 +1522,7 @@ function initGoogleAuthButton() {
       if (isRefund) {
         const parts = [`You keep: <strong class="text-emerald-500">+${fmtGBP(Math.max(0, myNet))}</strong>`];
         if (splits.length === 1) {
-          parts.push(`Pay ${splits[0].person}: <strong class="text-rose-500">-${fmtGBP(splits[0].amount)}</strong>`);
+          parts.push(`Pay ${esc(splits[0].person)}:<strong class="text-rose-500">-${fmtGBP(splits[0].amount)}</strong>`);
         } else if (splits.length > 1) {
           const spSum = splits.reduce((a, b) => a + b.amount, 0);
           parts.push(`Pay ${splits.length} people: <strong class="text-rose-500">-${fmtGBP(spSum)}</strong>`);
@@ -1490,7 +1533,7 @@ function initGoogleAuthButton() {
       }
       const parts = [`You pay: <strong>${fmtGBP(Math.max(0, myNet))}</strong>`];
       if (splits.length === 1) {
-        parts.push(`${splits[0].person}: <strong>${fmtGBP(splits[0].amount)}</strong>`);
+        parts.push(`${esc(splits[0].person)}: <strong>${fmtGBP(splits[0].amount)}</strong>`);
       } else if (splits.length > 1) {
         const spSum = splits.reduce((a, b) => a + b.amount, 0);
         parts.push(`${splits.length} people owe: <strong>${fmtGBP(spSum)}</strong>`);
@@ -1700,7 +1743,7 @@ function initGoogleAuthButton() {
           <label class="py-1.5 flex items-center justify-between gap-2 cursor-pointer">
             <div class="flex items-center gap-2 min-w-0">
               <input type="checkbox" class="ro-bud-chk rounded text-emerald-500" value="${b.row}" ${b.isRecurring ? 'checked' : ''} onchange="updateRolloverCount()" />
-              <span class="truncate text-slate-700 dark:text-slate-200">${b.isRecurring ? '🔄' : '🎉'} ${b.name}</span>
+              <span class="truncate text-slate-700 dark:text-slate-200">${b.isRecurring ? '🔄' : '🎉'} ${esc(b.name)}</span>
             </div>
             <span class="font-mono text-[11px] text-slate-500 shrink-0">${fmtGBP(resetAmt)}</span>
           </label>
