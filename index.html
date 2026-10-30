@@ -22,7 +22,7 @@
       document.head.appendChild(s);
     }
   </script>
-  <link rel="stylesheet" href="tailwind.css?v=30aa9f80f5" onerror="loadTailwindCdn()">
+  <link rel="stylesheet" href="tailwind.css?v=00bb3d466e" onerror="loadTailwindCdn()">
   <!-- Fonts load without blocking the first paint; text uses the fallback font until Inter arrives. -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
@@ -30,13 +30,19 @@
     body { font-family: 'Inter', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
     .sidebar { background: #1E2631; color: #F8FAFC; }
     input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    /* Phone bottom bar acts as real views: Home shows everything, the other tabs show one section. */
+    @media (max-width: 1023px) {
+      body[data-view="budgets"] #heroSection, body[data-view="budgets"] #tilesSection, body[data-view="budgets"] #sec_pending, body[data-view="budgets"] #sec_activity,
+      body[data-view="pending"] #heroSection, body[data-view="pending"] #tilesSection, body[data-view="pending"] #sec_budgets, body[data-view="pending"] #sec_activity,
+      body[data-view="activity"] #heroSection, body[data-view="activity"] #tilesSection, body[data-view="activity"] #sec_budgets, body[data-view="activity"] #sec_pending { display: none; }
+    }
   </style>
 </head>
 <body class="bg-[#F4F7FA] dark:bg-[#0B0F19] text-slate-800 dark:text-slate-100 min-h-screen flex flex-col lg:flex-row pb-20 lg:pb-0">
 
   <div id="authLockScreen" style="display:flex; position:fixed; inset:0; z-index:99999; background:#0B0F19; color:#F8FAFC; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center; font-family:inherit;">
     <div style="background:#111827; border:1px solid #1E293B; border-radius:20px; padding:32px 24px; max-width:360px; width:100%; box-shadow:0 20px 50px rgba(0,0,0,0.5);">
-      <div style="width:52px; height:52px; border-radius:14px; background:rgba(16,185,129,0.15); color:#10B981; display:flex; align-items:center; justify-content:center; font-size:24px; margin:0 auto 16px;">🔒</div>
+      <div style="width:52px; height:52px; border-radius:14px; background:rgba(16,185,129,0.15); color:#10B981; display:flex; align-items:center; justify-content:center; font-size:24px; margin:0 auto 16px;"><span data-icon="lock" data-class="w-6 h-6"></span></div>
       <h2 style="margin:0 0 8px; font-size:20px; font-weight:700;">PaydayFlow Locked</h2>
       <p id="authLockMsg" style="margin:0 0 24px; font-size:13px; color:#94A3B8; line-height:1.5;">Sign in with your authorized Google account or Passkey to unlock your live ledger.</p>
       <div id="googleSignInBtn" style="display:flex; justify-content:center; min-height:44px;"></div>
@@ -63,29 +69,29 @@
 
       <nav class="space-y-1 text-sm">
         <button onclick="jumpToSection('top')" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl bg-slate-700/70 text-white font-medium">
-          <span>🏠</span> <span>Overview</span>
+          <span data-icon="home" data-class="w-4 h-4"></span> <span>Overview</span>
         </button>
         <button onclick="jumpToSection('budgets')" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800/60 font-medium">
-          <div class="flex items-center gap-3"><span>📅</span> <span>Bills &amp; Budgets</span></div>
+          <div class="flex items-center gap-3"><span data-icon="calendar" data-class="w-4 h-4"></span> <span>Bills &amp; Budgets</span></div>
           <span id="sideBadgeBudgets" class="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300">10</span>
         </button>
         <button onclick="jumpToSection('pending')" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800/60 font-medium">
-          <div class="flex items-center gap-3"><span>⏳</span> <span>To Settle</span></div>
+          <div class="flex items-center gap-3"><span data-icon="hourglass" data-class="w-4 h-4"></span> <span>To Settle</span></div>
           <span id="sideBadgePending" class="text-xs px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300">8</span>
         </button>
         <button onclick="jumpToSection('activity')" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800/60 font-medium">
-          <span>💳</span> <span>Activity</span>
+          <span data-icon="card" data-class="w-4 h-4"></span> <span>Activity</span>
         </button>
       </nav>
     </div>
 
     <div class="space-y-2 pt-4 border-t border-slate-700/70">
-      <button onclick="openNewMonthModal()" class="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium">
-        ＋ Start New Month
+      <button onclick="openNewMonthModal()" class="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium inline-flex items-center justify-center gap-1.5">
+        <span data-icon="calendar_plus" data-class="w-3.5 h-3.5"></span> Start New Month
       </button>
       <a id="rawSheetBtn" href="https://docs.google.com/spreadsheets/d/1lEbcQBdPMSt7QNHGBrShcZErU9ANffaQM4jWQQSfPWE/edit" target="_blank"
-         class="w-full py-2 px-3 rounded-xl bg-slate-800/50 hover:bg-slate-800 text-emerald-400 text-xs font-medium flex items-center justify-center gap-1">
-        <span>Open Sheet ↗</span>
+         class="w-full py-2 px-3 rounded-xl bg-slate-800/50 hover:bg-slate-800 text-emerald-400 text-xs font-medium flex items-center justify-center gap-1.5">
+        <span data-icon="sheet" data-class="w-3.5 h-3.5"></span><span>Open Sheet</span>
       </a>
     </div>
   </aside>
@@ -101,33 +107,52 @@
           <option value="October Payday 2026">October Payday 2026</option>
           <option value="September Payday 2026">September Payday 2026</option>
         </select>
-        <span class="pointer-events-none absolute right-2.5 text-slate-400 text-[10px]">▼</span>
+        <span class="pointer-events-none absolute right-2.5 text-slate-500 dark:text-slate-400 text-[10px]">▼</span>
       </div>
 
       <div class="flex items-center gap-1.5 shrink-0">
-        <button onclick="forceSyncSheet()" id="syncBtn" title="Sync latest from Google Sheet"
-                class="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-xs font-bold">
-          ↻
-        </button>
-        <button onclick="cycleTheme()" id="themeBtnMobile" title="Theme: Auto / Light / Dark"
-                class="px-2 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-1 text-[11px] font-semibold">
-          <span id="themeIconMobile">◐</span>
-          <span id="themeLabelMobile" class="text-[10px] text-slate-400">Auto</span>
-        </button>
-        <button onclick="openNewMonthModal()" class="text-xs font-semibold px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 whitespace-nowrap">
-          ＋ Month
+        <button onclick="forceSyncSheet()" id="syncBtn" title="Sync latest from Google Sheet" aria-label="Sync from Google Sheet"
+                class="w-10 h-10 lg:w-8 lg:h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
+          <span data-icon="refresh" data-class="w-4 h-4"></span>
         </button>
         <button onclick="openAddModal()" class="hidden lg:inline-flex text-xs font-semibold px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 whitespace-nowrap">
           ＋ Add
         </button>
+        <!-- Overflow menu (phone): theme, start new month, open sheet. Desktop has these in the sidebar. -->
+        <div class="relative lg:hidden">
+          <button onclick="toggleMenu(event)" id="menuBtn" aria-label="More options" aria-haspopup="true" aria-expanded="false"
+                  class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
+            <span data-icon="more" data-class="w-5 h-5"></span>
+          </button>
+          <div id="menuPanel" class="hidden absolute right-0 mt-2 w-60 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl py-1.5 z-40 text-sm">
+            <button onclick="cycleTheme()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+              <span id="themeMenuIcon"><span data-icon="contrast" data-class="w-4 h-4"></span></span>
+              <span class="flex-1">Theme</span>
+              <span id="themeMenuLabel" class="text-xs text-slate-500 dark:text-slate-400">Auto</span>
+            </button>
+            <button onclick="closeMenu(); openNewMonthModal()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+              <span data-icon="calendar_plus" data-class="w-4 h-4"></span>
+              <span class="flex-1">Start new month</span>
+            </button>
+            <a id="rawSheetMenuBtn" href="#" target="_blank" onclick="closeMenu()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+              <span data-icon="sheet" data-class="w-4 h-4"></span>
+              <span class="flex-1">Open Google Sheet</span>
+            </a>
+          </div>
+        </div>
       </div>
     </header>
 
     <!-- Page Canvas -->
     <main class="max-w-5xl mx-auto p-3.5 lg:p-6 space-y-3.5">
 
+      <!-- Sync status: shows when the figures were last confirmed against your sheet (tap to refresh) -->
+      <button id="syncStatus" onclick="forceSyncSheet()" class="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 -mb-1 px-1">
+        <span id="syncDot" class="w-1.5 h-1.5 rounded-full bg-slate-400"></span><span id="syncText">Showing saved data</span>
+      </button>
+
       <!-- 1. HERO BANNER AT VERY TOP: MONEY LEFT -->
-      <section class="rounded-2xl p-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm">
+      <section id="heroSection" class="rounded-2xl p-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm">
         <div class="flex items-center justify-between">
           <div>
             <div class="flex items-center gap-2">
@@ -152,10 +177,10 @@
       </section>
 
       <!-- 2. COMPACT 2x2 ACCOUNT BALANCES GRID WITH BANK LOGOS -->
-      <section class="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+      <section id="tilesSection" class="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
         <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 flex items-center justify-between">
           <div class="min-w-0">
-            <div class="text-[11px] font-medium text-slate-400">Amex</div>
+            <div class="text-[11px] font-medium text-slate-500 dark:text-slate-400">Amex</div>
             <div id="kpiAmex" class="text-base sm:text-lg font-bold text-slate-900 dark:text-white whitespace-nowrap">-£1,200.39</div>
           </div>
           <div id="logoCardAmex" class="shrink-0"></div>
@@ -163,7 +188,7 @@
 
         <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 flex items-center justify-between">
           <div class="min-w-0">
-            <div class="text-[11px] font-medium text-slate-400">Barclays</div>
+            <div class="text-[11px] font-medium text-slate-500 dark:text-slate-400">Barclays</div>
             <div id="kpiBarclays" class="text-base sm:text-lg font-bold text-slate-900 dark:text-white whitespace-nowrap">-£3,721.57</div>
           </div>
           <div id="logoCardBarclays" class="shrink-0"></div>
@@ -171,7 +196,7 @@
 
         <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 flex items-center justify-between">
           <div class="min-w-0">
-            <div class="text-[11px] font-medium text-slate-400">Nationwide</div>
+            <div class="text-[11px] font-medium text-slate-500 dark:text-slate-400">Nationwide</div>
             <div id="kpiNCA" class="text-base sm:text-lg font-bold text-slate-900 dark:text-white whitespace-nowrap">£5,823.55</div>
           </div>
           <div id="logoCardChecking" class="shrink-0"></div>
@@ -179,7 +204,7 @@
 
         <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 flex items-center justify-between">
           <div class="min-w-0">
-            <div class="text-[11px] font-medium text-slate-400">Marcus</div>
+            <div class="text-[11px] font-medium text-slate-500 dark:text-slate-400">Marcus</div>
             <div id="kpiMarcus" class="text-base sm:text-lg font-bold text-slate-900 dark:text-white whitespace-nowrap">£3,788.43</div>
           </div>
           <div id="logoCardMarcus" class="shrink-0"></div>
@@ -193,8 +218,8 @@
         <div id="sec_budgets" class="lg:col-span-6">
           <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
             <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('budgetsBody', 'chevBudgets')">
-              <div class="min-w-0 flex items-center gap-2">
-                <h2 class="text-sm font-bold text-slate-900 dark:text-white">Bills &amp; Budgets</h2>
+              <div class="min-w-0 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
+                <h2 class="text-sm font-bold text-slate-900 dark:text-white whitespace-nowrap">Bills &amp; Budgets</h2>
                 <span id="budLeftVal" class="text-xs font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">-£545.00 left</span>
               </div>
               <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation()">
@@ -209,9 +234,9 @@
 
             <div id="budgetsBody" class="px-4 pb-4 space-y-3 border-t border-slate-100 dark:border-slate-800/80 pt-3">
               <div class="space-y-1">
-                <div class="flex justify-between text-[11px] text-slate-400">
+                <div class="flex justify-between text-[11px] text-slate-500 dark:text-slate-400">
                   <span id="budClearedCount">15 of 25 paid</span>
-                  <span>🔄 = rolls to next month • 🎉 = one-off</span>
+                  <span class="inline-flex items-center gap-1"><span data-icon="repeat" data-class="w-3 h-3 text-indigo-400"></span> rolls to next month <span class="mx-0.5">·</span> <span data-icon="sparkle" data-class="w-3 h-3 text-amber-400"></span> one-off</span>
                 </div>
                 <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                   <div id="budProgressBar" class="bg-emerald-500 h-full rounded-full transition-all duration-300" style="width: 60%"></div>
@@ -222,27 +247,27 @@
               <div id="budgetFormBox" class="hidden bg-slate-50 dark:bg-slate-800/70 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2.5">
                 <div class="flex items-center justify-between text-xs font-semibold">
                   <span id="budFormTitle">Add Bill or Event</span>
-                  <button onclick="closeBudgetForm()" class="text-slate-400 font-bold">✕</button>
+                  <button onclick="closeBudgetForm()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 text-lg font-bold">✕</button>
                 </div>
                 <input type="hidden" id="editBudRow" value="" />
 
                 <!-- 1. Choose Type: Monthly Bill (rolls over) vs One-Off Event -->
                 <div class="grid grid-cols-2 gap-1.5 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-xl text-[11px] font-semibold">
                   <button type="button" onclick="setBudFormType(false)" id="btype_event" class="py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs">
-                    🎉 One-Off Event
+                    <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="sparkle" data-class="w-3.5 h-3.5"></span>One-Off Event</span>
                   </button>
                   <button type="button" onclick="setBudFormType(true)" id="btype_bill" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
-                    🔄 Monthly Bill (Rolls Over)
+                    <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="repeat" data-class="w-3.5 h-3.5"></span>Monthly Bill (Rolls Over)</span>
                   </button>
                 </div>
 
                 <!-- 2. Choose Sign: Expense (-) vs Carry-In (+) (No minus key needed!) -->
                 <div class="grid grid-cols-2 gap-1.5 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-xl text-[11px] font-semibold">
                   <button type="button" onclick="setBudFormSign(-1)" id="bsign_neg" class="py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs">
-                    💸 Money Out (-)
+                    <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="arrow-up-right" data-class="w-3.5 h-3.5"></span>Money Out (-)</span>
                   </button>
                   <button type="button" onclick="setBudFormSign(1)" id="bsign_pos" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
-                    💰 Money In / Carry (+)
+                    <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="arrow-down-left" data-class="w-3.5 h-3.5"></span>Money In / Carry (+)</span>
                   </button>
                 </div>
 
@@ -254,28 +279,33 @@
                          class="col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-xs font-mono font-semibold text-slate-900 dark:text-white" />
                 </div>
 
-                <button onclick="submitBudgetForm()" class="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold py-2 rounded-lg">
-                  Save to Budgets
-                </button>
+                <div class="flex gap-2">
+                  <button id="budDeleteBtn" onclick="deleteBudgetFromForm()" class="hidden px-3.5 py-2.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-bold inline-flex items-center gap-1.5">
+                    <span data-icon="trash" data-class="w-3.5 h-3.5"></span>Delete
+                  </button>
+                  <button onclick="submitBudgetForm()" class="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold py-2.5 rounded-lg">
+                    Save to Budgets
+                  </button>
+                </div>
               </div>
 
               <!-- Filter Chips -->
               <div class="flex gap-1.5 text-[11px] font-semibold">
                 <button onclick="setBudFilter('all')" id="bf_all" class="px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900">All Left</button>
-                <button onclick="setBudFilter('recurring')" id="bf_recurring" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">🔄 Monthly Bills</button>
-                <button onclick="setBudFilter('events')" id="bf_events" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">🎉 One-Off Events</button>
+                <button onclick="setBudFilter('recurring')" id="bf_recurring" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><span class="inline-flex items-center gap-1"><span data-icon="repeat" data-class="w-3 h-3"></span>Monthly Bills</span></button>
+                <button onclick="setBudFilter('events')" id="bf_events" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><span class="inline-flex items-center gap-1"><span data-icon="sparkle" data-class="w-3 h-3"></span>One-Off Events</span></button>
               </div>
 
               <!-- Active Unpaid Budgets -->
-              <div id="upcomingBudgetsList" class="divide-y divide-slate-100 dark:divide-slate-800/70 max-h-64 overflow-y-auto"></div>
+              <div id="upcomingBudgetsList" class="divide-y divide-slate-100 dark:divide-slate-800/70"></div>
 
               <!-- Internal Expansion: Already Paid / Zeroed Out -->
               <details class="pt-2 border-t border-slate-100 dark:border-slate-800 group">
                 <summary class="text-xs font-semibold text-slate-500 dark:text-slate-400 cursor-pointer flex items-center justify-between py-1 select-none">
                   <span>Already Paid / Zeroed (<span id="clearedBudCount">15</span>)</span>
-                  <span class="text-slate-400 group-open:rotate-180 transition text-[10px]">▼</span>
+                  <span class="text-slate-500 dark:text-slate-400 group-open:rotate-180 transition text-[10px]">▼</span>
                 </summary>
-                <div id="clearedBudgetsList" class="divide-y divide-slate-100 dark:divide-slate-800/60 mt-1.5 max-h-48 overflow-y-auto"></div>
+                <div id="clearedBudgetsList" class="divide-y divide-slate-100 dark:divide-slate-800/60 mt-1.5"></div>
               </details>
             </div>
           </div>
@@ -287,15 +317,16 @@
           <!-- SECTION B: TO SETTLE -->
           <div id="sec_pending" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
             <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('pendingBody', 'chevPending')">
-              <div class="flex items-center gap-2 min-w-0">
-                <h2 class="text-sm font-bold text-slate-900 dark:text-white">To Settle</h2>
+              <div class="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2 min-w-0">
+                <h2 class="text-sm font-bold text-slate-900 dark:text-white whitespace-nowrap">To Settle</h2>
                 <span class="text-xs font-mono font-semibold px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-500">
                   <span id="cntPending">8</span> • <span id="sumPending">£436.88</span>
                 </span>
               </div>
               <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation()">
                 <button id="btnSettleAll" onclick="handleSettleAll()" class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-sky-500/10 text-sky-500 whitespace-nowrap">
-                  ✓ Settle All
+                  <span class="inline-flex items-center gap-1">
+                    <span data-icon="check" data-class="w-3.5 h-3.5"></span>Settle All</span>
                 </button>
                 <button onclick="toggleSection('pendingBody', 'chevPending')" id="chevPending" class="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
                   ▾
@@ -313,8 +344,8 @@
                 </button>
               </div>
 
-              <div id="panel_pending" class="divide-y divide-slate-100 dark:divide-slate-800/70 max-h-60 overflow-y-auto"></div>
-              <div id="panel_settled" class="hidden divide-y divide-slate-100 dark:divide-slate-800/70 max-h-60 overflow-y-auto"></div>
+              <div id="panel_pending" class="divide-y divide-slate-100 dark:divide-slate-800/70"></div>
+              <div id="panel_settled" class="hidden divide-y divide-slate-100 dark:divide-slate-800/70"></div>
             </div>
           </div>
 
@@ -323,7 +354,7 @@
             <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('activityBody', 'chevActivity')">
               <div class="flex items-center gap-2">
                 <h2 class="text-sm font-bold text-slate-900 dark:text-white">Recent Activity</h2>
-                <span class="text-[11px] text-slate-400 font-medium">Tap any row to edit or move</span>
+                <span class="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Tap any row to edit or move</span>
               </div>
               <button onclick="event.stopPropagation(); toggleSection('activityBody', 'chevActivity')" id="chevActivity" class="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
                 ▾
@@ -342,7 +373,7 @@
               </div>
               <input id="txSearch" type="text" placeholder="Filter merchant..." oninput="renderTransactions()"
                      class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none" />
-              <div id="txListContainer" class="divide-y divide-slate-100 dark:divide-slate-800/70 max-h-64 overflow-y-auto"></div>
+              <div id="txListContainer" class="divide-y divide-slate-100 dark:divide-slate-800/70"></div>
             </div>
           </div>
 
@@ -352,21 +383,22 @@
   </div>
 
   <!-- MOBILE BOTTOM NAVIGATION BAR -->
-  <nav class="lg:hidden fixed bottom-0 inset-x-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 px-3 py-1.5 flex justify-around items-center z-30 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-    <button onclick="jumpToSection('top')" class="flex flex-col items-center gap-0.5 text-emerald-500 font-semibold py-1">
-      <span>🏠</span><span>Home</span>
+  <nav class="lg:hidden fixed bottom-0 inset-x-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 px-3 py-1.5 flex justify-around items-center z-30 text-[11px] font-medium text-slate-500 dark:text-slate-400"
+       style="padding-bottom: calc(0.375rem + env(safe-area-inset-bottom));">
+    <button onclick="setView('home')" data-nav="home" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1 text-emerald-500 font-semibold">
+      <span data-icon="home" data-class="w-5 h-5"></span><span>Home</span>
     </button>
-    <button onclick="jumpToSection('budgets')" class="flex flex-col items-center gap-0.5 py-1">
-      <span>📅</span><span>Budgets</span>
+    <button onclick="setView('budgets')" data-nav="budgets" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1">
+      <span data-icon="calendar" data-class="w-5 h-5"></span><span>Budgets</span>
     </button>
-    <button onclick="openAddModal()" class="w-11 h-11 -mt-4 rounded-full bg-emerald-500 text-slate-950 font-bold text-xl shadow-lg flex items-center justify-center">
-      ＋
+    <button onclick="openAddModal()" aria-label="Add transaction" class="w-12 h-12 -mt-5 rounded-full bg-emerald-500 text-slate-950 shadow-lg flex items-center justify-center">
+      <span data-icon="plus" data-class="w-6 h-6"></span>
     </button>
-    <button onclick="jumpToSection('pending')" class="flex flex-col items-center gap-0.5 py-1">
-      <span>⏳</span><span>Pending</span>
+    <button onclick="setView('pending')" data-nav="pending" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1">
+      <span data-icon="hourglass" data-class="w-5 h-5"></span><span>Pending</span>
     </button>
-    <button onclick="jumpToSection('activity')" class="flex flex-col items-center gap-0.5 py-1">
-      <span>💳</span><span>Activity</span>
+    <button onclick="setView('activity')" data-nav="activity" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1">
+      <span data-icon="card" data-class="w-5 h-5"></span><span>Activity</span>
     </button>
   </nav>
 
@@ -375,34 +407,34 @@
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 id="addModalTitle" class="text-sm font-bold text-slate-900 dark:text-white">Add Transaction</h3>
-        <button onclick="closeAddModal()" class="text-slate-400 hover:text-slate-600 text-base font-bold">✕</button>
+        <button onclick="closeAddModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
 
       <!-- Spend (-) vs Refund / Money In (+) Toggle -->
       <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
         <button type="button" onclick="setTxDirection('spend')" id="dir_spend" class="py-2 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">
-          💸 Spend (-)
+          <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="arrow-up-right" data-class="w-3.5 h-3.5"></span>Spend (-)</span>
         </button>
         <button type="button" onclick="setTxDirection('refund')" id="dir_refund" class="py-2 rounded-lg text-slate-500 dark:text-slate-400">
-          💰 Refund / Money In (+)
+          <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="arrow-down-left" data-class="w-3.5 h-3.5"></span>Refund / Money In (+)</span>
         </button>
       </div>
 
       <div class="grid grid-cols-12 gap-2.5">
         <div class="col-span-7">
-          <label class="text-[11px] font-medium text-slate-400 block mb-1">Where / Description</label>
+          <label class="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">Where / Description</label>
           <input id="inpMerchant" type="text" placeholder="e.g. Waitrose, YouTube"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
         </div>
         <div class="col-span-5">
-          <label class="text-[11px] font-medium text-slate-400 block mb-1">Amount (£)</label>
+          <label class="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
           <input id="inpAmount" type="number" step="0.01" inputmode="decimal" placeholder="0.00" oninput="onGrossAmountInput()"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
         </div>
       </div>
 
       <div>
-        <label id="lblPaidWith" class="text-[11px] font-medium text-slate-400 block mb-1">Card / Account</label>
+        <label id="lblPaidWith" class="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">Card / Account</label>
         <div class="grid grid-cols-4 gap-1.5 text-xs font-semibold">
           <button type="button" onclick="selectAcct('amex')" id="acct_amex" class="py-2 rounded-xl bg-emerald-500 text-slate-950">Amex</button>
           <button type="button" onclick="selectAcct('barclays')" id="acct_barclays" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
@@ -414,7 +446,7 @@
       <!-- Split Section (Hidden when logging a Refund / Money In) -->
       <div id="splitSectionWrap" class="space-y-3">
         <div>
-          <label class="text-[11px] font-medium text-slate-400 block mb-1">Who's Paying?</label>
+          <label class="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">Who's Paying?</label>
           <div class="flex flex-wrap gap-1.5 text-xs font-semibold">
             <button type="button" onclick="selectSplit('100_me')" id="sp_100_me" class="px-2.5 py-1.5 rounded-xl bg-emerald-500 text-slate-950">Just Me</button>
             <button type="button" onclick="selectSplit('50_amanda')" id="sp_50_amanda" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Half w/ Amanda</button>
@@ -445,7 +477,7 @@
           </div>
 
           <!-- Equal Split Option: Include Me -->
-          <div class="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+          <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-0.5">
             <label class="flex items-center gap-1.5 cursor-pointer">
               <input id="chkEqualIncludeMe" type="checkbox" checked onchange="if(autoEqualActive) applyEqualGroupSplit()" class="rounded text-emerald-500" />
               <span>Include me when splitting equally</span>
@@ -478,9 +510,9 @@
       <div class="flex items-center justify-between">
         <div>
           <h3 class="text-sm font-bold text-slate-900 dark:text-white">Edit or Move Transaction</h3>
-          <p class="text-[11px] text-slate-400">Change card, amount, or flip between spend &amp; credit</p>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400">Change card, amount, or flip between spend &amp; credit</p>
         </div>
-        <button onclick="closeEditTxModal()" class="text-slate-400 hover:text-slate-600 text-base font-bold">✕</button>
+        <button onclick="closeEditTxModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
 
       <input type="hidden" id="editTxRow" />
@@ -489,28 +521,28 @@
       <!-- Sign Toggle for Edit Modal -->
       <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
         <button type="button" onclick="setEditTxSign(-1)" id="etsign_neg" class="py-1.5 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">
-          ➖ Spend / Out (-)
+          <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="minus" data-class="w-3.5 h-3.5"></span>Spend / Out (-)</span>
         </button>
         <button type="button" onclick="setEditTxSign(1)" id="etsign_pos" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
-          ➕ Credit / In (+)
+          <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="plus" data-class="w-3.5 h-3.5"></span>Credit / In (+)</span>
         </button>
       </div>
 
       <div class="grid grid-cols-12 gap-2.5">
         <div class="col-span-7">
-          <label class="text-[11px] font-medium text-slate-400 block mb-1">Where / Description</label>
+          <label class="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">Where / Description</label>
           <input id="editTxDesc" type="text"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
         </div>
         <div class="col-span-5">
-          <label class="text-[11px] font-medium text-slate-400 block mb-1">Amount (£)</label>
+          <label class="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
           <input id="editTxAmt" type="number" step="0.01" inputmode="decimal"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
         </div>
       </div>
 
       <div>
-        <label class="text-[11px] font-medium text-slate-400 block mb-1">Card / Account</label>
+        <label class="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">Card / Account</label>
         <div class="grid grid-cols-4 gap-1.5 text-xs font-semibold">
           <button type="button" onclick="selectEditTxAcct('amex')" id="etx_amex" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Amex</button>
           <button type="button" onclick="selectEditTxAcct('barclays')" id="etx_barclays" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
@@ -521,7 +553,7 @@
 
       <div class="flex gap-2 pt-1">
         <button type="button" onclick="deleteCurrentTx()" class="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 font-bold text-xs transition">
-          🗑 Delete
+          <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="trash" data-class="w-3.5 h-3.5"></span>Delete</span>
         </button>
         <button type="button" onclick="saveEditedTx()" class="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
           Save Changes
@@ -535,31 +567,31 @@
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-bold text-slate-900 dark:text-white">Start New Month</h3>
-        <button onclick="closeNewMonthModal()" class="text-slate-400 hover:text-slate-600 text-base font-bold">✕</button>
+        <button onclick="closeNewMonthModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
 
       <div class="space-y-3 text-xs">
         <div>
-          <label class="font-medium text-slate-400 block mb-1">New Month Name</label>
+          <label class="font-medium text-slate-500 dark:text-slate-400 block mb-1">New Month Name</label>
           <input id="nmName" type="text" value="November Payday 2026"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-semibold text-slate-900 dark:text-white" />
         </div>
 
         <div class="grid grid-cols-2 gap-2.5">
           <div>
-            <label class="font-medium text-slate-400 block mb-1">My Pay (£)</label>
+            <label class="font-medium text-slate-500 dark:text-slate-400 block mb-1">My Pay (£)</label>
             <input id="nmPaycheck" type="number" step="0.01" inputmode="decimal" value="2921.03"
                    class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-mono font-semibold text-emerald-500" />
           </div>
           <div>
-            <label class="font-medium text-slate-400 block mb-1">Moving to Marcus (£)</label>
+            <label class="font-medium text-slate-500 dark:text-slate-400 block mb-1">Moving to Marcus (£)</label>
             <input id="nmSavings" type="number" step="1" inputmode="decimal" value="300" placeholder="0"
                    class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-mono font-semibold text-amber-400" />
           </div>
         </div>
 
         <div class="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-1">
-          <div class="font-semibold text-slate-400 mb-1">Balances Rolling Over:</div>
+          <div class="font-semibold text-slate-500 dark:text-slate-400 mb-1">Balances Rolling Over:</div>
           <div class="flex justify-between"><span>Nationwide:</span><strong id="roNCA" class="font-mono">£5,823.55</strong></div>
           <div class="flex justify-between"><span>Marcus:</span><strong id="roMarcus" class="font-mono">£3,788.43</strong></div>
           <div class="flex justify-between"><span>Amex:</span><strong id="roAmex" class="font-mono text-slate-900 dark:text-white">-£1,200.39</strong></div>
@@ -574,9 +606,9 @@
         <details class="bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700 group" open>
           <summary class="font-semibold text-slate-700 dark:text-slate-200 cursor-pointer flex items-center justify-between select-none">
             <span>Bills Pulling Into New Month (<span id="roBudCount">18</span> selected)</span>
-            <span class="text-[10px] text-slate-400 group-open:rotate-180 transition">▼</span>
+            <span class="text-[10px] text-slate-500 dark:text-slate-400 group-open:rotate-180 transition">▼</span>
           </summary>
-          <p class="text-[11px] text-slate-400 mt-1">🔄 Monthly Bills are ticked by default; 🎉 One-Off Events are unticked.</p>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 inline-flex items-center gap-1 flex-wrap"><span data-icon="repeat" data-class="w-3 h-3 text-indigo-400"></span> Monthly Bills are ticked by default; <span data-icon="sparkle" data-class="w-3 h-3 text-amber-400"></span> One-Off Events are unticked.</p>
           <div id="roBudgetChecklist" class="mt-2 space-y-1.5 max-h-40 overflow-y-auto divide-y divide-slate-200/50 dark:divide-slate-700/50"></div>
         </details>
       </div>
@@ -595,6 +627,46 @@
     const ALLOWED_EMAIL = 'jonfhoag@gmail.com';
 const IS_GAS_ENV = (typeof google !== 'undefined' && google.script && google.script.run);
 const TOKEN_STORAGE_KEY = 'pf_google_id_token';
+
+// ---- Line icons (replace emoji, which look different on every device) ----
+const ICON_PATHS = {
+  home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  hourglass: '<path d="M6 3h12M6 21h12"/><path d="M7 3c0 5 5 5 5 9s-5 4-5 9"/><path d="M17 3c0 5-5 5-5 9s5 4 5 9"/>',
+  card: '<rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19M6.5 15h3"/>',
+  repeat: '<path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>',
+  sparkle: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17v4M17 19h4"/>',
+  'arrow-up-right': '<path d="M7 17 17 7M8 7h9v9"/>',
+  'arrow-down-left': '<path d="M17 7 7 17M16 17H7V8"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  skip: '<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>',
+  more: '<circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/>',
+  contrast: '<circle cx="12" cy="12" r="9"/><path d="M12 3v18a9 9 0 0 0 0-18z" fill="currentColor"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  minus: '<path d="M5 12h14"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  sheet: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 3v18"/>',
+  calendar_plus: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M12 13v5M9.5 15.5h5"/>',
+  pencil: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+  check: '<path d="M5 12.5 10 17.5 19 7"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+  chevron_down: '<path d="m6 9 6 6 6-6"/>',
+  chevron_up: '<path d="m6 15 6-6 6 6"/>'
+};
+function icon(name, cls) {
+  return '<svg class="' + (cls || 'w-4 h-4') + ' shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICON_PATHS[name] || '') + '</svg>';
+}
+// Static markup marks icon slots as <span data-icon="home" data-class="w-4 h-4"></span>; swap them for SVGs.
+function hydrateIcons(root) {
+  (root || document).querySelectorAll('[data-icon]').forEach(el => {
+    el.insertAdjacentHTML('afterend', icon(el.getAttribute('data-icon'), el.getAttribute('data-class')));
+    el.remove();
+  });
+}
 
 function parseJwtPayload(token) {
   try {
@@ -697,8 +769,14 @@ function initGoogleAuthButton() {
     let apiQueue = Promise.resolve();
     function apiCall(action, payload = {}) {
       const run = () => apiCallNow(action, payload);
+      apiInflight++;
+      updateSyncUi();
       const p = apiQueue.then(run, run);
       apiQueue = p.catch(() => {});
+      // Track sync health for the status line (a missing sign-in is handled by the lock screen instead).
+      p.then(() => { lastSyncFailed = false; lastSyncAt = Date.now(); },
+             err => { if (!(err && err.message === 'Authentication required')) lastSyncFailed = true; })
+       .then(() => { apiInflight--; updateSyncUi(); });
       return p;
     }
 
@@ -873,14 +951,54 @@ function initGoogleAuthButton() {
       const isDark = pref === 'auto' ? osDarkQuery.matches : (pref === 'dark');
       document.documentElement.classList.toggle('dark', isDark);
 
-      const icon = pref === 'auto' ? '◐' : (isDark ? '🌙' : '☀️');
+      const iconName = pref === 'auto' ? 'contrast' : (isDark ? 'moon' : 'sun');
       const label = pref === 'auto' ? 'Auto' : (isDark ? 'Dark' : 'Light');
       const d = document.getElementById('themeBtnDesktop');
-      const mIcon = document.getElementById('themeIconMobile');
-      const mLbl = document.getElementById('themeLabelMobile');
-      if (d) d.textContent = icon;
-      if (mIcon) mIcon.textContent = icon;
+      const mIcon = document.getElementById('themeMenuIcon');
+      const mLbl = document.getElementById('themeMenuLabel');
+      if (d) d.innerHTML = icon(iconName, 'w-4 h-4');
+      if (mIcon) mIcon.innerHTML = icon(iconName, 'w-4 h-4');
       if (mLbl) mLbl.textContent = label;
+    }
+
+    // ---- Overflow menu (phone header) ----
+    function toggleMenu(e) {
+      e.stopPropagation();
+      const panel = document.getElementById('menuPanel');
+      const open = !panel.classList.toggle('hidden');
+      document.getElementById('menuBtn').setAttribute('aria-expanded', String(open));
+    }
+    function closeMenu() {
+      const panel = document.getElementById('menuPanel');
+      if (panel) panel.classList.add('hidden');
+      const btn = document.getElementById('menuBtn');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
+    document.addEventListener('click', e => { if (!e.target.closest('#menuPanel')) closeMenu(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+
+    // ---- Phone views: the bottom bar switches between Home (everything) and one focused section ----
+    function setView(v) {
+      document.body.dataset.view = v;
+      document.querySelectorAll('[data-nav]').forEach(b => {
+        const on = b.dataset.nav === v;
+        b.classList.toggle('text-emerald-500', on);
+        b.classList.toggle('font-semibold', on);
+      });
+      const bodies = { budgets: ['budgetsBody', 'chevBudgets'], pending: ['pendingBody', 'chevPending'], activity: ['activityBody', 'chevActivity'] };
+      if (bodies[v] && document.getElementById(bodies[v][0]).classList.contains('hidden')) toggleSection(bodies[v][0], bodies[v][1]);
+      window.scrollTo({ top: 0 });
+    }
+
+    // ---- Long lists show a few rows with a "Show all" toggle instead of scrolling inside the page ----
+    const BILLS_PREVIEW = 6, TX_PREVIEW = 8, SETTLED_PREVIEW = 5;
+    const showAll = { bills: false, tx: false, settled: false };
+    function toggleShowAll(key) { showAll[key] = !showAll[key]; renderAll(); }
+    function showMoreBtn(key, total, limit) {
+      if (total <= limit) return '';
+      return `<button onclick="toggleShowAll('${key}')" class="w-full h-11 text-xs font-semibold text-emerald-600 dark:text-emerald-400 inline-flex items-center justify-center gap-1">
+        ${showAll[key] ? 'Show fewer ' + icon('chevron_up', 'w-3.5 h-3.5') : 'Show all ' + total + ' ' + icon('chevron_down', 'w-3.5 h-3.5')}
+      </button>`;
     }
 
     function cycleTheme() {
@@ -954,18 +1072,9 @@ function initGoogleAuthButton() {
     }
 
     function forceSyncSheet() {
-      const btn = document.getElementById('syncBtn');
-      if (btn) btn.classList.add('animate-spin');
-      
       apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
-        .then(s => {
-          if (btn) btn.classList.remove('animate-spin');
-          applyServerState(s);
-        })
-        .catch(err => {
-          if (btn) btn.classList.remove('animate-spin');
-          console.error(err);
-        });
+        .then(applyServerState)
+        .catch(err => console.error(err));
     }
 
     function applyServerState(s) {
@@ -981,19 +1090,62 @@ function initGoogleAuthButton() {
       if (s.availableMonths && s.availableMonths.length) {
         sel.innerHTML = s.availableMonths.map(m => `<option value="${esc(m)}" ${m === activeMonth ? 'selected' : ''}>${esc(m)}</option>`).join('');
       }
-      if (s.sheetUrl) document.getElementById('rawSheetBtn').href = s.sheetUrl;
+      if (s.sheetUrl) {
+        document.getElementById('rawSheetBtn').href = s.sheetUrl;
+        const menuLink = document.getElementById('rawSheetMenuBtn');
+        if (menuLink) menuLink.href = s.sheetUrl;
+      }
       renderAll();
     }
 
+    // For a save that targets a specific month: if you've since moved to another month, keep the reply in the
+    // cache but leave the screen on the month you're viewing.
+    function applyStateIfViewing(month) {
+      return s => {
+        if (s && month !== activeMonth && s.activeMonth !== activeMonth) savePhoneCache(s.activeMonth, s, false);
+        else applyServerState(s);
+      };
+    }
+
+    // opts: { kind: 'info' | 'error' (default), actionLabel, onAction, duration }
     let toastTimer = null;
-    function showToast(msg) {
+    function showToast(msg, opts = {}) {
       const el = document.getElementById('toast');
       if (!el) return;
-      el.textContent = msg;
-      el.classList.remove('hidden');
+      el.className = 'fixed left-1/2 -translate-x-1/2 bottom-24 lg:bottom-6 z-[100000] max-w-sm w-[90%] px-4 py-2.5 rounded-xl text-white text-xs font-medium shadow-lg flex items-center justify-between gap-3 '
+        + (opts.kind === 'info' ? 'bg-slate-800 border border-slate-600' : 'bg-rose-600');
+      el.innerHTML = '<span class="flex-1 text-left"></span>'
+        + (opts.actionLabel ? '<button id="toastAction" class="font-bold text-emerald-300 px-2.5 h-9 -my-1.5 -mr-2 rounded-lg inline-flex items-center gap-1">' + icon('undo', 'w-3.5 h-3.5') + esc(opts.actionLabel) + '</button>' : '');
+      el.firstChild.textContent = msg;
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => el.classList.add('hidden'), 6000);
+      if (opts.actionLabel) {
+        document.getElementById('toastAction').onclick = () => { clearTimeout(toastTimer); el.classList.add('hidden'); opts.onAction(); };
+      }
+      toastTimer = setTimeout(() => el.classList.add('hidden'), opts.duration || 6000);
     }
+
+    // ---- Sync status line: "Synced 2 min ago" / "Syncing…" / "Couldn't sync" ----
+    let apiInflight = 0, lastSyncAt = null, lastSyncFailed = false;
+    function relTime(t) {
+      const s = Math.floor((Date.now() - t) / 1000);
+      if (s < 45) return 'just now';
+      if (s < 3600) return Math.round(s / 60) + ' min ago';
+      return 'at ' + new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    }
+    function updateSyncUi() {
+      const dot = document.getElementById('syncDot'), txt = document.getElementById('syncText');
+      if (!dot || !txt) return;
+      let text, dotCls;
+      if (apiInflight > 0) { text = 'Syncing…'; dotCls = 'bg-amber-400 animate-pulse'; }
+      else if (lastSyncFailed) { text = "Couldn't sync - showing saved data"; dotCls = 'bg-rose-500'; }
+      else if (lastSyncAt) { text = 'Synced ' + relTime(lastSyncAt); dotCls = 'bg-emerald-500'; }
+      else { text = 'Showing saved data'; dotCls = 'bg-slate-400'; }
+      txt.textContent = text;
+      dot.className = 'w-1.5 h-1.5 rounded-full ' + dotCls;
+      const spin = document.querySelector('#syncBtn svg');
+      if (spin) spin.classList.toggle('animate-spin', apiInflight > 0);
+    }
+    setInterval(updateSyncUi, 20000);
 
     // A save failed: say so, then reload the real sheet state so the screen never silently disagrees with it.
     function handleSaveError(what, err) {
@@ -1088,38 +1240,43 @@ function initGoogleAuthButton() {
       document.getElementById('budProgressBar').style.width = `${pct}%`;
       document.getElementById('clearedBudCount').textContent = cleared.length;
 
-      document.getElementById('upcomingBudgetsList').innerHTML = upcoming.length ? upcoming.map(b => {
+      // Delete lives inside the edit form (with Undo), not beside Paid, so it can't be hit by accident.
+      const editBtn = b => `<button onclick="openBudgetFormForRow(${b.row})" aria-label="Edit ${esc(b.name)}"
+                      class="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 inline-flex items-center justify-center">${icon('pencil', 'w-4 h-4')}</button>`;
+      const shown = showAll.bills ? upcoming : upcoming.slice(0, BILLS_PREVIEW);
+      document.getElementById('upcomingBudgetsList').innerHTML = upcoming.length ? shown.map(b => {
         const isSkipped = skippedBudgetRows.has(b.row);
         return `
           <div class="py-2 flex items-center justify-between gap-2 text-xs ${isSkipped ? 'opacity-40 line-through' : ''}">
             <div class="flex items-center gap-2 min-w-0">
-              <button onclick="toggleWhatIf(${b.row})" title="Tap to simulate skipping"
-                      class="w-6 h-6 rounded-md shrink-0 ${b.isRecurring ? 'bg-indigo-500/10 text-indigo-400' : 'bg-amber-500/10 text-amber-400'} flex items-center justify-center text-[11px]">
-                ${isSkipped ? '🚫' : (b.isRecurring ? '🔄' : '🎉')}
+              <button onclick="toggleWhatIf(${b.row})" title="Tap to simulate skipping" aria-label="Simulate skipping ${esc(b.name)}"
+                      class="w-10 h-10 -ml-1 shrink-0 inline-flex items-center justify-center">
+                <span class="w-8 h-8 rounded-lg ${b.isRecurring ? 'bg-indigo-500/10 text-indigo-400' : 'bg-amber-500/10 text-amber-400'} inline-flex items-center justify-center">
+                  ${isSkipped ? icon('skip', 'w-4 h-4') : icon(b.isRecurring ? 'repeat' : 'sparkle', 'w-4 h-4')}
+                </span>
               </button>
               <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${esc(b.name)}</span>
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
               <span class="font-mono font-bold whitespace-nowrap ${b.amount < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'}">${b.amount > 0 ? '+' : ''}${fmtGBP(b.amount)}</span>
-              ${b.pending ? '<span class="text-[11px] text-slate-400">saving…</span>' : `<button onclick="openBudgetFormForRow(${b.row})"
-                      class="px-1.5 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-white">✎</button>
+              ${b.pending ? '<span class="text-[11px] text-slate-500 dark:text-slate-400">saving…</span>' : `${editBtn(b)}
               <button onclick="markBudgetPaid(${b.row}, 0, ${b.amount}, ${b.isRecurring})"
-                      class="px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap">
-                Paid ✓
-              </button>
-              <button onclick="removeBudgetRow(${b.row})" title="Delete" class="text-slate-400 hover:text-rose-500 px-1">✕</button>`}
+                      class="h-10 px-3 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap inline-flex items-center gap-1">
+                Paid ${icon('check', 'w-3.5 h-3.5')}
+              </button>`}
             </div>
           </div>
         `;
-      }).join('') : '<div class="py-3 text-xs text-slate-400 text-center">All clear! 🎉</div>';
+      }).join('') + showMoreBtn('bills', upcoming.length, BILLS_PREVIEW)
+        : `<div class="py-3 text-xs text-slate-500 dark:text-slate-400 text-center inline-flex items-center justify-center gap-1.5 w-full">${icon('check', 'w-4 h-4 text-emerald-500')} All clear</div>`;
 
       document.getElementById('clearedBudgetsList').innerHTML = cleared.map(b => `
         <div class="py-1.5 flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-          <span class="truncate">${b.isRecurring ? '🔄' : '🎉'} ${esc(b.name)} ${b.originalBudget ? `<span class="font-mono text-[11px] text-slate-400">(${fmtGBP(b.originalBudget)})</span>` : ''}</span>
-          <div class="flex items-center gap-2 shrink-0">
+          <span class="truncate inline-flex items-center gap-1.5">${icon(b.isRecurring ? 'repeat' : 'sparkle', 'w-3.5 h-3.5')} ${esc(b.name)} ${b.originalBudget ? `<span class="font-mono text-[11px]">(${fmtGBP(b.originalBudget)})</span>` : ''}</span>
+          <div class="flex items-center gap-1.5 shrink-0">
+            ${b.pending ? '' : editBtn(b)}
             <button onclick="markBudgetPaid(${b.row}, ${b.originalBudget || -20}, ${b.originalBudget || -20}, ${b.isRecurring})"
-                    class="text-[11px] text-emerald-500 hover:underline">Restore</button>
-            <button onclick="removeBudgetRow(${b.row})" class="text-[11px] text-slate-400 hover:text-rose-500">✕</button>
+                    class="h-10 px-3 rounded-lg text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10">Restore</button>
           </div>
         </div>
       `).join('');
@@ -1133,11 +1290,29 @@ function initGoogleAuthButton() {
       setBudFormType(row ? isRecurring : false);
       setBudFormSign(numAmt > 0 ? 1 : -1);
       document.getElementById('budFormTitle').textContent = row ? `Edit ${name}` : 'Add Bill or Event';
+      document.getElementById('budDeleteBtn').classList.toggle('hidden', !row);
       document.getElementById('budgetFormBox').classList.remove('hidden');
+    }
+
+    function deleteBudgetFromForm() {
+      const row = Number(document.getElementById('editBudRow').value);
+      if (!row) return;
+      closeBudgetForm();
+      removeBudgetRow(row);
     }
 
     function closeBudgetForm() {
       document.getElementById('budgetFormBox').classList.add('hidden');
+    }
+
+    // Shows a new bill straight away (marked pending until the server confirms it and gives it a real row).
+    function addBudgetOptimistic(name, signedAmt, isRecurring) {
+      const usedRows = new Set(state.budgets.map(b => Number(b.row)));
+      let tempRow = 4;
+      while (usedRows.has(tempRow) || (tempRow >= 32 && tempRow <= 39)) {
+        tempRow++;
+      }
+      state.budgets.push({ row: tempRow, name, amount: signedAmt, originalBudget: signedAmt, isRecurring, pending: true });
     }
 
     function submitBudgetForm() {
@@ -1157,19 +1332,7 @@ function initGoogleAuthButton() {
           existing.isRecurring = budFormIsRecurring;
         }
       } else {
-        const usedRows = new Set(state.budgets.map(b => Number(b.row)));
-        let tempRow = 4;
-        while (usedRows.has(tempRow) || (tempRow >= 32 && tempRow <= 39)) {
-          tempRow++;
-        }
-        state.budgets.push({
-          row: tempRow,
-          name,
-          amount: signedAmt,
-          originalBudget: signedAmt,
-          isRecurring: budFormIsRecurring,
-          pending: true
-        });
+        addBudgetOptimistic(name, signedAmt, budFormIsRecurring);
       }
       closeBudgetForm();
       savePhoneCache(activeMonth, state);
@@ -1187,14 +1350,30 @@ function initGoogleAuthButton() {
     }
 
     function removeBudgetRow(row) {
+      const item = state.budgets.find(b => b.row === row);
+      const month = activeMonth;
       state.budgets = state.budgets.filter(b => b.row !== row);
       skippedBudgetRows.delete(row);
       savePhoneCache(activeMonth, state);
       renderAll();
-      
-      apiCall('deleteBudgetItem', { sheetName: activeMonth, row })
+
+      apiCall('deleteBudgetItem', { sheetName: month, row })
         .then(applyServerState)
         .catch(err => handleSaveError('the bill deletion', err));
+      if (item) showToast('Deleted "' + item.name + '"', { kind: 'info', actionLabel: 'Undo', duration: 9000, onAction: () => undoDeleteBudget(item, month) });
+    }
+
+    // Undo re-adds the bill. If it was deleted from a month you've since left, only the sheet is updated.
+    function undoDeleteBudget(item, month) {
+      const amount = Number(item.amount) !== 0 ? item.amount : (item.originalBudget || item.amount);
+      if (month === activeMonth) {
+        addBudgetOptimistic(item.name, amount, item.isRecurring);
+        savePhoneCache(activeMonth, state);
+        renderAll();
+      }
+      apiCall('saveBudgetItem', { sheetName: month, row: null, name: item.name, amount, isRecurring: item.isRecurring })
+        .then(applyStateIfViewing(month))
+        .catch(err => handleSaveError('the restored bill', err));
     }
 
     function markBudgetPaid(row, newAmt, origAmt, isRec) {
@@ -1247,36 +1426,37 @@ function initGoogleAuthButton() {
         return `
           <div class="py-2 flex items-center justify-between gap-2 text-xs">
             <div class="flex items-center gap-2 min-w-0">
-              ${isMarcus ? getBankLogo('marcus', 'w-6 h-6') : '<span class="w-6 h-6 rounded-md shrink-0 bg-sky-500/10 text-sky-400 flex items-center justify-center text-[11px]">👤</span>'}
+              ${isMarcus ? getBankLogo('marcus', 'w-6 h-6') : `<span class="w-6 h-6 rounded-md shrink-0 bg-sky-500/10 text-sky-500 inline-flex items-center justify-center">${icon('user', 'w-3.5 h-3.5')}</span>`}
               <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${esc(r.desc)}</span>
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <span class="font-mono font-bold ${amtColor} whitespace-nowrap">${signPrefix}${fmtGBP(r.amount)}</span>
               ${r.pending
-                ? '<span class="text-[11px] text-slate-400">saving…</span>'
+                ? '<span class="text-[11px] text-slate-500 dark:text-slate-400">saving…</span>'
                 : `<button onclick="toggleSplitNeed(${r.row}, false)"
-                      class="px-2.5 py-1 rounded-md bg-sky-500 text-slate-950 font-semibold whitespace-nowrap">
-                Settle ✓
+                      class="h-10 px-3 rounded-lg bg-sky-500 text-slate-950 font-semibold whitespace-nowrap inline-flex items-center gap-1">
+                Settle ${icon('check', 'w-3.5 h-3.5')}
               </button>`}
             </div>
           </div>
         `;
-      }).join('') : '<div class="py-4 text-xs text-slate-400 text-center">Nothing owing ✨</div>';
+      }).join('') : `<div class="py-4 text-xs text-slate-500 dark:text-slate-400 text-center inline-flex items-center justify-center gap-1.5 w-full">${icon('check', 'w-4 h-4 text-emerald-500')} Nothing owing</div>`;
 
-      document.getElementById('panel_settled').innerHTML = settled.map(r => {
+      const settledShown = showAll.settled ? settled : settled.slice(0, SETTLED_PREVIEW);
+      document.getElementById('panel_settled').innerHTML = settledShown.map(r => {
         const isPayOut = r.amount < 0;
         const amtColor = isPayOut ? 'text-rose-400' : 'text-emerald-500';
         const signPrefix = r.amount > 0 ? '+' : '';
         return `
           <div class="py-1.5 flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-            <span class="truncate">✓ ${esc(r.desc)}</span>
-            <div class="flex items-center gap-2 shrink-0">
+            <span class="truncate inline-flex items-center gap-1.5">${icon('check', 'w-3.5 h-3.5 text-emerald-500')} ${esc(r.desc)}</span>
+            <div class="flex items-center gap-1.5 shrink-0">
               <span class="font-mono ${amtColor} whitespace-nowrap">${signPrefix}${fmtGBP(r.amount)}</span>
-              <button onclick="toggleSplitNeed(${r.row}, true)" class="text-[11px] text-slate-400 hover:underline">Undo</button>
+              <button onclick="toggleSplitNeed(${r.row}, true)" class="h-10 px-3 rounded-lg text-[11px] font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800">Undo</button>
             </div>
           </div>
         `;
-      }).join('');
+      }).join('') + showMoreBtn('settled', settled.length, SETTLED_PREVIEW);
     }
 
     function toggleSplitNeed(row, setNeed) {
@@ -1342,19 +1522,21 @@ function initGoogleAuthButton() {
       }
 
       const filtered = list.filter(r => r.desc.toLowerCase().includes(q));
-      document.getElementById('txListContainer').innerHTML = filtered.map(r => `
+      // While searching, show every match; otherwise just the latest few with a "Show all" toggle.
+      const visible = (q || showAll.tx) ? filtered : filtered.slice(0, TX_PREVIEW);
+      document.getElementById('txListContainer').innerHTML = visible.map(r => `
         <div ${r.pending ? '' : `onclick="openEditTxForRow('${r.acct}', ${r.row})"`}
-             class="py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-xs transition ${r.pending ? 'opacity-60' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer'}">
+             class="py-2.5 px-1.5 -mx-1.5 min-h-[48px] rounded-lg flex items-center justify-between gap-2 text-xs transition ${r.pending ? 'opacity-60' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer'}">
           <div class="flex items-center gap-2.5 min-w-0">
             ${getBankLogo(r.acct, 'w-6 h-6')}
             <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${esc(r.desc)}</span>
           </div>
           <div class="flex items-center gap-2 shrink-0">
             <span class="font-mono font-semibold whitespace-nowrap ${r.amount < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'}">${r.amount > 0 ? '+' : ''}${fmtGBP(r.amount)}</span>
-            <span class="text-slate-400 text-[11px]">${r.pending ? 'saving…' : '✎'}</span>
+            <span class="text-slate-500 dark:text-slate-400 text-[11px]">${r.pending ? 'saving…' : icon('pencil', 'w-3.5 h-3.5')}</span>
           </div>
         </div>
-      `).join('');
+      `).join('') + (q ? '' : showMoreBtn('tx', filtered.length, TX_PREVIEW));
     }
 
     // ================= ADD TRANSACTION & DYNAMIC GROUP SPLIT =================
@@ -1480,7 +1662,7 @@ function initGoogleAuthButton() {
 
       const container = document.getElementById('dynamicSplitRows');
       if (customSplitEntries.length === 0) {
-        container.innerHTML = '<div class="text-[11px] text-slate-400 py-1">Tap any name above to split this transaction...</div>';
+        container.innerHTML = '<div class="text-[11px] text-slate-500 dark:text-slate-400 py-1">Tap any name above to split this transaction...</div>';
         return;
       }
 
@@ -1489,11 +1671,11 @@ function initGoogleAuthButton() {
           <input type="text" value="${esc(entry.person)}" placeholder="Name (e.g. Will)" oninput="updatePersonRowName(${idx}, this.value)"
                  class="w-32 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-900 dark:text-white capitalize" />
           <div class="relative flex-1">
-            <span class="absolute left-2.5 top-1.5 text-slate-400 text-xs font-mono">£</span>
+            <span class="absolute left-2.5 top-1.5 text-slate-500 dark:text-slate-400 text-xs font-mono">£</span>
             <input type="number" step="0.01" inputmode="decimal" value="${entry.amount || ''}" placeholder="0.00" oninput="updatePersonRowAmt(${idx}, this.value)"
                    class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-6 pr-2.5 py-1.5 text-xs font-mono font-semibold text-slate-900 dark:text-white" />
           </div>
-          <button type="button" onclick="removePersonRow(${idx})" class="text-slate-400 hover:text-rose-500 px-1.5 font-bold">✕</button>
+          <button type="button" onclick="removePersonRow(${idx})" class="text-slate-500 dark:text-slate-400 hover:text-rose-500 px-1.5 font-bold">✕</button>
         </div>
       `).join('');
     }
@@ -1699,6 +1881,8 @@ function initGoogleAuthButton() {
 
       const oldArr = state[oldAcct] || [];
       const idx = oldArr.findIndex(r => r.row === row);
+      const gone = idx > -1 ? { acct: oldAcct, desc: oldArr[idx].desc, amount: oldArr[idx].amount, need: !!oldArr[idx].need } : null;
+      const month = activeMonth;
       if (idx > -1) {
         updateSummaryBalance(oldAcct, -oldArr[idx].amount);
         oldArr.splice(idx, 1);
@@ -1708,9 +1892,32 @@ function initGoogleAuthButton() {
       savePhoneCache(activeMonth, state);
       renderAll();
 
-      apiCall('deleteTransactionRow', { sheetName: activeMonth, acct: oldAcct, row })
+      apiCall('deleteTransactionRow', { sheetName: month, acct: oldAcct, row })
         .then(applyServerState)
         .catch(err => handleSaveError('the deletion', err));
+      if (gone) showToast('Deleted "' + gone.desc + '"', { kind: 'info', actionLabel: 'Undo', duration: 9000, onAction: () => undoDeleteTx(gone, month) });
+    }
+
+    // Undo re-adds the entry (it lands in the first empty row of its account, so it may sit in a different
+    // position than before). If you've since left that month, only the sheet is updated.
+    function undoDeleteTx(item, month) {
+      if (month === activeMonth) {
+        recordLocalTimestamp(item.acct, item.desc, item.amount);
+        state[item.acct].unshift({ row: 99, acct: item.acct, desc: item.desc, amount: item.amount, need: false, clientTs: Date.now(), relOrder: 0, pending: true });
+        updateSummaryBalance(item.acct, item.amount);
+        savePhoneCache(activeMonth, state);
+        renderAll();
+      }
+      apiCall('addTransactionBundle', {
+        sheetName: month, merchant: item.desc, grossAmount: Math.abs(item.amount), isRefund: item.amount > 0,
+        account: item.acct, splits: [], marcusShare: 0, markNeed: false
+      }).then(s => {
+        applyStateIfViewing(month)(s);
+        if (item.need && month === activeMonth) {
+          const back = state.checking.find(x => x.desc === item.desc && x.amount === item.amount && !x.need && !x.pending);
+          if (back) toggleSplitNeed(back.row, true);
+        }
+      }).catch(err => handleSaveError('the restored transaction', err));
     }
 
     // ================= START NEW MONTH ROLLOVER MODAL =================
@@ -1747,7 +1954,7 @@ function initGoogleAuthButton() {
       if (settleEl) {
         settleEl.textContent = pendingItems.length
           ? `${pendingItems.length} item${pendingItems.length === 1 ? '' : 's'} (${signPrefix}${fmtGBP(Math.abs(pendingSum))})`
-          : 'None ✨';
+          : 'None';
       }
 
       // Render interactive checklist of bills/events to pull into the new month
@@ -1755,10 +1962,10 @@ function initGoogleAuthButton() {
       listEl.innerHTML = state.budgets.map(b => {
         const resetAmt = b.originalBudget !== 0 ? b.originalBudget : b.amount;
         return `
-          <label class="py-1.5 flex items-center justify-between gap-2 cursor-pointer">
-            <div class="flex items-center gap-2 min-w-0">
-              <input type="checkbox" class="ro-bud-chk rounded text-emerald-500" value="${b.row}" ${b.isRecurring ? 'checked' : ''} onchange="updateRolloverCount()" />
-              <span class="truncate text-slate-700 dark:text-slate-200">${b.isRecurring ? '🔄' : '🎉'} ${esc(b.name)}</span>
+          <label class="py-2.5 flex items-center justify-between gap-2 cursor-pointer">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <input type="checkbox" class="ro-bud-chk w-5 h-5 rounded text-emerald-500" value="${b.row}" ${b.isRecurring ? 'checked' : ''} onchange="updateRolloverCount()" />
+              <span class="truncate text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5">${icon(b.isRecurring ? 'repeat' : 'sparkle', 'w-3.5 h-3.5 ' + (b.isRecurring ? 'text-indigo-400' : 'text-amber-400'))} ${esc(b.name)}</span>
             </div>
             <span class="font-mono text-[11px] text-slate-500 shrink-0">${fmtGBP(resetAmt)}</span>
           </label>
@@ -1808,6 +2015,8 @@ function initGoogleAuthButton() {
     // Start as soon as the page is parsed rather than on `load`, which also waits for every font and
     // script (including Google sign-in) and so delayed the first data request.
     function startApp() {
+      hydrateIcons();
+      document.body.dataset.view = 'home';
       // If on jonhoag.co.uk without a valid token, stop here and show Lock Screen
       if (!IS_GAS_ENV && !hasValidToken()) {
         showLockScreen();
