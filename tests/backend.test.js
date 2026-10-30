@@ -241,6 +241,103 @@ test('category choices: the backend and the page offer the same categories', () 
   assert.deepStrictEqual(JSON.parse(m[1].replace(/'/g, '"')), Array.from(backend));
 });
 
+// ---------- Stale screens: an edit or delete only touches the row if it still holds what the page showed ----------
+const month = env => env.sheets[0];
+const put = (env, row, col, v) => { month(env).cells[row + ',' + col] = v; };
+const cell = (env, row, col) => month(env).getRange(row, col).getValue();
+
+test('delete: refused when the row now holds a different entry, and nothing is written', () => {
+  const env = makeEnv();
+  put(env, 9, 9, 'Shell'); put(env, 9, 10, -40);   // amex row 9 was refilled by another device
+  const r = post(env, 'deleteTransactionRow', { sheetName: 'Real Month', acct: 'amex', row: 9, expect: { desc: 'Tesco', amount: -12.5 } });
+  assert.strictEqual(r.ok, false, 'stale delete went through');
+  assert.ok(/^STALE/.test(r.error), r.error);
+  assert.strictEqual(env.writes.count, 0);
+  assert.strictEqual(cell(env, 9, 9), 'Shell');
+});
+
+test('delete: goes ahead when the row still matches', () => {
+  const env = makeEnv();
+  put(env, 9, 9, 'Tesco'); put(env, 9, 10, -12.5);
+  const r = post(env, 'deleteTransactionRow', { sheetName: 'Real Month', acct: 'amex', row: 9, expect: { desc: 'Tesco', amount: -12.5 } });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.strictEqual(cell(env, 9, 9), '');
+});
+
+test('edit: refused when the amount changed on another device', () => {
+  const env = makeEnv();
+  put(env, 9, 9, 'Tesco'); put(env, 9, 10, -15);
+  const r = post(env, 'editOrMoveTransaction', { sheetName: 'Real Month', oldAcct: 'amex', newAcct: 'barclays', row: 9, newDesc: 'Tesco', newAmount: -12.5, expect: { desc: 'Tesco', amount: -12.5 } });
+  assert.strictEqual(r.ok, false);
+  assert.ok(/^STALE/.test(r.error), r.error);
+  assert.strictEqual(env.writes.count, 0);
+});
+
+test('edit: goes ahead when the row still matches', () => {
+  const env = makeEnv();
+  put(env, 9, 9, 'Tesco'); put(env, 9, 10, -12.5);
+  const r = post(env, 'editOrMoveTransaction', { sheetName: 'Real Month', oldAcct: 'amex', newAcct: 'amex', row: 9, newDesc: 'Tesco Extra', newAmount: -13, expect: { desc: 'Tesco', amount: -12.5 } });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.strictEqual(cell(env, 9, 9), 'Tesco Extra');
+  assert.strictEqual(cell(env, 9, 10), -13);
+});
+
+// ---------- Text that Sheets would otherwise turn into a formula or a date ----------
+test('descriptions are written as plain text, never as a formula or a date', () => {
+  const env = makeEnv();
+  const r = post(env, 'addTransactionBundle', { sheetName: 'Real Month', merchant: '=IMPORTXML("x")', grossAmount: 5, account: 'amex', splits: [{ person: 'Amanda', amount: 2 }], marcusShare: 1 });
+  assert.strictEqual(r.ok, true, r.error);
+  const written = Object.values(month(env).cells).filter(v => typeof v === 'string');
+  assert.ok(written.length >= 4, 'expected four text cells: ' + JSON.stringify(written));
+  written.forEach(v => assert.ok(v[0] === "'", 'not forced to text: ' + v));
+  assert.ok(r.data.amex.some(x => x.desc === '=IMPORTXML("x")'), 'should read back as the text typed');
+  post(env, 'saveBudgetItem', { sheetName: 'Real Month', row: 6, name: '10/11', amount: -5 });
+  assert.strictEqual(month(env).cells['6,14'], "'10/11");
+});
+
+// ---------- Bad values and rows are refused before anything is written ----------
+const refused = [
+  ['addTransactionBundle', { sheetName: 'Real Month', merchant: 'x', grossAmount: 'abc', account: 'amex' }, 'amount that is not a number'],
+  ['addTransactionBundle', { sheetName: 'Real Month', merchant: 'x', grossAmount: 5e9, account: 'amex' }, 'absurdly large amount'],
+  ['addTransactionBundle', { sheetName: 'Real Month', merchant: '  ', grossAmount: 5, account: 'amex' }, 'empty description'],
+  ['addTransactionBundle', { sheetName: 'Real Month', merchant: 'x', grossAmount: 5, account: 'monzo' }, 'unknown account'],
+  ['addTransactionBundle', { sheetName: 'Real Month', merchant: 'x', grossAmount: 5, account: 'amex', marcusShare: 'lots' }, 'bad savings share'],
+  ['addTransactionBundle', { sheetName: 'Real Month', merchant: 'x', grossAmount: 5, account: 'amex', splits: [{ amount: 2 }] }, 'split with no name (used to half-save)'],
+  ['editOrMoveTransaction', { sheetName: 'Real Month', oldAcct: 'amex', newAcct: 'amex', row: 9, newDesc: 'x', newAmount: 'NaN' }, 'edit to a non-number'],
+  ['editOrMoveTransaction', { sheetName: 'Real Month', oldAcct: 'amex', newAcct: 'amex', row: 4, newDesc: 'x', newAmount: 1 }, 'edit of the start row'],
+  ['deleteTransactionRow', { sheetName: 'Real Month', acct: 'amex', row: 2 }, 'delete of a header row'],
+  ['deleteTransactionRow', { sheetName: 'Real Month', acct: 'amex', row: 4 }, 'delete of the start row'],
+  ['deleteTransactionRow', { sheetName: 'Real Month', acct: 'amex', row: 'x' }, 'delete with no row number'],
+  ['toggleNeedFlag', { sheetName: 'Real Month', row: 0, setNeed: true }, 'flag on row 0'],
+  ['settleAllNeeds', { sheetName: 'Real Month', rows: [9, 'x'] }, 'settle with one bad row (none written)'],
+  ['deleteBudgetItem', { sheetName: 'Real Month', row: 35 }, 'delete inside the MONEY LEFT box'],
+  ['updateBudgetRow', { sheetName: 'Real Month', row: 35, newAmount: 0, originalBudget: -10 }, 'update inside the MONEY LEFT box'],
+  ['updateBudgetRow', { sheetName: 'Real Month', row: 5, newAmount: 'x' }, 'bill amount that is not a number'],
+  ['saveBudgetItem', { sheetName: 'Real Month', row: 2, name: 'x', amount: -10 }, 'bill in a header row'],
+  ['saveBudgetItem', { sheetName: 'Real Month', name: 'x', amount: undefined }, 'bill with no amount'],
+  ['startNewMonth', { sourceSheetName: 'Real Month', newMonthName: '  ', paycheck: 1 }, 'new month with no name'],
+  ['startNewMonth', { sourceSheetName: 'Real Month', newMonthName: '_hidden', paycheck: 1 }, 'new month named like a backup'],
+  ['startNewMonth', { sourceSheetName: 'Real Month', newMonthName: 'Real Month', paycheck: 1 }, 'new month named the same as this one'],
+  ['startNewMonth', { sourceSheetName: 'Real Month', newMonthName: 'December', paycheck: 'abc' }, 'paycheck that is not a number'],
+];
+refused.forEach(([action, payload, what]) => {
+  test(`${action}: refuses ${what}, writing nothing`, () => {
+    const env = makeEnv();
+    const r = post(env, action, payload);
+    assert.strictEqual(r.ok, false, 'was accepted');
+    assert.strictEqual(env.writes.count, 0, 'wrote before refusing');
+  });
+});
+
+test('ordinary saves still work (spend with splits, bill, new month)', () => {
+  const env = makeEnv();
+  assert.strictEqual(post(env, 'addTransactionBundle', { sheetName: 'Real Month', merchant: 'Tesco', grossAmount: '12.50', account: 'barclays', splits: [{ person: 'Amanda', amount: 6.25, need: true }], marcusShare: 0, isRefund: false }).ok, true);
+  assert.strictEqual(post(env, 'saveBudgetItem', { sheetName: 'Real Month', row: '', name: 'Gym', amount: -30, isRecurring: true }).ok, true);
+  assert.strictEqual(post(env, 'settleAllNeeds', { sheetName: 'Real Month', rows: [5, 6] }).ok, true);
+  const nm = post(env, 'startNewMonth', { sourceSheetName: 'Real Month', newMonthName: 'December Payday 2026', paycheck: 2500, savingsAmount: 300 });
+  assert.strictEqual(nm.ok, true, nm.error);
+});
+
 // ---------- report ----------
 let failed = 0;
 results.forEach(([ok, name]) => { if (!ok) failed++; console.log((ok ? '  PASS  ' : '  FAIL  ') + name); });

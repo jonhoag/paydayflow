@@ -67,6 +67,12 @@
     };
   }
   const nextRow = arr => Math.max(3, ...arr.map(r => r.row)) + 1;
+  // Like the real server: an edit or delete that says what it expects in the row is refused if the row changed.
+  const checkExpect = (it, p) => {
+    if (p.expect && (!it || it.desc !== p.expect.desc || Math.abs(it.amount - p.expect.amount) >= 0.005)) {
+      throw new Error('STALE: This entry was changed on another device.');
+    }
+  };
 
   const MOCK = window.MOCK = {
     latency: Number(q.get('latency') || 300),
@@ -89,11 +95,13 @@
     },
     editOrMoveTransaction: (p, d, n) => {
       const it = d[p.oldAcct].find(r => r.row === Number(p.row));
+      checkExpect(it, p);
       if (it) { it.desc = p.newDesc; it.amount = p.newAmount; }
       return snapshot(d, n);
     },
     deleteTransactionRow: (p, d, n) => {
       const i = d[p.acct].findIndex(r => r.row === Number(p.row));
+      checkExpect(d[p.acct][i], p);
       if (i > -1) d[p.acct].splice(i, 1);
       return snapshot(d, n);
     },
@@ -132,7 +140,8 @@
     } else {
       const p = body.payload || {};
       const name = dbs[p.sheetName || p.sourceSheetName] ? (p.sheetName || p.sourceSheetName) : MONTH;
-      reply = { ok: true, data: handlers[body.action](p, dbs[name], name) };
+      try { reply = { ok: true, data: handlers[body.action](p, dbs[name], name) }; }
+      catch (e) { reply = { ok: false, error: e.message }; }
     }
     // ...but the reply reaches the browser only after its latency.
     await new Promise(r => setTimeout(r, wait));
