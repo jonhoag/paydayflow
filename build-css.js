@@ -16,8 +16,14 @@ const check = process.argv.includes('--check');
 const outFile = check ? path.join(os.tmpdir(), 'pf-tailwind-check.css') : path.join(root, 'tailwind.css');
 
 // BROWSERSLIST_IGNORE_OLD_DATA hides a harmless "caniuse-lite is outdated" notice that would otherwise print on every build.
-execSync(`npx --yes tailwindcss@3.4.17 -c tailwind.config.js -i tailwind.input.css -o "${outFile}" --minify`,
-  { cwd: root, stdio: ['ignore', 'ignore', 'inherit'], env: { ...process.env, BROWSERSLIST_IGNORE_OLD_DATA: '1' } });
+// Tailwind's progress notices go to stderr, so only show its output if the build actually fails.
+try {
+  execSync(`npx --yes tailwindcss@3.4.17 -c tailwind.config.js -i tailwind.input.css -o "${outFile}" --minify`,
+    { cwd: root, stdio: 'pipe', env: { ...process.env, BROWSERSLIST_IGNORE_OLD_DATA: '1' } });
+} catch (e) {
+  console.error(String(e.stderr || e.message));
+  process.exit(1);
+}
 
 const hash = crypto.createHash('sha256').update(fs.readFileSync(outFile)).digest('hex').slice(0, 10);
 const htmlPath = path.join(root, 'index.html');
