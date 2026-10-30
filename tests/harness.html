@@ -6,13 +6,18 @@
 // Loads the real ../index.html with a mocked Apps Script backend and a mocked Google sign-in.
 // Query params: ?token=none  -> start signed out (expired token)
 //               ?latency=400 -> mock server delay in ms (default 300)
+//               ?evil=1      -> seed rows with quotes, angle brackets, backslash, ampersand
+// The mock "server" runs each request the moment it arrives, then replies after its latency, so
+// replies can overtake each other exactly like real Apps Script. MOCK.nextLatencies = [1500, 100]
+// gives the next requests custom delays.
 (function () {
   const q = new URLSearchParams(location.search);
   const b64 = o => btoa(JSON.stringify(o)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const makeToken = (email, ttl) => 'h.' + b64({ email, exp: Math.floor(Date.now() / 1000) + (ttl || 3600) }) + '.s';
 
-  // ---------- mock sheet ----------
+  // ---------- mock sheet (two months) ----------
   const MONTH = 'Test Payday 2026';
+  const MONTH2 = 'Other Payday 2026';
   const db = {
     checking: [{ row: 4, desc: 'start', amount: 1000, need: false }, { row: 5, desc: 'paycheck', amount: 2000, need: false }],
     amex: [{ row: 4, desc: 'start', amount: 0 }],
@@ -20,71 +25,98 @@
     marcus: [{ row: 4, desc: 'start', amount: 500 }],
     budgets: [{ row: 4, name: 'mortgage', amount: -800, originalBudget: -800, isRecurring: true }]
   };
+  const db2 = {
+    checking: [{ row: 4, desc: 'start', amount: 50, need: false }],
+    amex: [{ row: 4, desc: 'start', amount: 0 }, { row: 5, desc: 'OTHER MONTH item', amount: -9 }],
+    barclays: [{ row: 4, desc: 'start', amount: 0 }],
+    marcus: [{ row: 4, desc: 'start', amount: 0 }],
+    budgets: []
+  };
+  const dbs = { [MONTH]: db, [MONTH2]: db2 };
+  // ?evil=1 seeds awkward text: quotes, angle brackets, backslash, ampersand.
+  const EVIL = `O'Brien "Quote" <b>bold</b> \\back & co`;
+  if (q.get('evil')) {
+    db.amex.push({ row: 5, desc: EVIL, amount: -3 });
+    db.checking.push({ row: 6, desc: 'amanda ' + EVIL, amount: 3, need: true });
+    db.budgets.push({ row: 5, name: EVIL, amount: -7, originalBudget: -7, isRecurring: false });
+  }
   const sum = a => +a.reduce((t, x) => t + Number(x.amount || 0), 0).toFixed(2);
   const rev = (arr, acct) => arr.slice().reverse().map(r => ({ ...r, acct }));
-  function snapshot() {
-    const nCA = sum(db.checking), amex = sum(db.amex), barclays = sum(db.barclays);
-    const budgetRem = sum(db.budgets);
+  function snapshot(d = db, name = MONTH) {
+    const nCA = sum(d.checking), amex = sum(d.amex), barclays = sum(d.barclays);
+    const budgetRem = sum(d.budgets);
     return {
-      sheetUrl: '#', availableMonths: [MONTH], activeMonth: MONTH,
-      checking: rev(db.checking, 'checking'), marcus: rev(db.marcus, 'marcus'),
-      barclays: rev(db.barclays, 'barclays'), amex: rev(db.amex, 'amex'),
-      budgets: JSON.parse(JSON.stringify(db.budgets)),
-      summary: { nCA, mSAV: sum(db.marcus), amex, barclays, budgetRem, checkingExpected: +(nCA + budgetRem).toFixed(2), eomSavingsJ: +(nCA + budgetRem + amex + barclays).toFixed(2) }
+      sheetUrl: '#', availableMonths: [MONTH, MONTH2], activeMonth: name,
+      checking: rev(d.checking, 'checking'), marcus: rev(d.marcus, 'marcus'),
+      barclays: rev(d.barclays, 'barclays'), amex: rev(d.amex, 'amex'),
+      budgets: JSON.parse(JSON.stringify(d.budgets)),
+      summary: { nCA, mSAV: sum(d.marcus), amex, barclays, budgetRem, checkingExpected: +(nCA + budgetRem).toFixed(2), eomSavingsJ: +(nCA + budgetRem + amex + barclays).toFixed(2) }
     };
   }
   const nextRow = arr => Math.max(3, ...arr.map(r => r.row)) + 1;
 
   const MOCK = window.MOCK = {
     latency: Number(q.get('latency') || 300),
+    nextLatencies: [],    // consumed one per request before falling back to `latency`
     failNext: 0,          // number of upcoming write calls that should fail
-    calls: [],            // log of { action, payload, at }
-    db, snapshot, MONTH,
+    calls: [],            // log of { action, payload, start, end }
+    db, db2, snapshot, MONTH, MONTH2,
     makeToken,
     gsiCallback: null
   };
 
   const handlers = {
-    getCachedSheetState: () => snapshot(),
-    addTransactionBundle: p => {
-      const arr = db[p.account];
+    getCachedSheetState: (p, d, n) => snapshot(d, n),
+    addTransactionBundle: (p, d, n) => {
+      const arr = d[p.account];
       arr.push({ row: nextRow(arr), desc: p.merchant, amount: p.isRefund ? Math.abs(p.grossAmount) : -Math.abs(p.grossAmount), need: false });
-      (p.splits || []).forEach(s => db.checking.push({ row: nextRow(db.checking), desc: s.person + ' ' + p.merchant, amount: s.amount, need: !!s.need }));
-      return snapshot();
+      (p.splits || []).forEach(s => d.checking.push({ row: nextRow(d.checking), desc: s.person + ' ' + p.merchant, amount: s.amount, need: !!s.need }));
+      return snapshot(d, n);
     },
-    editOrMoveTransaction: p => {
-      const it = db[p.oldAcct].find(r => r.row === Number(p.row));
+    editOrMoveTransaction: (p, d, n) => {
+      const it = d[p.oldAcct].find(r => r.row === Number(p.row));
       if (it) { it.desc = p.newDesc; it.amount = p.newAmount; }
-      return snapshot();
+      return snapshot(d, n);
     },
-    deleteTransactionRow: p => {
-      const i = db[p.acct].findIndex(r => r.row === Number(p.row));
-      if (i > -1) db[p.acct].splice(i, 1);
-      return snapshot();
+    deleteTransactionRow: (p, d, n) => {
+      const i = d[p.acct].findIndex(r => r.row === Number(p.row));
+      if (i > -1) d[p.acct].splice(i, 1);
+      return snapshot(d, n);
     },
-    toggleNeedFlag: p => { const it = db.checking.find(r => r.row === Number(p.row)); if (it) it.need = !!p.setNeed; return snapshot(); },
-    settleAllNeeds: p => { db.checking.forEach(r => { if ((p.rows || []).includes(r.row)) r.need = false; }); return snapshot(); },
-    updateBudgetRow: p => { const it = db.budgets.find(b => b.row === Number(p.row)); if (it) it.amount = Number(p.newAmount); return snapshot(); },
-    saveBudgetItem: p => {
-      if (p.row) { const it = db.budgets.find(b => b.row === Number(p.row)); if (it) Object.assign(it, { name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring }); }
-      else db.budgets.push({ row: nextRow(db.budgets), name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring });
-      return snapshot();
+    toggleNeedFlag: (p, d, n) => { const it = d.checking.find(r => r.row === Number(p.row)); if (it) it.need = !!p.setNeed; return snapshot(d, n); },
+    settleAllNeeds: (p, d, n) => { d.checking.forEach(r => { if ((p.rows || []).includes(r.row)) r.need = false; }); return snapshot(d, n); },
+    updateBudgetRow: (p, d, n) => { const it = d.budgets.find(b => b.row === Number(p.row)); if (it) it.amount = Number(p.newAmount); return snapshot(d, n); },
+    saveBudgetItem: (p, d, n) => {
+      if (p.row) { const it = d.budgets.find(b => b.row === Number(p.row)); if (it) Object.assign(it, { name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring }); }
+      else d.budgets.push({ row: nextRow(d.budgets), name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring });
+      return snapshot(d, n);
     },
-    deleteBudgetItem: p => { const i = db.budgets.findIndex(b => b.row === Number(p.row)); if (i > -1) db.budgets.splice(i, 1); return snapshot(); }
+    deleteBudgetItem: (p, d, n) => { const i = d.budgets.findIndex(b => b.row === Number(p.row)); if (i > -1) d.budgets.splice(i, 1); return snapshot(d, n); }
   };
 
   window.fetch = async function (url, opts) {
     const body = JSON.parse(opts.body);
-    MOCK.calls.push({ action: body.action, payload: body.payload, at: Date.now() });
-    await new Promise(r => setTimeout(r, MOCK.latency));
+    const call = { action: body.action, payload: body.payload, start: Date.now(), end: null };
+    MOCK.calls.push(call);
+    const wait = MOCK.nextLatencies.length ? MOCK.nextLatencies.shift() : MOCK.latency;
     const isWrite = body.action !== 'getCachedSheetState';
+
+    // The server does its work as soon as the request arrives...
+    let reply;
     if (isWrite && MOCK.failNext > 0) {
       MOCK.failNext--;
-      return { text: async () => JSON.stringify({ ok: false, error: 'Mock server failure' }) };
+      reply = { ok: false, error: 'Mock server failure' };
+    } else if (!handlers[body.action]) {
+      reply = { ok: false, error: 'Unknown action ' + body.action };
+    } else {
+      const p = body.payload || {};
+      const name = dbs[p.sheetName || p.sourceSheetName] ? (p.sheetName || p.sourceSheetName) : MONTH;
+      reply = { ok: true, data: handlers[body.action](p, dbs[name], name) };
     }
-    const fn = handlers[body.action];
-    if (!fn) return { text: async () => JSON.stringify({ ok: false, error: 'Unknown action ' + body.action }) };
-    return { text: async () => JSON.stringify({ ok: true, data: fn(body.payload || {}) }) };
+    // ...but the reply reaches the browser only after its latency.
+    await new Promise(r => setTimeout(r, wait));
+    call.end = Date.now();
+    return { text: async () => JSON.stringify(reply) };
   };
 
   // ---------- mock Google Identity Services ----------
