@@ -5,7 +5,8 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const src = fs.readFileSync(path.join(__dirname, '..', 'Code.js'), 'utf8');
+const { readBackendSource } = require('./load-code');
+const src = readBackendSource();
 const mutants = [
   ['login ignores the fingerprint (UV) flag', "if ((parsed.flags & AUTHDATA_UP) === 0 || (parsed.flags & AUTHDATA_UV) === 0) throw fail('fingerprint check missing');", "if ((parsed.flags & AUTHDATA_UP) === 0) throw fail('fingerprint check missing');"],
   ['login does not require a live challenge', "if (!consumeChallenge_(cd.challenge, 'auth', cid)) throw fail('challenge');", ''],

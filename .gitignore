@@ -1,5 +1,6 @@
 ﻿# Apps Script backend (deployed with clasp, not published via GitHub Pages)
 Code.js
+Passkeys.js
 *.gs
 .clasp.json
 .clasprc.json

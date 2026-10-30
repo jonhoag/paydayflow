@@ -147,6 +147,37 @@ test('timestamps: editing in place keeps its timestamp', () => {
   assert.strictEqual(tsMap(env, 'Real Month')['amex|9'], 5000);
 });
 
+// ---------- Offline retries: a spend with a clientId that was already saved is ignored ----------
+test('addTransactionBundle: a repeated clientId is saved only once', () => {
+  const env = makeEnv();
+  const spend = { sheetName: 'Real Month', merchant: 'coffee', grossAmount: 3, account: 'amex', splits: [], marcusShare: 0, clientId: 'abc123' };
+  const first = post(env, 'addTransactionBundle', spend);
+  assert.strictEqual(first.ok, true, first.error);
+  const writesAfterFirst = env.writes.count;
+  assert.ok(writesAfterFirst > 0, 'first send should write');
+  const second = post(env, 'addTransactionBundle', spend);
+  assert.strictEqual(second.ok, true, second.error);
+  assert.strictEqual(env.writes.count, writesAfterFirst, 'the repeat must not write again');
+});
+
+test('addTransactionBundle: different clientIds are both saved', () => {
+  const env = makeEnv();
+  const base = { sheetName: 'Real Month', merchant: 'coffee', grossAmount: 3, account: 'amex', splits: [], marcusShare: 0 };
+  post(env, 'addTransactionBundle', Object.assign({ clientId: 'one' }, base));
+  const n = env.writes.count;
+  post(env, 'addTransactionBundle', Object.assign({ clientId: 'two' }, base));
+  assert.ok(env.writes.count > n, 'a new clientId should write');
+});
+
+test('addTransactionBundle: no clientId still saves every time (older pages)', () => {
+  const env = makeEnv();
+  const spend = { sheetName: 'Real Month', merchant: 'coffee', grossAmount: 3, account: 'amex', splits: [], marcusShare: 0 };
+  post(env, 'addTransactionBundle', spend);
+  const n = env.writes.count;
+  post(env, 'addTransactionBundle', spend);
+  assert.ok(env.writes.count > n);
+});
+
 // ---------- report ----------
 let failed = 0;
 results.forEach(([ok, name]) => { if (!ok) failed++; console.log((ok ? '  PASS  ' : '  FAIL  ') + name); });

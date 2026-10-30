@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const crypto = require('crypto');
+const { readBackendSource } = require('./load-code');
 
 const CLIENT_ID = '1074590107449-b3clq41r6un84qma18lomq7ip2f833pk.apps.googleusercontent.com';
 const EMAIL = 'jonfhoag@gmail.com';
@@ -15,7 +16,7 @@ const toSigned = buf => Array.from(buf, b => (b > 127 ? b - 256 : b));   // Apps
 //   transformCode(src) -> src       edit the source before it runs (e.g. point the passkey constants at localhost)
 //   googleTokens: { token: payload } what Google's tokeninfo should answer; default: any token is the owner
 function makeEnv(options = {}) {
-  let code = fs.readFileSync(process.env.PF_CODE_FILE || path.join(__dirname, '..', 'Code.js'), 'utf8');
+  let code = process.env.PF_CODE_FILE ? fs.readFileSync(process.env.PF_CODE_FILE, 'utf8') : readBackendSource();
   if (options.transformCode) code = options.transformCode(code);
 
   const log = [];            // ordered events: 'lock:wait', 'write', 'lock:release', ...
