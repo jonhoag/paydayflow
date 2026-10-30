@@ -22,7 +22,7 @@
       document.head.appendChild(s);
     }
   </script>
-  <link rel="stylesheet" href="tailwind.css?v=22506b7e29" onerror="loadTailwindCdn()">
+  <link rel="stylesheet" href="tailwind.css?v=7e344c685d" onerror="loadTailwindCdn()">
   <!-- Fonts load without blocking the first paint; text uses the fallback font until Inter arrives. -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
@@ -86,6 +86,9 @@
         <button onclick="jumpToSection('activity')" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800/60 font-medium">
           <span data-icon="card" data-class="w-4 h-4"></span> <span>Activity</span>
         </button>
+        <button onclick="openSpendModal()" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800/60 font-medium">
+          <span data-icon="chart" data-class="w-4 h-4"></span> <span>Spending</span>
+        </button>
       </nav>
     </div>
 
@@ -140,6 +143,10 @@
             <button id="menuPasskeyItem" onclick="openPasskeyModal()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
               <span data-icon="fingerprint" data-class="w-4 h-4"></span>
               <span class="flex-1">Fingerprint sign-in</span>
+            </button>
+            <button onclick="openSpendModal()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+              <span data-icon="chart" data-class="w-4 h-4"></span>
+              <span class="flex-1">Spending</span>
             </button>
             <button onclick="closeMenu(); openNewMonthModal()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
               <span data-icon="calendar_plus" data-class="w-4 h-4"></span>
@@ -424,6 +431,17 @@
     </button>
   </nav>
 
+  <!-- SPENDING SUMMARY DIALOG -->
+  <div id="spendModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeSpendModal()">
+    <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="chart" data-class="w-4 h-4"></span>Spending</h3>
+        <button onclick="closeSpendModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+      </div>
+      <div id="spendBody" class="space-y-3"></div>
+    </div>
+  </div>
+
   <!-- FINGERPRINT SIGN-IN DIALOG -->
   <div id="passkeyModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
@@ -703,6 +721,7 @@ const ICON_PATHS = {
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
   chevron_down: '<path d="m6 9 6 6 6-6"/>',
   chevron_up: '<path d="m6 15 6-6 6 6"/>',
+  chart: '<path d="M4 20V11"/><path d="M10 20V4"/><path d="M16 20v-6"/><path d="M22 20H2"/>',
   fingerprint: '<path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"/><path d="M14 13.12c0 2.38 0 6.38-1 8.88"/><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"/><path d="M2 12a10 10 0 0 1 18-6"/><path d="M2 16h.01"/><path d="M21.8 16c.2-2 .131-5.354 0-6"/><path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"/><path d="M8.65 22c.21-.66.45-1.32.57-2"/><path d="M9 6.8a6 6 0 0 1 9 5.2v2"/>'
 };
 function icon(name, cls) {
@@ -1149,6 +1168,8 @@ async function removePasskeyDevice(id, fromTurnOff) {
             case 'saveBudgetItem': return runner.saveBudgetItem(payload.sheetName, payload.row, payload.name, payload.amount, payload.isRecurring);
             case 'deleteBudgetItem': return runner.deleteBudgetItem(payload.sheetName, payload.row);
             case 'startNewMonth': return runner.startNewMonth(payload);
+            case 'getCategoryChoices': return runner.getCategoryChoices();
+            case 'setCategoryChoice': return runner.setCategoryChoice(payload.merchant, payload.category);
             default: return reject(new Error('Unknown action: ' + action));
           }
         });
@@ -1338,6 +1359,160 @@ async function postToServer(bodyObj) {
     }
     document.addEventListener('click', e => { if (!e.target.closest('#menuPanel')) closeMenu(); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+
+    // ---- Spending summary: where the card money went this month ----
+    // Cards only (Amex + Barclays). Categories are guessed from the merchant text; your own choices are kept on
+    // all your devices (saved by the backend) and win over the guess. Card payments and balance adjustments are not spending.
+    // <spending-core>
+    const SPEND_CATEGORIES = ['Groceries', 'Eating out', 'Transport', 'Bills & subscriptions', 'Shopping', 'Travel', 'Entertainment', 'Health', 'Other'];
+    // First matching rule wins, so the specific ones ("uber eats", "sains petrol") sit above the general ones.
+    const SPEND_RULES = [
+      ['Eating out', /uber ?eats|deliveroo|just ?eat|mcdo|mcdonald|burger|\bwolf\b|spoons|pretzel|cafe|café|kebab|wasabi|\btea\b|coffee|pizza|restaurant|takeaway|\bpub\b|lutong|kenito/],
+      ['Travel', /gatwick|airport|hotel|airbnb|flight|ryanair|easyjet|ferry|holiday/],
+      ['Transport', /petrol|\btfl\b|southern rail|taxi|\bbus\b|train|fuel|\buber\b|trainline|railcard/],
+      ['Groceries', /waitrose|sainsbur|sains|tesco|lidl|aldi|\bcoop\b|co-op|\bm&s\b|asda|morrisons|iceland|ocado|nespresso|grocer/],
+      ['Bills & subscriptions', /spotify|netflix|disney|\bsky\b|windscribe|curve|\bsub\b|subscription|premium|\byt\b|youtube|\bo2\b|\bee\b|broadband|phone|energy|water|insurance|monthly fee/],
+      ['Entertainment', /komedia|comedy|cinema|theatre|\bgig\b|ticket|\bpsn\b|steam|\bgame/],
+      ['Health', /pharmacy|\bboots\b|dentist|optician|vitality|doctor|\bgp\b/],
+      ['Shopping', /amazon|ebay|vinted|primark|home barg|the works|\bdhl\b|oxfam|argos|post office|savers|temu|\bwise\b/]
+    ];
+    const SPEND_SKIP = /payment|^balance$|^start$/;
+    function spendKey(desc) { return String(desc || '').trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 60); }
+    function guessCategory(key) {
+      for (const [cat, re] of SPEND_RULES) if (re.test(key)) return cat;
+      return 'Other';
+    }
+    function categoryFor(desc, overrides) {
+      const key = spendKey(desc);
+      const own = overrides && overrides[key];
+      return own && SPEND_CATEGORIES.indexOf(own) !== -1 ? own : guessCategory(key);
+    }
+    function summariseSpend(st, overrides) {
+      const cats = {};
+      let total = 0;
+      ['amex', 'barclays'].forEach(acct => (st && st[acct] || []).forEach(r => {
+        const key = spendKey(r.desc);
+        if (!key || SPEND_SKIP.test(key)) return;
+        const amt = -Number(r.amount || 0);   // spends are negative in the sheet; refunds positive
+        if (!amt) return;
+        const cat = categoryFor(key, overrides);
+        const c = cats[cat] || (cats[cat] = { cat, total: 0, merchants: {} });
+        c.total += amt;
+        total += amt;
+        const m = c.merchants[key] || (c.merchants[key] = { key, name: String(r.desc).trim(), total: 0, count: 0 });
+        m.total += amt;
+        m.count++;
+      }));
+      const r2 = n => +n.toFixed(2);
+      const categories = Object.values(cats)
+        .map(c => ({ cat: c.cat, total: r2(c.total), merchants: Object.values(c.merchants).map(m => ({ key: m.key, name: m.name, total: r2(m.total), count: m.count })).sort((a, b) => b.total - a.total) }))
+        .sort((a, b) => b.total - a.total);
+      return { total: r2(total), categories };
+    }
+    // </spending-core>
+
+    const SPEND_COLOURS = { 'Groceries': '#10b981', 'Eating out': '#f59e0b', 'Transport': '#0ea5e9', 'Bills & subscriptions': '#8b5cf6', 'Shopping': '#ec4899', 'Travel': '#14b8a6', 'Entertainment': '#f97316', 'Health': '#ef4444', 'Other': '#94a3b8' };
+    const SPEND_OVERRIDES_KEY = 'pf_cat_overrides';
+    let spendOpenCat = null;
+    function loadSpendOverrides() {
+      try { const o = JSON.parse(localStorage.getItem(SPEND_OVERRIDES_KEY) || '{}'); return o && typeof o === 'object' ? o : {}; } catch (e) { return {}; }
+    }
+    // The sheet's backend keeps your choices so every device agrees; this device keeps a copy so the view
+    // still works offline. The server's copy wins whenever it is fetched.
+    function storeSpendOverrides(map) {
+      try { localStorage.setItem(SPEND_OVERRIDES_KEY, JSON.stringify(map || {})); } catch (e) {}
+    }
+    function applyCategoryChoices(reply) {
+      if (!reply || !reply.choices) return;
+      storeSpendOverrides(reply.choices);
+      if (!document.getElementById('spendModal').classList.contains('hidden')) renderSpend();
+    }
+    function setSpendCategory(key, cat) {
+      const o = loadSpendOverrides();
+      if (SPEND_CATEGORIES.indexOf(cat) === -1) { delete o[key]; cat = ''; } else o[key] = cat;
+      storeSpendOverrides(o);
+      renderSpend();
+      apiCall('setCategoryChoice', { merchant: key, category: cat })
+        .then(applyCategoryChoices)
+        .catch(err => {
+          console.error('category save error:', err);
+          showToast("Couldn't save that category change - it will revert when you next open Spending.");
+        });
+    }
+    function toggleSpendCat(cat) { spendOpenCat = spendOpenCat === cat ? null : cat; renderSpend(); }
+    function openSpendModal() {
+      closeMenu();
+      spendOpenCat = null;
+      renderSpend();
+      document.getElementById('spendModal').classList.remove('hidden');
+      apiCall('getCategoryChoices').then(applyCategoryChoices).catch(() => {});   // quiet: the saved copy is already showing
+    }
+    function closeSpendModal() { document.getElementById('spendModal').classList.add('hidden'); }
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSpendModal(); });
+
+    // "October Payday 2026" -> a sortable number (year * 12 + month), or 0 if the name doesn't follow that pattern.
+    function monthSortValue(name) {
+      const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+      const i = months.findIndex(m => String(name).toLowerCase().startsWith(m));
+      const y = String(name).match(/\b(20\d{2})\b/);
+      return i === -1 || !y ? 0 : Number(y[1]) * 12 + i;
+    }
+    // Totals for every month this device has loaded before (the current one comes from live state).
+    function spendMonthTotals(overrides) {
+      const out = [];
+      const names = new Set((state.availableMonths || []).concat(activeMonth));
+      names.forEach(name => {
+        let st = null;
+        if (name === activeMonth) st = state;
+        else { try { st = JSON.parse(localStorage.getItem('pf_cache_' + name) || 'null'); } catch (e) {} }
+        if (st) out.push({ name, total: summariseSpend(st, overrides).total });
+      });
+      return out.sort((a, b) => monthSortValue(b.name) - monthSortValue(a.name));
+    }
+
+    function renderSpend() {
+      const overrides = loadSpendOverrides();
+      const sum = summariseSpend(state, overrides);
+      const catRows = sum.categories.filter(c => Math.abs(c.total) >= 0.005);
+      const top = Math.max(1, ...catRows.map(c => c.total));
+      const opts = sel => ['<option value="">Automatic</option>'].concat(SPEND_CATEGORIES.map(c => '<option value="' + esc(c) + '"' + (c === sel ? ' selected' : '') + '>' + esc(c) + '</option>')).join('');
+      let html = '<div class="rounded-2xl bg-slate-50 dark:bg-slate-800/70 p-3.5"><div class="text-[11px] font-medium text-slate-500 dark:text-slate-400">Spent on cards in ' + esc(activeMonth) + '</div>'
+        + '<div class="text-2xl font-extrabold text-slate-900 dark:text-white tabular-nums">' + fmtGBP(sum.total) + '</div></div>';
+      if (!catRows.length) html += '<p class="text-xs text-slate-500 dark:text-slate-400">No card spending recorded in this month yet.</p>';
+      catRows.forEach(c => {
+        const pct = sum.total > 0 ? Math.round(c.total / sum.total * 100) : 0;
+        const open = spendOpenCat === c.cat;
+        const colour = SPEND_COLOURS[c.cat] || '#94a3b8';
+        html += '<div class="rounded-xl border border-slate-200 dark:border-slate-700/80">'
+          + '<button data-cat="' + esc(c.cat) + '" onclick="toggleSpendCat(this.dataset.cat)" class="w-full text-left p-3 min-h-11" aria-expanded="' + open + '">'
+          + '<div class="flex items-center justify-between gap-2 text-sm"><span class="font-semibold text-slate-800 dark:text-slate-100 inline-flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full" style="background:' + colour + '"></span>' + esc(c.cat) + '</span>'
+          + '<span class="tabular-nums text-slate-700 dark:text-slate-200">' + fmtGBP(c.total) + ' <span class="text-[11px] text-slate-500 dark:text-slate-400">' + pct + '%</span></span></div>'
+          + '<div class="mt-2 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full" style="width:' + Math.max(2, Math.round(Math.max(0, c.total) / top * 100)) + '%;background:' + colour + '"></div></div></button>';
+        if (open) {
+          html += '<div class="px-3 pb-3 divide-y divide-slate-100 dark:divide-slate-800/70 text-xs">';
+          c.merchants.forEach(m => {
+            html += '<div class="py-2 flex items-center gap-2"><div class="min-w-0 flex-1"><div class="truncate text-slate-800 dark:text-slate-100 font-medium">' + esc(m.name) + (m.count > 1 ? ' <span class="text-slate-500 dark:text-slate-400 font-normal">×' + m.count + '</span>' : '') + '</div></div>'
+              + '<span class="tabular-nums text-slate-700 dark:text-slate-200">' + fmtGBP(m.total) + '</span>'
+              + '<select data-key="' + esc(m.key) + '" onchange="setSpendCategory(this.dataset.key, this.value)" aria-label="Category for ' + esc(m.name) + '" class="h-9 max-w-[7.5rem] rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-[11px] px-1">' + opts(overrides[m.key]) + '</select></div>';
+          });
+          html += '</div>';
+        }
+        html += '</div>';
+      });
+      const months = spendMonthTotals(overrides);
+      if (months.length > 1) {
+        const mtop = Math.max(1, ...months.map(m => m.total));
+        html += '<div class="pt-1"><div class="text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1.5">Month by month (months this device has loaded)</div>';
+        months.forEach(m => {
+          html += '<div class="flex items-center gap-2 py-1 text-xs"><span class="w-36 truncate ' + (m.name === activeMonth ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-300') + '">' + esc(m.name) + '</span>'
+            + '<div class="flex-1 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bg-emerald-500" style="width:' + Math.max(2, Math.round(Math.max(0, m.total) / mtop * 100)) + '%"></div></div>'
+            + '<span class="tabular-nums w-20 text-right text-slate-700 dark:text-slate-200">' + fmtGBP(m.total) + '</span></div>';
+        });
+        html += '</div>';
+      }
+      html += '<p class="text-[11px] text-slate-500 dark:text-slate-400">Amex and Barclays only, as charged, before anything Amanda or others pay back. Categories are a guess from the merchant name: change any one with its menu and it is remembered on all your devices.</p>';
+      document.getElementById('spendBody').innerHTML = html;
+    }
 
     // ---- Phone views: the bottom bar switches between Home (everything) and one focused section ----
     function setView(v) {

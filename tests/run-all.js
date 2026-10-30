@@ -7,6 +7,7 @@ const path = require('path');
 
 const suites = [
   ['backend tests', ['tests/backend.test.js']],
+  ['spending summary', ['tests/spending.test.js']],
   ['passkey crypto', ['tests/passkey-crypto.test.js']],
   ['passkey flow', ['tests/passkey-flow.test.js']],
   ['mutation check', ['tests/mutation-check.js']],
