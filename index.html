@@ -6,11 +6,26 @@
   <title>PaydayFlow</title>
   <link rel="manifest" href="manifest.json">
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://script.google.com">
+  <link rel="preconnect" href="https://script.googleusercontent.com">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <script>
-    tailwind.config = { darkMode: 'class' };
+    // Styles are pre-built into tailwind.css (see build-css.js). If that file can't load, fall back to
+    // Tailwind's runtime build so the page is never left unstyled.
+    function loadTailwindCdn() {
+      if (window.__tailwindCdn) return;
+      window.__tailwindCdn = true;
+      var s = document.createElement('script');
+      s.src = 'https://cdn.tailwindcss.com';
+      s.onload = function () { window.tailwind.config = { darkMode: 'class' }; };
+      document.head.appendChild(s);
+    }
   </script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tailwind.css?v=30aa9f80f5" onerror="loadTailwindCdn()">
+  <!-- Fonts load without blocking the first paint; text uses the fallback font until Inter arrives. -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
   <style>
     body { font-family: 'Inter', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
     .sidebar { background: #1E2631; color: #F8FAFC; }
@@ -1790,10 +1805,10 @@ function initGoogleAuthButton() {
       applyThemeMode();
     }
 
-    window.onload = () => {
-      if (!IS_GAS_ENV && 'serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(() => {}); }
-
-      // 2. If on jonhoag.co.uk without a valid token, stop here and show Lock Screen
+    // Start as soon as the page is parsed rather than on `load`, which also waits for every font and
+    // script (including Google sign-in) and so delayed the first data request.
+    function startApp() {
+      // If on jonhoag.co.uk without a valid token, stop here and show Lock Screen
       if (!IS_GAS_ENV && !hasValidToken()) {
         showLockScreen();
         return;
@@ -1807,7 +1822,15 @@ function initGoogleAuthButton() {
       apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: false })
         .then(applyServerState)
         .catch(console.error);
-    };
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startApp);
+    else startApp();
+
+    // The service worker can wait until the page has fully loaded.
+    window.addEventListener('load', () => {
+      if (!IS_GAS_ENV && 'serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(() => {}); }
+    });
   </script>
 </body>
 </html>
