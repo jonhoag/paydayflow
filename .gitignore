@@ -5,3 +5,6 @@ Code.js
 .clasprc.json
 appsscript.json
 node_modules/
+
+# local tooling
+.claude/
