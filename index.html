@@ -1073,8 +1073,13 @@ function forceSyncSheet() {
           existing.isRecurring = budFormIsRecurring;
         }
       } else {
-        state.budgets.unshift({
-          row: state.budgets.length + 20,
+        const usedRows = new Set(state.budgets.map(b => Number(b.row)));
+        let tempRow = 4;
+        while (usedRows.has(tempRow) || (tempRow >= 32 && tempRow <= 39)) {
+          tempRow++;
+        }
+        state.budgets.push({
+          row: tempRow,
           name,
           amount: signedAmt,
           originalBudget: signedAmt,
@@ -1085,13 +1090,17 @@ function forceSyncSheet() {
       savePhoneCache(activeMonth, state);
       renderAll();
 
-      apiCall('saveBudgetItem', {
-        sheetName: activeMonth,
-        row: row || null,
-        name: name,
-        amount: signedAmt,
-        isRecurring: budFormIsRecurring
-      }).then(applyServerState).catch(err => console.error('Budget save error:', err));
+      if (typeof apiCall === 'function') {
+        apiCall('saveBudgetItem', {
+          sheetName: activeMonth,
+          row: row || null,
+          name,
+          amount: signedAmt,
+          isRecurring: budFormIsRecurring
+        }).then(applyServerState);
+      } else if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run.withSuccessHandler(applyServerState).saveBudgetItem(activeMonth, row || null, name, signedAmt, budFormIsRecurring);
+      }
     }
 
     function removeBudgetRow(row) {
