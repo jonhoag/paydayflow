@@ -1161,7 +1161,7 @@ async function removePasskeyDevice(id, fromTurnOff) {
             case 'getCachedSheetState': return runner.getCachedSheetState(payload.sheetName, payload.forceRefresh);
             case 'addTransactionBundle': return runner.addTransactionBundle(payload);
             case 'editOrMoveTransaction': return runner.editOrMoveTransaction(payload);
-            case 'deleteTransactionRow': return runner.deleteTransactionRow(payload.sheetName, payload.acct, payload.row);
+            case 'deleteTransactionRow': return runner.deleteTransactionRow(payload.sheetName, payload.acct, payload.row, payload.expect);
             case 'toggleNeedFlag': return runner.toggleNeedFlag(payload.sheetName, payload.row, payload.setNeed);
             case 'settleAllNeeds': return runner.settleAllNeeds(payload.sheetName, payload.rows);
             case 'updateBudgetRow': return runner.updateBudgetRow(payload.sheetName, payload.row, payload.newAmount, payload.originalBudget);
@@ -1690,7 +1690,9 @@ async function postToServer(bodyObj) {
     // A save failed: say so, then reload the real sheet state so the screen never silently disagrees with it.
     function handleSaveError(what, err) {
       console.error(what + ' error:', err);
-      showToast("Couldn't save " + what + ' - refreshing from your sheet.');
+      // The server refuses an edit or delete when the row changed on another device since this screen loaded.
+      const stale = /STALE/.test(String(err && err.message));
+      showToast(stale ? 'That entry changed on another device, so nothing was changed. Showing the latest.' : "Couldn't save " + what + ' - refreshing from your sheet.');
       apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
         .then(applyServerState)
         .catch(e => console.error('Resync after failed save also failed:', e));
@@ -2449,6 +2451,7 @@ async function postToServer(bodyObj) {
 
       const oldArr = state[oldAcct] || [];
       const idx = oldArr.findIndex(r => r.row === row);
+      const expect = idx > -1 ? { desc: oldArr[idx].desc, amount: oldArr[idx].amount } : null;
       if (idx > -1) {
         const oldItem = oldArr[idx];
         updateSummaryBalance(oldAcct, -oldItem.amount);
@@ -2473,7 +2476,8 @@ async function postToServer(bodyObj) {
         newAcct,
         row,
         newDesc,
-        newAmount
+        newAmount,
+        expect
       }).then(applyServerState).catch(err => handleSaveError('the transaction edit', err));
     }
 
@@ -2494,7 +2498,7 @@ async function postToServer(bodyObj) {
       savePhoneCache(activeMonth, state);
       renderAll();
 
-      apiCall('deleteTransactionRow', { sheetName: month, acct: oldAcct, row })
+      apiCall('deleteTransactionRow', { sheetName: month, acct: oldAcct, row, expect: gone && { desc: gone.desc, amount: gone.amount } })
         .then(applyServerState)
         .catch(err => handleSaveError('the deletion', err));
       if (gone) showToast('Deleted "' + gone.desc + '"', { kind: 'info', actionLabel: 'Undo', duration: 9000, onAction: () => undoDeleteTx(gone, month) });

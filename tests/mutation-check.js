@@ -9,7 +9,7 @@ const { readBackendSource } = require('./load-code');
 const src = readBackendSource();
 const mutants = [
   ['login ignores the fingerprint (UV) flag', "if ((parsed.flags & AUTHDATA_UP) === 0 || (parsed.flags & AUTHDATA_UV) === 0) throw fail('fingerprint check missing');", "if ((parsed.flags & AUTHDATA_UP) === 0) throw fail('fingerprint check missing');"],
-  ['login does not require a live challenge', "if (!consumeChallenge_(cd.challenge, 'auth', cid)) throw fail('challenge');", ''],
+  ['login does not require a live challenge', "if (!consumeChallenge_(cd.challenge, 'auth', cid)) throw reject('challenge');", ''],
   ['origin is not checked', "if (PASSKEY_ORIGINS.indexOf(data.origin) === -1) throw new Error('origin not allowed');", ''],
   ['challenges are not single-use', "  cache.remove(key);\n  if (!raw) return false;", "  if (!raw) return false;"],
   ['signature is not verified', "if (!verifyEs256_(pub, ad.concat(sha256_(cd.bytes)), sig)) throw fail('signature');", ''],
@@ -21,6 +21,7 @@ const mutants = [
   ['enrolment skips the on-curve check', "if (!p256IsOnCurve_(bytesToBig_(x), bytesToBig_(y))) throw bad('key');", ''],
   ['rpId hash is not checked at login', "if (!bytesEqual_(parsed.rpIdHash, sha256_(utf8Encode_(PASSKEY_RP_ID)))) throw fail('rpId');", ''],
   ['a challenge for one device works for another', "return c.type === type && (c.cid || null) === (cid || null) && c.exp > Date.now();", "return c.type === type && c.exp > Date.now();"],
+  ['junk from strangers counts towards the throttle', "if (!cred) throw reject('unknown device');", "if (!cred) throw fail('unknown device');"],
   ['kill switch does not end sessions', "if (!PASSKEYS_ENABLED || typeof token !== 'string') throw bad();", "if (typeof token !== 'string') throw bad();"],
 ];
 

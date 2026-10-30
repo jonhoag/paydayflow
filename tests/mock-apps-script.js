@@ -23,21 +23,35 @@ function makeEnv(options = {}) {
   const writes = { count: 0 };
   const clock = { offsetMs: 0 };
 
-  const blankRows = (n, c) => Array.from({ length: n }, () => Array(c).fill(''));
-  const range = {
-    getValues: () => blankRows(80, 20),
-    getNotes: () => Array.from({ length: 80 }, () => ['']),
-    getValue: () => '',
+  // Each sheet keeps the values written to it (cells['row,col'], exactly as written). Like Sheets, reading a cell
+  // written with a leading apostrophe gives the text without it.
+  const mkSheet = name => {
+    const cells = {};
+    const read = (r, c) => {
+      const v = cells[r + ',' + c];
+      if (v === undefined) return '';
+      return typeof v === 'string' && v[0] === "'" ? v.slice(1) : v;
+    };
+    const rangeAt = (r, c, nr = 1, nc = 1) => {
+      const each = fn => { for (let i = 0; i < nr; i++) for (let j = 0; j < nc; j++) fn(r + i, c + j); };
+      const wrote = () => { writes.count++; log.push('write'); return rg; };
+      const rg = {
+        getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => read(r + i, c + j))),
+        getNotes: () => Array.from({ length: nr }, () => Array(nc).fill('')),
+        getValue: () => read(r, c),
+        setValue: v => { cells[r + ',' + c] = v; return wrote(); },
+        clearContent: () => { each((y, x) => { delete cells[y + ',' + x]; }); return wrote(); },
+      };
+      ['setNote', 'clearNote', 'setFontFamily', 'setFontSize', 'setFontWeight',
+        'setBackground', 'setFontColor', 'setNumberFormat'].forEach(m => { rg[m] = wrote; });
+      return rg;
+    };
+    return {
+      cells, getName: () => name, getLastRow: () => 80, getLastColumn: () => 20, getSheetId: () => 1,
+      getRange: rangeAt, getMaxRows: () => 180, getMaxColumns: () => 20,
+      deleteRows() {}, deleteColumns() {}, setName() {}, copyTo() { return mkSheet('copy'); },
+    };
   };
-  ['setValue', 'setNote', 'clearNote', 'setFontFamily', 'setFontSize', 'setFontWeight',
-    'setBackground', 'setFontColor', 'setNumberFormat', 'clearContent'].forEach(m => {
-    range[m] = () => { writes.count++; log.push('write'); return range; };
-  });
-  const mkSheet = name => ({
-    getName: () => name, getLastRow: () => 80, getLastColumn: () => 20, getSheetId: () => 1,
-    getRange: () => range, getMaxRows: () => 180, getMaxColumns: () => 20,
-    deleteRows() {}, deleteColumns() {}, setName() {}, copyTo() { return mkSheet('copy'); },
-  });
   const sheets = [mkSheet('Real Month')];
   const ss = {
     getSheets: () => sheets,
@@ -96,7 +110,7 @@ function makeEnv(options = {}) {
   };
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
-  return { sandbox, log, writes, lockCalls, props, cacheStore, clock, defaultTokeninfo };
+  return { sandbox, log, writes, lockCalls, props, cacheStore, clock, defaultTokeninfo, sheets };
 }
 
 module.exports = { makeEnv, CLIENT_ID, EMAIL, toSigned, toBuf };

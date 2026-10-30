@@ -165,6 +165,13 @@ test('throttle: 10 failures block further attempts (even a valid one) until the 
   env.clock.offsetMs += 11 * 60 * 1000;
   assert.strictEqual(login(env, a).finish.ok, true, 'should work again after the window');
 });
+test('throttle: junk from someone without a live challenge never locks you out', () => {
+  const env = fresh(); const a = enrolled(env);
+  for (let i = 0; i < 15; i++) call(env, 'passkeyLoginFinish', { credentialId: 'made-up-' + i, clientDataJSON: 'x', authenticatorData: 'x', signature: 'x' }, {});
+  for (let i = 0; i < 15; i++) call(env, 'passkeyLoginFinish', { credentialId: a.id, clientDataJSON: 'x', authenticatorData: 'x', signature: 'x' }, {});
+  for (let i = 0; i < 15; i++) login(env, a, { challenge: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' });
+  assert.strictEqual(login(env, a).finish.ok, true, 'junk requests locked the owner out');
+});
 test('throttle: a success resets the failure count', () => {
   const env = fresh(); const a = enrolled(env);
   for (let i = 0; i < 9; i++) login(env, a, { tamper: 'sig' });
