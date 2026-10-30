@@ -8,3 +8,4 @@ node_modules/
 
 # local tooling
 .claude/
+tests/index.orig.html

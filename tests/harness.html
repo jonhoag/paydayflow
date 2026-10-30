@@ -125,6 +125,77 @@
     renderButton: () => {}, prompt: () => {}, disableAutoSelect: () => {}
   } } };
 
+  // ---------- load timing: ms from harness start until styles apply / first data renders ----------
+  const perf = window.__perf = { t0: performance.now(), styled: null, data: null };
+  const poll = setInterval(() => {
+    const now = performance.now() - perf.t0;
+    const body = document.body;
+    // "styled" = body got a Tailwind background (light or dark); "data" = KPI no longer shows the static placeholder.
+    if (perf.styled == null && body && getComputedStyle(body).backgroundColor !== 'rgba(0, 0, 0, 0)') perf.styled = Math.round(now);
+    const k = document.getElementById('kpiNCA');
+    if (perf.data == null && k && k.textContent && k.textContent !== '£5,823.55' && /^£|^-£/.test(k.textContent)) perf.data = Math.round(now);
+    if ((perf.styled != null && perf.data != null) || now > 15000) clearInterval(poll);
+  }, 5);
+
+  // ---------- style capture: records every element's computed styles in several UI states ----------
+  // Used to prove two builds of the page look identical: capture each, then compareCaptures(a, b).
+  const STYLE_PROPS = ['display', 'position', 'top', 'right', 'bottom', 'left', 'z-index', 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height',
+    'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+    'color', 'background-color', 'background-image', 'opacity', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing',
+    'text-align', 'text-transform', 'text-decoration-line', 'white-space', 'overflow-x', 'overflow-y', 'text-overflow',
+    'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width', 'border-top-style', 'border-top-color', 'border-bottom-color',
+    'border-left-color', 'border-right-color', 'border-top-left-radius', 'border-bottom-right-radius', 'box-shadow', 'transform', 'cursor',
+    'flex-direction', 'flex-wrap', 'flex-grow', 'flex-shrink', 'align-items', 'justify-content', 'gap', 'grid-template-columns', 'pointer-events',
+    'backdrop-filter', 'object-fit', 'appearance', 'outline-style', 'list-style-type', 'vertical-align', 'visibility'];
+  const STATES = [
+    ['overview-light', () => { localStorage.setItem('pf_theme_mode', 'light'); applyThemeMode(); }],
+    ['overview-dark', () => { localStorage.setItem('pf_theme_mode', 'dark'); applyThemeMode(); }],
+    ['breakdown-open', () => { document.getElementById('mathDrawer').classList.remove('hidden'); }],
+    ['add-modal-custom-split', () => { document.getElementById('mathDrawer').classList.add('hidden'); openAddModal(); selectSplit('custom'); }],
+    ['edit-modal', () => { closeAddModal(); openEditTxForRow('amex', 5); }],
+    ['budget-form', () => { closeEditTxModal(); openBudgetForm('', '', '', false); }],
+    ['new-month-modal', () => { closeBudgetForm(); openNewMonthModal(); }],
+    ['lock-screen', () => { closeNewMonthModal(); document.getElementById('authLockScreen').style.display = 'flex'; }],
+    ['toast', () => { document.getElementById('authLockScreen').style.display = 'none'; showToast('Couldn\'t save the thing - refreshing.'); }],
+    ['light-again', () => { document.getElementById('toast').classList.add('hidden'); localStorage.setItem('pf_theme_mode', 'light'); applyThemeMode(); }],
+  ];
+  window.captureAll = async function (key) {
+    const frame = () => new Promise(r => setTimeout(r, 60));
+    const out = { width: innerWidth, states: {}, descs: [] };
+    for (const [name, apply] of STATES) {
+      apply(); await frame();
+      const rows = [];
+      document.body.querySelectorAll('*').forEach((el, i) => {
+        if (['SCRIPT', 'STYLE', 'LINK', 'NOSCRIPT'].includes(el.tagName)) return;
+        const cs = getComputedStyle(el);
+        rows.push(STYLE_PROPS.map(p => cs.getPropertyValue(p)).join('|'));
+        if (!out.descs[rows.length - 1]) out.descs[rows.length - 1] = el.tagName.toLowerCase() + '.' + String(el.getAttribute('class') || '').slice(0, 50) + (el.id ? '#' + el.id : '');
+      });
+      out.states[name] = rows;
+    }
+    sessionStorage.setItem('cap_' + key, JSON.stringify(out));
+    return { key, width: out.width, states: Object.keys(out.states).length, elements: out.states['overview-light'].length };
+  };
+  window.compareCaptures = function (keyA, keyB) {
+    const a = JSON.parse(sessionStorage.getItem('cap_' + keyA)), b = JSON.parse(sessionStorage.getItem('cap_' + keyB));
+    const res = { widths: [a.width, b.width], differingElements: 0, totalElements: 0, examples: [] };
+    for (const state of Object.keys(a.states)) {
+      const ra = a.states[state], rb = b.states[state];
+      if (ra.length !== rb.length) { res.examples.push(state + ': element count ' + ra.length + ' vs ' + rb.length); continue; }
+      for (let i = 0; i < ra.length; i++) {
+        res.totalElements++;
+        if (ra[i] === rb[i]) continue;
+        res.differingElements++;
+        if (res.examples.length < 15) {
+          const pa = ra[i].split('|'), pb = rb[i].split('|');
+          const diffs = STYLE_PROPS.map((p, k) => pa[k] !== pb[k] ? p + ': ' + pa[k] + ' -> ' + pb[k] : null).filter(Boolean);
+          res.examples.push(state + ' | ' + a.descs[i] + ' | ' + diffs.slice(0, 4).join('; '));
+        }
+      }
+    }
+    return res;
+  };
+
   // ---------- sign-in state ----------
   try {
     localStorage.clear();
@@ -136,13 +207,18 @@
 // Separate block so the mock fetch above is already installed; we need the REAL fetch to read index.html.
 (async function () {
   const xhr = new XMLHttpRequest();
-  xhr.open('GET', '/index.html', false);
+  xhr.open('GET', new URLSearchParams(location.search).get('src') || '/index.html', false);
   xhr.send();
   let html = xhr.responseText;
-  // Drop external scripts (Google sign-in is mocked; Tailwind is cosmetic only).
+  // Google sign-in is mocked, so drop its script. The Tailwind CDN script is also dropped (faster, offline
+  // friendly) unless ?cdn=1, which keeps the page exactly as the browser would load it.
   html = html.replace(/<script src="https:\/\/accounts\.google\.com[^>]*><\/script>/, '');
-  html = html.replace(/<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/, '');
-  html = html.replace(/<script>\s*tailwind\.config[^<]*<\/script>/, '');
+  if (new URLSearchParams(location.search).get('cdn') !== '1') {
+    html = html.replace(/<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/, '');
+    html = html.replace(/<script>\s*tailwind\.config[^<]*<\/script>/, '');
+  }
+  // The page is served from /tests/ here, so make its relative links (tailwind.css, sw.js...) resolve from the root.
+  html = html.replace(/<head>/i, '<head><base href="/">');
   document.open(); document.write(html); document.close();
 })();
 </script>
