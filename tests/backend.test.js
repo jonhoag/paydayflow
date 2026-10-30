@@ -44,8 +44,13 @@ function makeEnv() {
     SpreadsheetApp: { getActiveSpreadsheet: () => ss, flush() {} },
     CacheService: { getScriptCache: () => ({
       get: k => cacheStore[k] || null, put: (k, v) => { cacheStore[k] = v; }, remove: k => { delete cacheStore[k]; } }) },
+    // Like the real service, refuse values over ~9KB.
     PropertiesService: { getScriptProperties: () => ({
-      getProperty: k => props[k] || null, setProperty: (k, v) => { props[k] = v; } }) },
+      getProperty: k => props[k] || null,
+      setProperty: (k, v) => {
+        if (String(v).length > 9216) throw new Error('Argument too large: value');
+        props[k] = v;
+      } }) },
     LockService: { getScriptLock: () => ({
       waitLock: () => { lockCalls.waits++; log.push('lock:wait'); },
       releaseLock: () => { lockCalls.releases++; log.push('lock:release'); } }) },
@@ -63,7 +68,7 @@ function makeEnv() {
   };
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
-  return { sandbox, log, writes, lockCalls };
+  return { sandbox, log, writes, lockCalls, props };
 }
 
 function post(env, action, payload) {
@@ -147,6 +152,65 @@ test('unauthorised token still rejected before any lock or write', () => {
   assert.strictEqual(r.authError, true);
   assert.strictEqual(env.lockCalls.waits, 0);
   assert.strictEqual(env.writes.count, 0);
+});
+
+test('token issued for a different Google client (wrong audience) is rejected', () => {
+  const env = makeEnv();
+  env.sandbox.UrlFetchApp.fetch = () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ email_verified: 'true', email: EMAIL, aud: 'some-other-client.apps.googleusercontent.com', exp: '9999999999' }) });
+  const r = post(env, 'deleteBudgetItem', { sheetName: 'Real Month', row: 5 });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.authError, true);
+  assert.strictEqual(env.writes.count, 0);
+});
+
+// ---------- Timestamp storage (one script property per month, capped at ~9KB) ----------
+const tsMap = (env, sheet) => JSON.parse(env.props['PF_TS_' + sheet] || '{}');
+const record = (env, sheet, acct, row, ts) => vm.runInContext('recordServerTimestamp_', env.sandbox)(sheet, acct, row, ts);
+
+test('timestamps: a busy month keeps recording past the 9KB property limit', () => {
+  const env = makeEnv();
+  for (let i = 1; i <= 700; i++) record(env, 'Real Month', 'checking', i, 1000 + i);
+  const map = tsMap(env, 'Real Month');
+  assert.ok((env.props['PF_TS_Real Month'] || '').length <= 9216, 'property exceeded the size limit');
+  assert.ok(map['checking|700'] === 1700, 'newest timestamp was not recorded');
+  assert.ok(map['checking|699'] === 1699, 'recent timestamp was lost');
+});
+
+test('timestamps: when full, the oldest entries are dropped first', () => {
+  const env = makeEnv();
+  for (let i = 1; i <= 700; i++) record(env, 'Real Month', 'checking', i, 1000 + i);
+  const map = tsMap(env, 'Real Month');
+  assert.ok(!('checking|1' in map), 'oldest entry should have been dropped');
+  assert.ok(Object.keys(map).length > 100, 'should still hold plenty of recent entries');
+});
+
+test('timestamps: deleting a transaction removes its timestamp', () => {
+  const env = makeEnv();
+  record(env, 'Real Month', 'amex', 9, 5000);
+  record(env, 'Real Month', 'amex', 10, 5001);
+  const r = post(env, 'deleteTransactionRow', { sheetName: 'Real Month', acct: 'amex', row: 9 });
+  assert.strictEqual(r.ok, true, r.error);
+  const map = tsMap(env, 'Real Month');
+  assert.ok(!('amex|9' in map), 'deleted row kept a stale timestamp');
+  assert.strictEqual(map['amex|10'], 5001, 'other rows must be untouched');
+});
+
+test('timestamps: moving a transaction to another account removes the old timestamp', () => {
+  const env = makeEnv();
+  record(env, 'Real Month', 'amex', 9, 5000);
+  const r = post(env, 'editOrMoveTransaction', { sheetName: 'Real Month', oldAcct: 'amex', newAcct: 'barclays', row: 9, newDesc: 'x', newAmount: -1 });
+  assert.strictEqual(r.ok, true, r.error);
+  const map = tsMap(env, 'Real Month');
+  assert.ok(!('amex|9' in map), 'old position kept a stale timestamp');
+  assert.ok(Object.keys(map).some(k => k.startsWith('barclays|')), 'new position should have a timestamp');
+});
+
+test('timestamps: editing in place keeps its timestamp', () => {
+  const env = makeEnv();
+  record(env, 'Real Month', 'amex', 9, 5000);
+  const r = post(env, 'editOrMoveTransaction', { sheetName: 'Real Month', oldAcct: 'amex', newAcct: 'amex', row: 9, newDesc: 'x', newAmount: -1 });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.strictEqual(tsMap(env, 'Real Month')['amex|9'], 5000);
 });
 
 // ---------- report ----------
