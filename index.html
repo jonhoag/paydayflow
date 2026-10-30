@@ -22,7 +22,7 @@
       document.head.appendChild(s);
     }
   </script>
-  <link rel="stylesheet" href="tailwind.css?v=00bb3d466e" onerror="loadTailwindCdn()">
+  <link rel="stylesheet" href="tailwind.css?v=22506b7e29" onerror="loadTailwindCdn()">
   <!-- Fonts load without blocking the first paint; text uses the fallback font until Inter arrives. -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
@@ -44,7 +44,11 @@
     <div style="background:#111827; border:1px solid #1E293B; border-radius:20px; padding:32px 24px; max-width:360px; width:100%; box-shadow:0 20px 50px rgba(0,0,0,0.5);">
       <div style="width:52px; height:52px; border-radius:14px; background:rgba(16,185,129,0.15); color:#10B981; display:flex; align-items:center; justify-content:center; font-size:24px; margin:0 auto 16px;"><span data-icon="lock" data-class="w-6 h-6"></span></div>
       <h2 style="margin:0 0 8px; font-size:20px; font-weight:700;">PaydayFlow Locked</h2>
-      <p id="authLockMsg" style="margin:0 0 24px; font-size:13px; color:#94A3B8; line-height:1.5;">Sign in with your authorized Google account or Passkey to unlock your live ledger.</p>
+      <p id="authLockMsg" style="margin:0 0 24px; font-size:13px; color:#94A3B8; line-height:1.5;">Sign in with your authorized Google account to unlock your live ledger.</p>
+      <button id="passkeyUnlockBtn" onclick="unlockWithPasskey(false)" style="display:none; width:100%; min-height:52px; margin:0 0 16px; border:0; border-radius:14px; background:#10B981; color:#052E1F; font-size:15px; font-weight:700; align-items:center; justify-content:center; gap:10px; cursor:pointer;">
+        <span data-icon="fingerprint" data-class="w-6 h-6"></span><span id="passkeyUnlockLabel">Unlock with fingerprint</span>
+      </button>
+      <div id="passkeyOr" style="display:none; margin:0 0 14px; font-size:12px; color:#64748B;">or use Google</div>
       <div id="googleSignInBtn" style="display:flex; justify-content:center; min-height:44px;"></div>
     </div>
   </div>
@@ -86,6 +90,9 @@
     </div>
 
     <div class="space-y-2 pt-4 border-t border-slate-700/70">
+      <button id="sidePasskeyBtn" onclick="openPasskeyModal()" class="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium inline-flex items-center justify-center gap-1.5">
+        <span data-icon="fingerprint" data-class="w-3.5 h-3.5"></span> Fingerprint sign-in
+      </button>
       <button onclick="openNewMonthModal()" class="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium inline-flex items-center justify-center gap-1.5">
         <span data-icon="calendar_plus" data-class="w-3.5 h-3.5"></span> Start New Month
       </button>
@@ -130,6 +137,10 @@
               <span class="flex-1">Theme</span>
               <span id="themeMenuLabel" class="text-xs text-slate-500 dark:text-slate-400">Auto</span>
             </button>
+            <button id="menuPasskeyItem" onclick="openPasskeyModal()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+              <span data-icon="fingerprint" data-class="w-4 h-4"></span>
+              <span class="flex-1">Fingerprint sign-in</span>
+            </button>
             <button onclick="closeMenu(); openNewMonthModal()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
               <span data-icon="calendar_plus" data-class="w-4 h-4"></span>
               <span class="flex-1">Start new month</span>
@@ -150,6 +161,17 @@
       <button id="syncStatus" onclick="forceSyncSheet()" class="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 -mb-1 px-1">
         <span id="syncDot" class="w-1.5 h-1.5 rounded-full bg-slate-400"></span><span id="syncText">Showing saved data</span>
       </button>
+
+      <!-- One-time offer to turn on fingerprint sign-in (shown after a Google sign-in on a capable device) -->
+      <div id="passkeyOffer" class="hidden rounded-2xl p-3.5 bg-emerald-500/10 border border-emerald-500/25 flex items-center gap-3">
+        <span class="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 inline-flex items-center justify-center shrink-0"><span data-icon="fingerprint" data-class="w-5 h-5"></span></span>
+        <div class="min-w-0 flex-1">
+          <div class="text-xs font-bold text-slate-900 dark:text-white">Unlock faster with your fingerprint</div>
+          <div class="text-[11px] text-slate-500 dark:text-slate-400">Skip the Google sign-in pages next time.</div>
+        </div>
+        <button onclick="openPasskeyModal()" class="h-10 px-3 rounded-lg bg-emerald-500 text-slate-950 text-xs font-bold whitespace-nowrap">Set up</button>
+        <button onclick="dismissPasskeyOffer()" aria-label="Not now" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 text-lg font-bold">✕</button>
+      </div>
 
       <!-- 1. HERO BANNER AT VERY TOP: MONEY LEFT -->
       <section id="heroSection" class="rounded-2xl p-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-sm">
@@ -402,6 +424,28 @@
     </button>
   </nav>
 
+  <!-- FINGERPRINT SIGN-IN DIALOG -->
+  <div id="passkeyModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="fingerprint" data-class="w-4 h-4"></span>Fingerprint sign-in</h3>
+        <button onclick="closePasskeyModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+      </div>
+      <p id="pkStatus" class="text-xs text-slate-600 dark:text-slate-300"></p>
+      <div class="flex gap-2">
+        <button id="pkSetupBtn" onclick="runPasskeySetup()" class="hidden flex-1 h-11 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-bold disabled:opacity-50">Set up on this device</button>
+        <button id="pkTestBtn" onclick="testPasskey()" class="hidden flex-1 h-11 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-sm font-bold">Test it now</button>
+        <button id="pkOffBtn" onclick="removePasskeyDevice(localStorage.getItem(PASSKEY_ID_KEY))" class="hidden px-4 h-11 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 text-sm font-bold">Turn off</button>
+      </div>
+      <p id="pkMsg" class="hidden"></p>
+      <div>
+        <div class="text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">Devices with fingerprint sign-in</div>
+        <div id="pkDevices" class="divide-y divide-slate-100 dark:divide-slate-800/70"></div>
+      </div>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400">Your fingerprint never leaves your device. Signing in this way lasts 1 hour, and Google sign-in always still works. Adding a device needs a fresh Google sign-in.</p>
+    </div>
+  </div>
+
   <!-- MODAL 1: ADD SPEND OR REFUND / MONEY IN (+ DYNAMIC GROUP SPLIT BUILDER) -->
   <div id="addModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
@@ -627,6 +671,9 @@
     const ALLOWED_EMAIL = 'jonfhoag@gmail.com';
 const IS_GAS_ENV = (typeof google !== 'undefined' && google.script && google.script.run);
 const TOKEN_STORAGE_KEY = 'pf_google_id_token';
+const SESSION_STORAGE_KEY = 'pf_session';              // fingerprint sign-in session: { token, exp }
+const PASSKEY_ID_KEY = 'pf_passkey_cid';               // this device's fingerprint credential id
+const PASSKEY_OFFER_DISMISSED_KEY = 'pf_passkey_offer_dismissed';
 
 // ---- Line icons (replace emoji, which look different on every device) ----
 const ICON_PATHS = {
@@ -655,7 +702,8 @@ const ICON_PATHS = {
   lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
   chevron_down: '<path d="m6 9 6 6 6-6"/>',
-  chevron_up: '<path d="m6 15 6-6 6 6"/>'
+  chevron_up: '<path d="m6 15 6-6 6 6"/>',
+  fingerprint: '<path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"/><path d="M14 13.12c0 2.38 0 6.38-1 8.88"/><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"/><path d="M2 12a10 10 0 0 1 18-6"/><path d="M2 16h.01"/><path d="M21.8 16c.2-2 .131-5.354 0-6"/><path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"/><path d="M8.65 22c.21-.66.45-1.32.57-2"/><path d="M9 6.8a6 6 0 0 1 9 5.2v2"/>'
 };
 function icon(name, cls) {
   return '<svg class="' + (cls || 'w-4 h-4') + ' shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICON_PATHS[name] || '') + '</svg>';
@@ -686,8 +734,22 @@ function parseJwtPayload(token) {
   }
 }
 
-function hasValidToken() {
-  if (IS_GAS_ENV) return true;
+// A fingerprint sign-in session (from the server, ~12h) or a Google sign-in token (~1h) unlocks the app.
+function getSession() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null');
+    if (s && s.token && s.exp > Date.now() + 60000) return s;
+  } catch (e) {}
+  return null;
+}
+function saveSession(token, expiresAt) {
+  try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ token, exp: expiresAt })); } catch (e) {}
+}
+function clearSession() {
+  try { localStorage.removeItem(SESSION_STORAGE_KEY); } catch (e) {}
+}
+
+function hasValidGoogleToken() {
   const token = localStorage.getItem(TOKEN_STORAGE_KEY);
   if (!token) return false;
   const payload = parseJwtPayload(token);
@@ -697,16 +759,51 @@ function hasValidToken() {
   return emailOk && notExpired;
 }
 
-function showLockScreen(msg) {
+function hasValidToken() {
+  if (IS_GAS_ENV) return true;
+  return !!getSession() || hasValidGoogleToken();
+}
+
+// What to send with a request: the fingerprint session if there is one, otherwise the Google token.
+function getAuthFields() {
+  const s = getSession();
+  return s ? { session: s.token } : { idToken: localStorage.getItem(TOKEN_STORAGE_KEY) };
+}
+
+let passkeyAutoTried = false;
+function showLockScreen(msg, opts) {
   if (IS_GAS_ENV) return;
   const lockEl = document.getElementById('authLockScreen');
   const msgEl = document.getElementById('authLockMsg');
   if (msg && msgEl) {
     msgEl.textContent = msg;
-    msgEl.style.color = msg.indexOf('Access Denied') === 0 ? '#F87171' : '#94A3B8';
+    const isError = msg.indexOf('Access Denied') === 0 || msg.indexOf('Fingerprint') === 0;
+    msgEl.style.color = isError ? '#F87171' : '#94A3B8';
   }
   if (lockEl) lockEl.style.display = 'flex';
   initGoogleAuthButton();
+  updateLockPasskeyUi();
+  // If this device is set up for fingerprint sign-in, offer it straight away (once per page load).
+  if (!passkeyAutoTried && passkeyEnrolledHere() && !(opts && opts.noAuto) && document.visibilityState === 'visible') {
+    passkeyAutoTried = true;
+    unlockWithPasskey(true);
+  }
+}
+
+// Everything that happens once the user is in, whichever way they signed in.
+function afterSignIn(viaGoogle) {
+  passkeyAutoTried = false;   // if the session later expires while the app is open, prompt for the fingerprint again
+  initAppUi();
+  if (loadPhoneCache(activeMonth)) renderAll();
+  apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
+    .then(s => {
+      hideLockScreen();
+      applyServerState(s);
+      if (viaGoogle) onGoogleSignedIn();
+    })
+    .catch(err => {
+      showLockScreen('Access Denied: ' + err.message, { noAuto: true });
+    });
 }
 
 function hideLockScreen() {
@@ -736,16 +833,8 @@ function initGoogleAuthButton() {
         }
 
         localStorage.setItem(TOKEN_STORAGE_KEY, response.credential);
-        initAppUi();
-        if (loadPhoneCache(activeMonth)) renderAll();
-        apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
-          .then(s => {
-            hideLockScreen();
-            applyServerState(s);
-          })
-          .catch(err => {
-            showLockScreen('Access Denied: ' + err.message);
-          });
+        clearSession();   // a fresh Google sign-in replaces any older fingerprint session
+        afterSignIn(true);
       }
     },
     auto_select: true
@@ -764,11 +853,272 @@ function initGoogleAuthButton() {
   google.accounts.id.prompt();
 }
 
+// ================= FINGERPRINT (PASSKEY) SIGN-IN =================
+// Your device keeps a private key behind its fingerprint / face / screen lock. To unlock, the server sends a
+// random challenge, the device signs it after you verify yourself, and the server (which only holds the public
+// key) swaps the signature for a 1-hour session. Google sign-in stays as the fallback and is needed to add a device.
+function b64uToBytes(s) {
+  s = String(s).replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function bytesToB64u(buf) {
+  const b = new Uint8Array(buf);
+  let s = '';
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function passkeySupported() {
+  return !IS_GAS_ENV && window.isSecureContext && !!(window.PublicKeyCredential && navigator.credentials && navigator.credentials.create);
+}
+function passkeyEnrolledHere() {
+  return passkeySupported() && !!localStorage.getItem(PASSKEY_ID_KEY);
+}
+async function platformAuthenticatorAvailable() {
+  try { return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(); } catch (e) { return false; }
+}
+function deviceLabel() {
+  const ua = navigator.userAgent || '';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  const os = /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /iPhone|iPad/.test(ua) ? 'iOS' : /Mac OS/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : '';
+  return browser + (os ? ' on ' + os : '') + ' (' + new Date().toLocaleDateString('en-GB') + ')';
+}
+
+// Words for the person, not the browser, for the ways a fingerprint step can fail.
+function describePasskeyError(err, auto) {
+  const code = String((err && err.serverCode) || '');
+  if (code.indexOf('AUTH_PASSKEY_UNKNOWN') === 0) return { text: 'Fingerprint sign-in was turned off for this device. Sign in with Google to set it up again.', error: true, forget: true };
+  if (code.indexOf('AUTH_THROTTLED') === 0) return { text: 'Fingerprint sign-in is paused for a few minutes after too many tries. You can still sign in with Google.', error: true };
+  if (err && err.name === 'NotAllowedError') return auto ? { text: 'Tap "Unlock with fingerprint", or sign in with Google.', error: false } : { text: 'Fingerprint was cancelled or timed out. Try again, or sign in with Google.', error: true };
+  if (err && err.name === 'InvalidStateError') return { text: 'This device already has a fingerprint sign-in for PaydayFlow. Remove it in your password manager (or turn it off below) and try again.', error: true };
+  if (err && err.name === 'SecurityError') return { text: 'This page address does not match the fingerprint sign-in, so the browser blocked it.', error: true };
+  return { text: "Fingerprint sign-in didn't work (" + ((err && err.message) || 'unknown error') + '). You can sign in with Google instead.', error: true };
+}
+
+function updateLockPasskeyUi() {
+  const show = passkeyEnrolledHere();
+  const btn = document.getElementById('passkeyUnlockBtn');
+  const or = document.getElementById('passkeyOr');
+  if (btn) btn.style.display = show ? 'flex' : 'none';
+  if (or) or.style.display = show ? 'block' : 'none';
+}
+
+// Begin -> the browser's fingerprint prompt -> finish. Resolves with { session, expiresAt }.
+async function passkeyLoginRoundTrip() {
+  const cid = localStorage.getItem(PASSKEY_ID_KEY);
+  const begin = await postToServer({ action: 'passkeyLoginBegin', payload: { credentialId: cid } });
+  if (!begin.ok) throw Object.assign(new Error(begin.error || 'Sign-in failed'), { serverCode: begin.error });
+  const cred = await navigator.credentials.get({ publicKey: {
+    challenge: b64uToBytes(begin.data.challenge),
+    rpId: begin.data.rpId,
+    userVerification: 'required',
+    timeout: begin.data.timeoutMs,
+    allowCredentials: [{ type: 'public-key', id: b64uToBytes(cid) }]
+  } });
+  const r = cred.response;
+  const fin = await postToServer({ action: 'passkeyLoginFinish', payload: {
+    credentialId: bytesToB64u(cred.rawId),
+    clientDataJSON: bytesToB64u(r.clientDataJSON),
+    authenticatorData: bytesToB64u(r.authenticatorData),
+    signature: bytesToB64u(r.signature)
+  } });
+  if (!fin.ok) throw Object.assign(new Error(fin.error || 'Sign-in failed'), { serverCode: fin.error });
+  return fin.data;
+}
+
+let passkeyBusy = false;
+async function unlockWithPasskey(auto) {
+  if (passkeyBusy || !passkeyEnrolledHere()) return;
+  passkeyBusy = true;
+  const label = document.getElementById('passkeyUnlockLabel');
+  const msgEl = document.getElementById('authLockMsg');
+  if (label) label.textContent = 'Waiting for fingerprint…';
+  try {
+    const s = await passkeyLoginRoundTrip();
+    saveSession(s.session, s.expiresAt);
+    afterSignIn(false);
+  } catch (err) {
+    const d = describePasskeyError(err, auto);
+    if (d.forget) { localStorage.removeItem(PASSKEY_ID_KEY); updateLockPasskeyUi(); }
+    if (msgEl) { msgEl.textContent = d.text; msgEl.style.color = d.error ? '#F87171' : '#94A3B8'; }
+  } finally {
+    if (label) label.textContent = 'Unlock with fingerprint';
+    passkeyBusy = false;
+  }
+}
+
+// Adding a device always needs a fresh Google sign-in. Returns false if it had to ask for one first.
+let pendingPasskeySetup = false;
+async function setUpPasskey() {
+  if (!passkeySupported()) throw new Error("This browser can't use fingerprint sign-in.");
+  if (!(await platformAuthenticatorAvailable())) throw new Error('This device has no fingerprint, face or screen lock set up.');
+  if (!hasValidGoogleToken()) {
+    pendingPasskeySetup = true;
+    clearSession();
+    closePasskeyModal();
+    showLockScreen('Sign in with Google to set up fingerprint on this device.', { noAuto: true });
+    return false;
+  }
+  const begin = await apiCall('passkeyRegisterBegin', {}, { needGoogle: true });
+  const cred = await navigator.credentials.create({ publicKey: {
+    rp: { id: begin.rpId, name: begin.rpName },
+    user: { id: b64uToBytes(begin.userId), name: begin.userName, displayName: 'PaydayFlow' },
+    challenge: b64uToBytes(begin.challenge),
+    pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+    excludeCredentials: (begin.excludeCredentialIds || []).map(id => ({ type: 'public-key', id: b64uToBytes(id) })),
+    authenticatorSelection: { authenticatorAttachment: 'platform', residentKey: 'preferred', userVerification: 'required' },
+    attestation: 'none',
+    timeout: begin.timeoutMs
+  } });
+  const out = await apiCall('passkeyRegisterFinish', {
+    credentialId: bytesToB64u(cred.rawId),
+    clientDataJSON: bytesToB64u(cred.response.clientDataJSON),
+    attestationObject: bytesToB64u(cred.response.attestationObject),
+    label: deviceLabel()
+  }, { needGoogle: true });
+  localStorage.setItem(PASSKEY_ID_KEY, out.credentialId);
+  return true;
+}
+
+// After a Google sign-in: finish a set-up that was waiting for it, otherwise offer fingerprint once.
+function onGoogleSignedIn() {
+  if (pendingPasskeySetup) {
+    pendingPasskeySetup = false;
+    openPasskeyModal('Signed in. Tap "Set up on this device" to finish.');
+    return;
+  }
+  maybeOfferPasskey();
+}
+async function maybeOfferPasskey() {
+  if (!passkeySupported() || passkeyEnrolledHere() || localStorage.getItem(PASSKEY_OFFER_DISMISSED_KEY)) return;
+  if (!(await platformAuthenticatorAvailable())) return;
+  document.getElementById('passkeyOffer').classList.remove('hidden');
+}
+function dismissPasskeyOffer() {
+  try { localStorage.setItem(PASSKEY_OFFER_DISMISSED_KEY, '1'); } catch (e) {}
+  document.getElementById('passkeyOffer').classList.add('hidden');
+}
+
+// ---- the "Fingerprint sign-in" dialog ----
+let pkConfirmId = null, pkConfirmTimer = null;
+function setPkMessage(text, kind) {
+  const el = document.getElementById('pkMsg');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = text ? 'text-xs rounded-xl px-3 py-2 ' + (kind === 'error' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400' : kind === 'ok' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300') : 'hidden';
+}
+function renderPasskeyModal() {
+  const here = passkeyEnrolledHere();
+  const supported = passkeySupported();
+  document.getElementById('pkStatus').textContent = !supported ? "This browser can't use fingerprint sign-in."
+    : here ? 'Fingerprint sign-in is on for this device.' : 'Fingerprint sign-in is off for this device.';
+  document.getElementById('pkSetupBtn').classList.toggle('hidden', !supported || here);
+  document.getElementById('pkTestBtn').classList.toggle('hidden', !here);
+  document.getElementById('pkOffBtn').classList.toggle('hidden', !here);
+  document.getElementById('pkOffBtn').textContent = pkConfirmId && pkConfirmId === localStorage.getItem(PASSKEY_ID_KEY) ? 'Tap again to turn off' : 'Turn off';
+}
+async function refreshPasskeyDevices() {
+  const list = document.getElementById('pkDevices');
+  list.innerHTML = '<div class="py-3 text-xs text-slate-500 dark:text-slate-400">Loading…</div>';
+  try {
+    const r = await apiCall('passkeyList', {});
+    const mine = localStorage.getItem(PASSKEY_ID_KEY);
+    list.innerHTML = r.passkeys.length ? r.passkeys.map(d => `
+      <div class="py-2 flex items-center justify-between gap-2 text-xs">
+        <div class="min-w-0">
+          <div class="font-medium text-slate-800 dark:text-slate-100 truncate">${esc(d.label)}${d.id === mine ? ' <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">this device</span>' : ''}</div>
+          <div class="text-[11px] text-slate-500 dark:text-slate-400">Added ${esc(new Date(d.created).toLocaleDateString('en-GB'))}${d.lastUsed ? ' · last used ' + esc(relTime(new Date(d.lastUsed).getTime())) : ''}</div>
+        </div>
+        <button onclick="removePasskeyDevice('${esc(d.id)}')" class="h-10 px-3 rounded-lg text-[11px] font-semibold ${pkConfirmId === d.id ? 'bg-rose-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}">${pkConfirmId === d.id ? 'Tap again' : 'Remove'}</button>
+      </div>`).join('') : '<div class="py-3 text-xs text-slate-500 dark:text-slate-400">No devices yet.</div>';
+  } catch (err) {
+    list.innerHTML = '<div class="py-3 text-xs text-slate-500 dark:text-slate-400">Couldn\'t load the device list. Sign in again to see it.</div>';
+  }
+}
+function openPasskeyModal(note) {
+  closeMenu();
+  document.getElementById('passkeyModal').classList.remove('hidden');
+  setPkMessage(note || '', 'info');
+  renderPasskeyModal();
+  refreshPasskeyDevices();
+}
+function closePasskeyModal() {
+  document.getElementById('passkeyModal').classList.add('hidden');
+  pkConfirmId = null;
+}
+async function runPasskeySetup() {
+  const btn = document.getElementById('pkSetupBtn');
+  btn.disabled = true;
+  setPkMessage('Follow your phone\'s prompt to confirm…', 'info');
+  try {
+    const done = await setUpPasskey();
+    if (done) {
+      document.getElementById('passkeyOffer').classList.add('hidden');
+      setPkMessage('Set up! Tap "Test it now" to try it.', 'ok');
+      renderPasskeyModal();
+      refreshPasskeyDevices();
+    }
+  } catch (err) {
+    setPkMessage(describePasskeyError(err, false).text, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+async function testPasskey() {
+  setPkMessage('Follow your phone\'s prompt…', 'info');
+  try {
+    const s = await passkeyLoginRoundTrip();
+    saveSession(s.session, s.expiresAt);
+    setPkMessage('It works. Next time the app locks, just use your fingerprint.', 'ok');
+    refreshPasskeyDevices();
+  } catch (err) {
+    const d = describePasskeyError(err, false);
+    if (d.forget) { localStorage.removeItem(PASSKEY_ID_KEY); renderPasskeyModal(); }
+    setPkMessage(d.text, 'error');
+  }
+}
+// Two taps to remove: the first arms the button for a few seconds.
+async function removePasskeyDevice(id, fromTurnOff) {
+  if (!id) return;
+  if (pkConfirmId !== id) {
+    pkConfirmId = id;
+    clearTimeout(pkConfirmTimer);
+    pkConfirmTimer = setTimeout(() => { pkConfirmId = null; renderPasskeyModal(); refreshPasskeyDevices(); }, 4000);
+    renderPasskeyModal();
+    refreshPasskeyDevices();
+    return;
+  }
+  clearTimeout(pkConfirmTimer);
+  pkConfirmId = null;
+  try {
+    await apiCall('passkeyRemove', { credentialId: id });
+    if (id === localStorage.getItem(PASSKEY_ID_KEY)) {
+      // Removing this device ends its own session, so if no Google sign-in is still active we must sign in again.
+      localStorage.removeItem(PASSKEY_ID_KEY);
+      clearSession();
+      if (!hasValidGoogleToken()) {
+        closePasskeyModal();
+        showLockScreen('Fingerprint sign-in is off. Sign in with Google to continue.', { noAuto: true });
+        return;
+      }
+    }
+    setPkMessage('Removed.', 'ok');
+  } catch (err) {
+    setPkMessage("Couldn't remove it: " + err.message, 'error');
+  }
+  renderPasskeyModal();
+  refreshPasskeyDevices();
+}
+
     // Requests go to the server strictly one at a time. Apps Script can answer two quick requests out of
     // order, and a late, older reply would otherwise overwrite newer screen state.
     let apiQueue = Promise.resolve();
-    function apiCall(action, payload = {}) {
-      const run = () => apiCallNow(action, payload);
+    function apiCall(action, payload = {}, opts = {}) {
+      const run = () => apiCallNow(action, payload, opts);
       apiInflight++;
       updateSyncUi();
       const p = apiQueue.then(run, run);
@@ -780,7 +1130,7 @@ function initGoogleAuthButton() {
       return p;
     }
 
-    async function apiCallNow(action, payload = {}) {
+    async function apiCallNow(action, payload = {}, opts = {}) {
       // Mode 1: Running inside Google Apps Script UAT iframe
       if (IS_GAS_ENV) {
         return new Promise((resolve, reject) => {
@@ -805,12 +1155,30 @@ function initGoogleAuthButton() {
       }
 
       // Mode 2: Running externally on https://jonhoag.co.uk
-  if (!hasValidToken()) {
-    showLockScreen('Session expired. Please tap below to unlock.');
+  // `needGoogle` is for adding a fingerprint device, which always needs a fresh Google sign-in.
+  const needGoogle = !!opts.needGoogle;
+  if (needGoogle ? !hasValidGoogleToken() : !hasValidToken()) {
+    showLockScreen(needGoogle ? 'Sign in with Google to continue.' : 'Session expired. Please tap below to unlock.', needGoogle ? { noAuto: true } : undefined);
     throw new Error('Authentication required');
   }
 
-  const idToken = localStorage.getItem(TOKEN_STORAGE_KEY);
+  const auth = needGoogle ? { idToken: localStorage.getItem(TOKEN_STORAGE_KEY) } : getAuthFields();
+  const json = await postToServer({ action, payload, ...auth });
+
+  if (!json.ok) {
+    if (json.authError) {
+      const usedSession = !!auth.session;
+      if (usedSession) clearSession(); else localStorage.removeItem(TOKEN_STORAGE_KEY);
+      // An expired fingerprint session is normal: go straight back to the fingerprint prompt.
+      showLockScreen(usedSession ? 'Session ended. Unlock to continue.' : (json.error || 'Unauthorized account.'), usedSession ? undefined : { noAuto: true });
+    }
+    throw new Error(json.error || 'API request failed');
+  }
+  return json.data;
+}
+
+// One POST to the Apps Script web app; resolves with the parsed { ok, data | error, authError } reply.
+async function postToServer(bodyObj) {
   // Give up after 45s so one stuck request can't block every request queued behind it.
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), 45000);
@@ -820,7 +1188,7 @@ function initGoogleAuthButton() {
       method: 'POST',
       redirect: 'follow',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action, payload, idToken }),
+      body: JSON.stringify(bodyObj),
       signal: abort.signal
     });
     rawText = await res.text();
@@ -829,21 +1197,11 @@ function initGoogleAuthButton() {
   } finally {
     clearTimeout(timer);
   }
-  let json;
   try {
-    json = JSON.parse(rawText);
+    return JSON.parse(rawText);
   } catch (e) {
     throw new Error('Server returned non-JSON (' + rawText.slice(0, 60) + '). Check that APPS_SCRIPT_EXEC_URL matches your "Anyone" deployment.');
   }
-
-  if (!json.ok) {
-    if (json.authError) {
-      localStorage.removeItem(TOKEN_STORAGE_KEY);
-      showLockScreen(json.error || 'Unauthorized account.');
-    }
-    throw new Error(json.error || 'API request failed');
-  }
-  return json.data;
 }
 
     function getBankLogo(acct, sizeCls = 'w-7 h-7') {
@@ -2017,6 +2375,9 @@ function initGoogleAuthButton() {
     function startApp() {
       hydrateIcons();
       document.body.dataset.view = 'home';
+      if (!passkeySupported()) {   // e.g. inside Apps Script, or a browser without WebAuthn
+        ['menuPasskeyItem', 'sidePasskeyBtn'].forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('hidden'); });
+      }
       // If on jonhoag.co.uk without a valid token, stop here and show Lock Screen
       if (!IS_GAS_ENV && !hasValidToken()) {
         showLockScreen();
