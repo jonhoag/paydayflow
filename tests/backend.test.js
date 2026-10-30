@@ -1,75 +1,9 @@
 // Backend tests: loads Code.js into a sandbox with fake Apps Script services.
 // Run: node tests/backend.test.js
-const fs = require('fs');
-const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const CLIENT_ID = '1074590107449-b3clq41r6un84qma18lomq7ip2f833pk.apps.googleusercontent.com';
-const EMAIL = 'jonfhoag@gmail.com';
-const code = fs.readFileSync(path.join(__dirname, '..', 'Code.js'), 'utf8');
-
-function makeEnv() {
-  const log = [];            // ordered events: 'lock:wait', 'write', 'lock:release', ...
-  const writes = { count: 0 };
-
-  const blankRows = (n, c) => Array.from({ length: n }, () => Array(c).fill(''));
-  const range = {
-    getValues: () => blankRows(80, 20),
-    getNotes: () => Array.from({ length: 80 }, () => ['']),
-    getValue: () => '',
-  };
-  ['setValue', 'setNote', 'clearNote', 'setFontFamily', 'setFontSize', 'setFontWeight',
-    'setBackground', 'setFontColor', 'setNumberFormat', 'clearContent'].forEach(m => {
-    range[m] = () => { writes.count++; log.push('write'); return range; };
-  });
-  const mkSheet = name => ({
-    getName: () => name, getLastRow: () => 80, getLastColumn: () => 20, getSheetId: () => 1,
-    getRange: () => range, getMaxRows: () => 180, getMaxColumns: () => 20,
-    deleteRows() {}, deleteColumns() {}, setName() {}, copyTo() { return mkSheet('copy'); },
-  });
-  const sheets = [mkSheet('Real Month')];
-  const ss = {
-    getSheets: () => sheets,
-    getSheetByName: n => sheets.find(s => s.getName() === n) || null,
-    getUrl: () => 'https://example/sheet',
-    setActiveSheet() {}, moveActiveSheet() {},
-  };
-
-  const props = {};
-  const cacheStore = {};
-  const lockCalls = { waits: 0, releases: 0 };
-  const sandbox = {
-    console,
-    SpreadsheetApp: { getActiveSpreadsheet: () => ss, flush() {} },
-    CacheService: { getScriptCache: () => ({
-      get: k => cacheStore[k] || null, put: (k, v) => { cacheStore[k] = v; }, remove: k => { delete cacheStore[k]; } }) },
-    // Like the real service, refuse values over ~9KB.
-    PropertiesService: { getScriptProperties: () => ({
-      getProperty: k => props[k] || null,
-      setProperty: (k, v) => {
-        if (String(v).length > 9216) throw new Error('Argument too large: value');
-        props[k] = v;
-      } }) },
-    LockService: { getScriptLock: () => ({
-      waitLock: () => { lockCalls.waits++; log.push('lock:wait'); },
-      releaseLock: () => { lockCalls.releases++; log.push('lock:release'); } }) },
-    ContentService: {
-      MimeType: { JSON: 'json', TEXT: 'text' },
-      createTextOutput: s => ({ content: s, setMimeType() { return this; } }) },
-    Session: { getActiveUser: () => ({ getEmail: () => EMAIL }), getScriptTimeZone: () => 'Europe/London' },
-    Utilities: {
-      DigestAlgorithm: { SHA_256: 'sha256' }, computeDigest: () => [1, 2, 3],
-      base64EncodeWebSafe: () => 'abcdefghijklmnopqrstuvwxyz0123456789', formatDate: () => '000000' },
-    UrlFetchApp: { fetch: () => ({
-      getResponseCode: () => 200,
-      getContentText: () => JSON.stringify({ email_verified: 'true', email: EMAIL, aud: CLIENT_ID, exp: String(Math.floor(Date.now() / 1000) + 600) }) }) },
-    HtmlService: {},
-  };
-  vm.createContext(sandbox);
-  vm.runInContext(code, sandbox);
-  return { sandbox, log, writes, lockCalls, props };
-}
+const { makeEnv, CLIENT_ID, EMAIL } = require('./mock-apps-script');
 
 function post(env, action, payload) {
   const res = vm.runInContext('doPost', env.sandbox)({ postData: { contents: JSON.stringify({ action, payload, idToken: 'tok' }) } });
