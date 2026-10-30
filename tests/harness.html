@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>PaydayFlow test harness</title></head>
+<body>
+<script>
+// Loads the real ../index.html with a mocked Apps Script backend and a mocked Google sign-in.
+// Query params: ?token=none  -> start signed out (expired token)
+//               ?latency=400 -> mock server delay in ms (default 300)
+(function () {
+  const q = new URLSearchParams(location.search);
+  const b64 = o => btoa(JSON.stringify(o)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const makeToken = (email, ttl) => 'h.' + b64({ email, exp: Math.floor(Date.now() / 1000) + (ttl || 3600) }) + '.s';
+
+  // ---------- mock sheet ----------
+  const MONTH = 'Test Payday 2026';
+  const db = {
+    checking: [{ row: 4, desc: 'start', amount: 1000, need: false }, { row: 5, desc: 'paycheck', amount: 2000, need: false }],
+    amex: [{ row: 4, desc: 'start', amount: 0 }],
+    barclays: [{ row: 4, desc: 'start', amount: 0 }],
+    marcus: [{ row: 4, desc: 'start', amount: 500 }],
+    budgets: [{ row: 4, name: 'mortgage', amount: -800, originalBudget: -800, isRecurring: true }]
+  };
+  const sum = a => +a.reduce((t, x) => t + Number(x.amount || 0), 0).toFixed(2);
+  const rev = (arr, acct) => arr.slice().reverse().map(r => ({ ...r, acct }));
+  function snapshot() {
+    const nCA = sum(db.checking), amex = sum(db.amex), barclays = sum(db.barclays);
+    const budgetRem = sum(db.budgets);
+    return {
+      sheetUrl: '#', availableMonths: [MONTH], activeMonth: MONTH,
+      checking: rev(db.checking, 'checking'), marcus: rev(db.marcus, 'marcus'),
+      barclays: rev(db.barclays, 'barclays'), amex: rev(db.amex, 'amex'),
+      budgets: JSON.parse(JSON.stringify(db.budgets)),
+      summary: { nCA, mSAV: sum(db.marcus), amex, barclays, budgetRem, checkingExpected: +(nCA + budgetRem).toFixed(2), eomSavingsJ: +(nCA + budgetRem + amex + barclays).toFixed(2) }
+    };
+  }
+  const nextRow = arr => Math.max(3, ...arr.map(r => r.row)) + 1;
+
+  const MOCK = window.MOCK = {
+    latency: Number(q.get('latency') || 300),
+    failNext: 0,          // number of upcoming write calls that should fail
+    calls: [],            // log of { action, payload, at }
+    db, snapshot, MONTH,
+    makeToken,
+    gsiCallback: null
+  };
+
+  const handlers = {
+    getCachedSheetState: () => snapshot(),
+    addTransactionBundle: p => {
+      const arr = db[p.account];
+      arr.push({ row: nextRow(arr), desc: p.merchant, amount: p.isRefund ? Math.abs(p.grossAmount) : -Math.abs(p.grossAmount), need: false });
+      (p.splits || []).forEach(s => db.checking.push({ row: nextRow(db.checking), desc: s.person + ' ' + p.merchant, amount: s.amount, need: !!s.need }));
+      return snapshot();
+    },
+    editOrMoveTransaction: p => {
+      const it = db[p.oldAcct].find(r => r.row === Number(p.row));
+      if (it) { it.desc = p.newDesc; it.amount = p.newAmount; }
+      return snapshot();
+    },
+    deleteTransactionRow: p => {
+      const i = db[p.acct].findIndex(r => r.row === Number(p.row));
+      if (i > -1) db[p.acct].splice(i, 1);
+      return snapshot();
+    },
+    toggleNeedFlag: p => { const it = db.checking.find(r => r.row === Number(p.row)); if (it) it.need = !!p.setNeed; return snapshot(); },
+    settleAllNeeds: p => { db.checking.forEach(r => { if ((p.rows || []).includes(r.row)) r.need = false; }); return snapshot(); },
+    updateBudgetRow: p => { const it = db.budgets.find(b => b.row === Number(p.row)); if (it) it.amount = Number(p.newAmount); return snapshot(); },
+    saveBudgetItem: p => {
+      if (p.row) { const it = db.budgets.find(b => b.row === Number(p.row)); if (it) Object.assign(it, { name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring }); }
+      else db.budgets.push({ row: nextRow(db.budgets), name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring });
+      return snapshot();
+    },
+    deleteBudgetItem: p => { const i = db.budgets.findIndex(b => b.row === Number(p.row)); if (i > -1) db.budgets.splice(i, 1); return snapshot(); }
+  };
+
+  window.fetch = async function (url, opts) {
+    const body = JSON.parse(opts.body);
+    MOCK.calls.push({ action: body.action, payload: body.payload, at: Date.now() });
+    await new Promise(r => setTimeout(r, MOCK.latency));
+    const isWrite = body.action !== 'getCachedSheetState';
+    if (isWrite && MOCK.failNext > 0) {
+      MOCK.failNext--;
+      return { text: async () => JSON.stringify({ ok: false, error: 'Mock server failure' }) };
+    }
+    const fn = handlers[body.action];
+    if (!fn) return { text: async () => JSON.stringify({ ok: false, error: 'Unknown action ' + body.action }) };
+    return { text: async () => JSON.stringify({ ok: true, data: fn(body.payload || {}) }) };
+  };
+
+  // ---------- mock Google Identity Services ----------
+  window.google = { accounts: { id: {
+    initialize: cfg => { MOCK.gsiCallback = cfg.callback; },
+    renderButton: () => {}, prompt: () => {}, disableAutoSelect: () => {}
+  } } };
+
+  // ---------- sign-in state ----------
+  try {
+    localStorage.clear();
+    if (q.get('token') !== 'none') localStorage.setItem('pf_google_id_token', makeToken('jonfhoag@gmail.com'));
+  } catch (e) {}
+})();
+</script>
+<script>
+// Separate block so the mock fetch above is already installed; we need the REAL fetch to read index.html.
+(async function () {
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', '/index.html', false);
+  xhr.send();
+  let html = xhr.responseText;
+  // Drop external scripts (Google sign-in is mocked; Tailwind is cosmetic only).
+  html = html.replace(/<script src="https:\/\/accounts\.google\.com[^>]*><\/script>/, '');
+  html = html.replace(/<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/, '');
+  html = html.replace(/<script>\s*tailwind\.config[^<]*<\/script>/, '');
+  document.open(); document.write(html); document.close();
+})();
+</script>
+</body>
+</html>

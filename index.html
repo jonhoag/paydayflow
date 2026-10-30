@@ -572,6 +572,8 @@
     </div>
   </div>
 
+  <div id="toast" class="hidden fixed left-1/2 -translate-x-1/2 bottom-24 lg:bottom-6 z-[100000] max-w-sm w-[90%] px-4 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-medium shadow-lg text-center"></div>
+
   <script>
     const APPS_SCRIPT_EXEC_URL = 'https://script.google.com/macros/s/AKfycbwiuLsruSCA-k2EeMn8bH6AZygi0ISA2WDTB_UJmetDOJdU6S4qLE21WmjyJK1ktCMrUA/exec';
     const GOOGLE_CLIENT_ID = '1074590107449-b3clq41r6un84qma18lomq7ip2f833pk.apps.googleusercontent.com';
@@ -647,6 +649,7 @@ function initGoogleAuthButton() {
         }
 
         localStorage.setItem(TOKEN_STORAGE_KEY, response.credential);
+        initAppUi();
         if (loadPhoneCache(activeMonth)) renderAll();
         apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
           .then(s => {
@@ -922,6 +925,25 @@ function initGoogleAuthButton() {
       renderAll();
     }
 
+    let toastTimer = null;
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      if (!el) return;
+      el.textContent = msg;
+      el.classList.remove('hidden');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.add('hidden'), 6000);
+    }
+
+    // A save failed: say so, then reload the real sheet state so the screen never silently disagrees with it.
+    function handleSaveError(what, err) {
+      console.error(what + ' error:', err);
+      showToast("Couldn't save " + what + ' - refreshing from your sheet.');
+      apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
+        .then(applyServerState)
+        .catch(e => console.error('Resync after failed save also failed:', e));
+    }
+
     function recomputeSummary() {
       const s = state.summary;
       s.budgetRem = +state.budgets
@@ -1019,13 +1041,13 @@ function initGoogleAuthButton() {
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
               <span class="font-mono font-bold whitespace-nowrap ${b.amount < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'}">${b.amount > 0 ? '+' : ''}${fmtGBP(b.amount)}</span>
-              <button onclick="openBudgetForm(${b.row}, '${b.name.replace(/'/g, "\\'")}', ${b.amount}, ${b.isRecurring})"
+              ${b.pending ? '<span class="text-[11px] text-slate-400">saving…</span>' : `<button onclick="openBudgetForm(${b.row}, '${b.name.replace(/'/g, "\\'")}', ${b.amount}, ${b.isRecurring})"
                       class="px-1.5 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-white">✎</button>
               <button onclick="markBudgetPaid(${b.row}, 0, ${b.amount}, ${b.isRecurring})"
                       class="px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap">
                 Paid ✓
               </button>
-              <button onclick="removeBudgetRow(${b.row})" title="Delete" class="text-slate-400 hover:text-rose-500 px-1">✕</button>
+              <button onclick="removeBudgetRow(${b.row})" title="Delete" class="text-slate-400 hover:text-rose-500 px-1">✕</button>`}
             </div>
           </div>
         `;
@@ -1085,7 +1107,8 @@ function initGoogleAuthButton() {
           name,
           amount: signedAmt,
           originalBudget: signedAmt,
-          isRecurring: budFormIsRecurring
+          isRecurring: budFormIsRecurring,
+          pending: true
         });
       }
       closeBudgetForm();
@@ -1099,7 +1122,7 @@ function initGoogleAuthButton() {
           name,
           amount: signedAmt,
           isRecurring: budFormIsRecurring
-        }).then(applyServerState);
+        }).then(applyServerState).catch(err => handleSaveError('the bill', err));
       } else if (typeof google !== 'undefined' && google.script && google.script.run) {
         google.script.run.withSuccessHandler(applyServerState).saveBudgetItem(activeMonth, row || null, name, signedAmt, budFormIsRecurring);
       }
@@ -1113,7 +1136,7 @@ function initGoogleAuthButton() {
       
       apiCall('deleteBudgetItem', { sheetName: activeMonth, row })
         .then(applyServerState)
-        .catch(console.error);
+        .catch(err => handleSaveError('the bill deletion', err));
     }
 
     function markBudgetPaid(row, newAmt, origAmt, isRec) {
@@ -1127,7 +1150,7 @@ function initGoogleAuthButton() {
 
       apiCall('updateBudgetRow', { sheetName: activeMonth, row, newAmount: newAmt, originalBudget: origAmt })
         .then(applyServerState)
-        .catch(console.error);
+        .catch(err => handleSaveError('the bill update', err));
     }
 
     // ================= TO SETTLE & SPLITS PANEL =================
@@ -1171,10 +1194,12 @@ function initGoogleAuthButton() {
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <span class="font-mono font-bold ${amtColor} whitespace-nowrap">${signPrefix}${fmtGBP(r.amount)}</span>
-              <button onclick="toggleSplitNeed(${r.row}, false)"
+              ${r.pending
+                ? '<span class="text-[11px] text-slate-400">saving…</span>'
+                : `<button onclick="toggleSplitNeed(${r.row}, false)"
                       class="px-2.5 py-1 rounded-md bg-sky-500 text-slate-950 font-semibold whitespace-nowrap">
                 Settle ✓
-              </button>
+              </button>`}
             </div>
           </div>
         `;
@@ -1203,7 +1228,7 @@ function initGoogleAuthButton() {
       renderAll();
       apiCall('toggleNeedFlag', { sheetName: activeMonth, row, setNeed })
         .then(applyServerState)
-        .catch(err => console.error('Toggle need error:', err));
+        .catch(err => handleSaveError('the settle change', err));
     }
 
     function handleSettleAll() {
@@ -1213,7 +1238,7 @@ function initGoogleAuthButton() {
       renderAll();
       apiCall('settleAllNeeds', { sheetName: activeMonth, rows })
         .then(applyServerState)
-        .catch(err => console.error('Settle all error:', err));
+        .catch(err => handleSaveError('Settle All', err));
     }
 
     // ================= TRANSACTIONS & INTERLEAVED FEED =================
@@ -1260,15 +1285,15 @@ function initGoogleAuthButton() {
 
       const filtered = list.filter(r => r.desc.toLowerCase().includes(q));
       document.getElementById('txListContainer').innerHTML = filtered.map(r => `
-        <div onclick="openEditTxModal('${r.acct}', ${r.row}, '${r.desc.replace(/'/g, "\\'")}', ${r.amount})"
-             class="py-2 px-1.5 -mx-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60 flex items-center justify-between gap-2 text-xs cursor-pointer transition">
+        <div ${r.pending ? '' : `onclick="openEditTxModal('${r.acct}', ${r.row}, '${r.desc.replace(/'/g, "\\'")}', ${r.amount})"`}
+             class="py-2 px-1.5 -mx-1.5 rounded-lg flex items-center justify-between gap-2 text-xs transition ${r.pending ? 'opacity-60' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer'}">
           <div class="flex items-center gap-2.5 min-w-0">
             ${getBankLogo(r.acct, 'w-6 h-6')}
             <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${r.desc}</span>
           </div>
           <div class="flex items-center gap-2 shrink-0">
             <span class="font-mono font-semibold whitespace-nowrap ${r.amount < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'}">${r.amount > 0 ? '+' : ''}${fmtGBP(r.amount)}</span>
-            <span class="text-slate-400 text-[11px]">✎</span>
+            <span class="text-slate-400 text-[11px]">${r.pending ? 'saving…' : '✎'}</span>
           </div>
         </div>
       `).join('');
@@ -1484,19 +1509,19 @@ function initGoogleAuthButton() {
       const splitSign = isRefund ? -1 : 1;
       recordLocalTimestamp(formAcct, merchant, primarySigned);
 
-      if (formAcct === 'amex') { state.amex.unshift({ row: 99, acct: 'amex', desc: merchant, amount: primarySigned, clientTs: now, relOrder: 0 }); state.summary.amex += primarySigned; }
-      if (formAcct === 'barclays') { state.barclays.unshift({ row: 99, acct: 'barclays', desc: merchant, amount: primarySigned, clientTs: now, relOrder: 0 }); state.summary.barclays += primarySigned; }
-      if (formAcct === 'checking') { state.checking.unshift({ row: 99, acct: 'checking', desc: merchant, amount: primarySigned, need: false, clientTs: now, relOrder: 0 }); state.summary.nCA += primarySigned; }
-      if (formAcct === 'marcus') { state.marcus.unshift({ row: 99, acct: 'marcus', desc: merchant, amount: primarySigned, clientTs: now, relOrder: 0 }); state.summary.mSAV += primarySigned; }
+      if (formAcct === 'amex') { state.amex.unshift({ row: 99, acct: 'amex', desc: merchant, amount: primarySigned, clientTs: now, relOrder: 0, pending: true }); state.summary.amex += primarySigned; }
+      if (formAcct === 'barclays') { state.barclays.unshift({ row: 99, acct: 'barclays', desc: merchant, amount: primarySigned, clientTs: now, relOrder: 0, pending: true }); state.summary.barclays += primarySigned; }
+      if (formAcct === 'checking') { state.checking.unshift({ row: 99, acct: 'checking', desc: merchant, amount: primarySigned, need: false, clientTs: now, relOrder: 0, pending: true }); state.summary.nCA += primarySigned; }
+      if (formAcct === 'marcus') { state.marcus.unshift({ row: 99, acct: 'marcus', desc: merchant, amount: primarySigned, clientTs: now, relOrder: 0, pending: true }); state.summary.mSAV += primarySigned; }
 
       if (marcusShare > 0) {
         const mAmt = -splitSign * marcusShare;
         const cAmt = splitSign * marcusShare;
         recordLocalTimestamp('marcus', merchant, mAmt);
         recordLocalTimestamp('checking', 'savings ' + merchant, cAmt);
-        state.marcus.unshift({ row: 100, acct: 'marcus', desc: merchant, amount: mAmt, clientTs: now, relOrder: 0 });
+        state.marcus.unshift({ row: 100, acct: 'marcus', desc: merchant, amount: mAmt, clientTs: now, relOrder: 0, pending: true });
         state.summary.mSAV += mAmt;
-        state.checking.unshift({ row: 101, acct: 'checking', desc: 'savings ' + merchant, amount: cAmt, need, clientTs: now, relOrder: 0 });
+        state.checking.unshift({ row: 101, acct: 'checking', desc: 'savings ' + merchant, amount: cAmt, need, clientTs: now, relOrder: 0, pending: true });
         state.summary.nCA += cAmt;
       }
 
@@ -1504,7 +1529,7 @@ function initGoogleAuthButton() {
         const spDesc = `${s.person} ${merchant}`;
         const signedSplitAmt = +(splitSign * Math.abs(s.amount)).toFixed(2);
         recordLocalTimestamp('checking', spDesc, signedSplitAmt);
-        state.checking.unshift({ row: 102 + i, acct: 'checking', desc: spDesc, amount: signedSplitAmt, need: s.need, clientTs: now, relOrder: 0 });
+        state.checking.unshift({ row: 102 + i, acct: 'checking', desc: spDesc, amount: signedSplitAmt, need: s.need, clientTs: now, relOrder: 0, pending: true });
         state.summary.nCA += signedSplitAmt;
       });
 
@@ -1523,7 +1548,7 @@ function initGoogleAuthButton() {
         splits,
         marcusShare,
         markNeed: need
-      }).then(applyServerState).catch(err => console.error('Add transaction error:', err));
+      }).then(applyServerState).catch(err => handleSaveError('the transaction', err));
     }
     
     // ================= EDIT OR MOVE TRANSACTION MODAL =================
@@ -1591,7 +1616,7 @@ function initGoogleAuthButton() {
           oldItem.clientTs = now;
         } else {
           oldArr.splice(idx, 1);
-          state[newAcct].unshift({ row: 98, acct: newAcct, desc: newDesc, amount: newAmount, need: false, clientTs: now, relOrder: 0 });
+          state[newAcct].unshift({ row: 98, acct: newAcct, desc: newDesc, amount: newAmount, need: false, clientTs: now, relOrder: 0, pending: true });
         }
         updateSummaryBalance(newAcct, newAmount);
       }
@@ -1607,7 +1632,7 @@ function initGoogleAuthButton() {
         row,
         newDesc,
         newAmount
-      }).then(applyServerState).catch(console.error);
+      }).then(applyServerState).catch(err => handleSaveError('the transaction edit', err));
     }
 
     function deleteCurrentTx() {
@@ -1627,7 +1652,7 @@ function initGoogleAuthButton() {
 
       apiCall('deleteTransactionRow', { sheetName: activeMonth, acct: oldAcct, row })
         .then(applyServerState)
-        .catch(console.error);
+        .catch(err => handleSaveError('the deletion', err));
     }
 
     // ================= START NEW MONTH ROLLOVER MODAL =================
@@ -1710,9 +1735,21 @@ function initGoogleAuthButton() {
     }
 
 
+    // One-time page setup. Runs on load when already signed in, or straight after a fresh sign-in.
+    let appUiReady = false;
+    function initAppUi() {
+      if (appUiReady) return;
+      appUiReady = true;
+      document.getElementById('logoCardAmex').innerHTML = getBankLogo('amex', 'w-7 h-7');
+      document.getElementById('logoCardBarclays').innerHTML = getBankLogo('barclays', 'w-7 h-7');
+      document.getElementById('logoCardChecking').innerHTML = getBankLogo('checking', 'w-7 h-7');
+      document.getElementById('logoCardMarcus').innerHTML = getBankLogo('marcus', 'w-7 h-7');
+      applyThemeMode();
+    }
+
     window.onload = () => {
       if (!IS_GAS_ENV && 'serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(() => {}); }
-      
+
       // 2. If on jonhoag.co.uk without a valid token, stop here and show Lock Screen
       if (!IS_GAS_ENV && !hasValidToken()) {
         showLockScreen();
@@ -1720,12 +1757,7 @@ function initGoogleAuthButton() {
       }
       hideLockScreen();
 
-      document.getElementById('logoCardAmex').innerHTML = getBankLogo('amex', 'w-7 h-7');
-      document.getElementById('logoCardBarclays').innerHTML = getBankLogo('barclays', 'w-7 h-7');
-      document.getElementById('logoCardChecking').innerHTML = getBankLogo('checking', 'w-7 h-7');
-      document.getElementById('logoCardMarcus').innerHTML = getBankLogo('marcus', 'w-7 h-7');
-
-      applyThemeMode();
+      initAppUi();
       loadPhoneCache(activeMonth);
       renderAll();
       
