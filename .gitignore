@@ -1,0 +1,7 @@
+﻿# Apps Script backend (deployed with clasp, not published via GitHub Pages)
+Code.js
+*.gs
+.clasp.json
+.clasprc.json
+appsscript.json
+node_modules/

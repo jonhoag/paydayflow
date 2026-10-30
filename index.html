@@ -19,7 +19,7 @@
 </head>
 <body class="bg-[#F4F7FA] dark:bg-[#0B0F19] text-slate-800 dark:text-slate-100 min-h-screen flex flex-col lg:flex-row pb-20 lg:pb-0">
 
- <div id="authLockScreen" style="display:flex; position:fixed; inset:0; z-index:99999; background:#0B0F19; color:#F8FAFC; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center; font-family:inherit;">
+  <div id="authLockScreen" style="display:flex; position:fixed; inset:0; z-index:99999; background:#0B0F19; color:#F8FAFC; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center; font-family:inherit;">
     <div style="background:#111827; border:1px solid #1E293B; border-radius:20px; padding:32px 24px; max-width:360px; width:100%; box-shadow:0 20px 50px rgba(0,0,0,0.5);">
       <div style="width:52px; height:52px; border-radius:14px; background:rgba(16,185,129,0.15); color:#10B981; display:flex; align-items:center; justify-content:center; font-size:24px; margin:0 auto 16px;">🔒</div>
       <h2 style="margin:0 0 8px; font-size:20px; font-weight:700;">PaydayFlow Locked</h2>
@@ -885,27 +885,29 @@ function initGoogleAuthButton() {
     }
 
     function switchMonth(monthName) {
-  activeMonth = monthName;
-  skippedBudgetRows.clear();
-  if (loadPhoneCache(monthName)) renderAll();
-  apiCall('getCachedSheetState', { sheetName: monthName, forceRefresh: false })
-    .then(applyServerState)
-    .catch(err => console.error('Switch month error:', err));
-}
+      activeMonth = monthName;
+      skippedBudgetRows.clear();
+      if (loadPhoneCache(monthName)) renderAll();
+      
+      apiCall('getCachedSheetState', { sheetName: monthName, forceRefresh: false })
+        .then(applyServerState)
+        .catch(console.error);
+    }
 
-function forceSyncSheet() {
-  const btn = document.getElementById('syncBtn');
-  if (btn) btn.classList.add('animate-spin');
-  apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
-    .then(s => {
-      if (btn) btn.classList.remove('animate-spin');
-      applyServerState(s);
-    })
-    .catch(err => {
-      if (btn) btn.classList.remove('animate-spin');
-      alert('Sync error: ' + (err && err.message ? err.message : err));
-    });
-}
+    function forceSyncSheet() {
+      const btn = document.getElementById('syncBtn');
+      if (btn) btn.classList.add('animate-spin');
+      
+      apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
+        .then(s => {
+          if (btn) btn.classList.remove('animate-spin');
+          applyServerState(s);
+        })
+        .catch(err => {
+          if (btn) btn.classList.remove('animate-spin');
+          console.error(err);
+        });
+    }
 
     function applyServerState(s) {
       if (!s) return;
@@ -1523,6 +1525,7 @@ function forceSyncSheet() {
         markNeed: need
       }).then(applyServerState).catch(err => console.error('Add transaction error:', err));
     }
+    
     // ================= EDIT OR MOVE TRANSACTION MODAL =================
     function setEditTxSign(sign) {
       editTxSign = sign < 0 ? -1 : 1;
@@ -1689,7 +1692,7 @@ function forceSyncSheet() {
 
     function closeNewMonthModal() { document.getElementById('newMonthModal').classList.add('hidden'); }
 
-      function confirmStartNewMonth() {
+        function confirmStartNewMonth() {
       const newMonthName = document.getElementById('nmName').value.trim();
       const paycheck = Number(document.getElementById('nmPaycheck').value || 0);
       const savingsAmount = Number(document.getElementById('nmSavings').value || 0);
@@ -1706,18 +1709,10 @@ function forceSyncSheet() {
       }).then(applyServerState).catch(err => alert('Error creating month: ' + err.message));
     }
 
+
     window.onload = () => {
-      if (!IS_GAS_ENV && 'serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js').catch(() => {});
-      }
-
-      // 1. Always initialize bank logos and theme first
-      document.getElementById('logoCardAmex').innerHTML = getBankLogo('amex', 'w-7 h-7');
-      document.getElementById('logoCardBarclays').innerHTML = getBankLogo('barclays', 'w-7 h-7');
-      document.getElementById('logoCardChecking').innerHTML = getBankLogo('checking', 'w-7 h-7');
-      document.getElementById('logoCardMarcus').innerHTML = getBankLogo('marcus', 'w-7 h-7');
-      applyThemeMode();
-
+      if (!IS_GAS_ENV && 'serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(() => {}); }
+      
       // 2. If on jonhoag.co.uk without a valid token, stop here and show Lock Screen
       if (!IS_GAS_ENV && !hasValidToken()) {
         showLockScreen();
@@ -1725,13 +1720,18 @@ function forceSyncSheet() {
       }
       hideLockScreen();
 
-      // 3. Otherwise load local cache and immediately pull fresh live data from Sheet
-      if (loadPhoneCache(activeMonth)) {
-        renderAll();
-      }
-      apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
+      document.getElementById('logoCardAmex').innerHTML = getBankLogo('amex', 'w-7 h-7');
+      document.getElementById('logoCardBarclays').innerHTML = getBankLogo('barclays', 'w-7 h-7');
+      document.getElementById('logoCardChecking').innerHTML = getBankLogo('checking', 'w-7 h-7');
+      document.getElementById('logoCardMarcus').innerHTML = getBankLogo('marcus', 'w-7 h-7');
+
+      applyThemeMode();
+      loadPhoneCache(activeMonth);
+      renderAll();
+      
+      apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: false })
         .then(applyServerState)
-        .catch(err => console.error('Initial load error:', err));
+        .catch(console.error);
     };
   </script>
 </body>
