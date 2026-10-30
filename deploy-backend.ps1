@@ -1,4 +1,4 @@
-# Pushes the Apps Script backend (Code.js + Index.html) and redeploys the live web app.
+# Pushes the Apps Script backend (Code.js + Passkeys.js + Index.html) and redeploys the live web app.
 # GitHub Pages publishes index.html separately: commit and merge to main for that.
 #
 # Usage:
@@ -33,7 +33,7 @@ if (-not $cssOk) { throw 'tailwind.css is out of date: run "node build-css.js" a
 $stage = Join-Path ([IO.Path]::GetTempPath()) ('paydayflow-gas-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $stage | Out-Null
 try {
-  Copy-Item "$root\Code.js", "$root\appsscript.json", "$root\.clasp.json" $stage
+  Copy-Item "$root\Code.js", "$root\Passkeys.js", "$root\appsscript.json", "$root\.clasp.json" $stage
 
   # Apps Script serves only this one HTML file, so tailwind.css can't be fetched separately there:
   # inline the stylesheet into the staged copy.

@@ -1172,7 +1172,9 @@ async function removePasskeyDevice(id, fromTurnOff) {
       // An expired fingerprint session is normal: go straight back to the fingerprint prompt.
       showLockScreen(usedSession ? 'Session ended. Unlock to continue.' : (json.error || 'Unauthorized account.'), usedSession ? undefined : { noAuto: true });
     }
-    throw new Error(json.error || 'API request failed');
+    const apiErr = new Error(json.error || 'API request failed');
+    apiErr.auth = !!json.authError;
+    throw apiErr;
   }
   return json.data;
 }
@@ -1193,7 +1195,9 @@ async function postToServer(bodyObj) {
     });
     rawText = await res.text();
   } catch (e) {
-    throw new Error(e && e.name === 'AbortError' ? 'The server took too long to respond.' : (e && e.message) || 'Network error');
+    const netErr = new Error(e && e.name === 'AbortError' ? 'The server took too long to respond.' : (e && e.message) || 'Network error');
+    netErr.network = true;   // never reached a reply, so the save may be retried later (the server ignores repeats)
+    throw netErr;
   } finally {
     clearTimeout(timer);
   }
@@ -1494,7 +1498,10 @@ async function postToServer(bodyObj) {
       const dot = document.getElementById('syncDot'), txt = document.getElementById('syncText');
       if (!dot || !txt) return;
       let text, dotCls;
+      const waiting = loadOutbox().length;
       if (apiInflight > 0) { text = 'Syncing…'; dotCls = 'bg-amber-400 animate-pulse'; }
+      else if (waiting) { text = waiting + (waiting === 1 ? ' spend' : ' spends') + ' waiting to send'; dotCls = 'bg-amber-400'; }
+      else if (!IS_GAS_ENV && navigator.onLine === false) { text = "Offline - showing saved data"; dotCls = 'bg-slate-400'; }
       else if (lastSyncFailed) { text = "Couldn't sync - showing saved data"; dotCls = 'bg-rose-500'; }
       else if (lastSyncAt) { text = 'Synced ' + relTime(lastSyncAt); dotCls = 'bg-emerald-500'; }
       else { text = 'Showing saved data'; dotCls = 'bg-slate-400'; }
@@ -2137,7 +2144,7 @@ async function postToServer(bodyObj) {
       savePhoneCache(activeMonth, state);
       renderAll();
 
-      apiCall('addTransactionBundle', {
+      sendNewSpend({
         sheetName: activeMonth,
         merchant,
         grossAmount: gross,
@@ -2145,9 +2152,71 @@ async function postToServer(bodyObj) {
         account: formAcct,
         splits,
         marcusShare,
-        markNeed: need
-      }).then(applyServerState).catch(err => handleSaveError('the transaction', err));
+        markNeed: need,
+        clientId: newClientId()
+      });
     }
+
+    // ---- Offline outbox: a new spend that can't reach the server (no signal, timeout) is kept on this phone and
+    // sent when the connection returns. Every spend carries a clientId, and the server ignores a repeat of one it
+    // has already saved, so a retry after a lost reply can't add it twice. Only new spends are queued: edits and
+    // deletes point at sheet rows, which could have moved by the time they were sent. ----
+    const OUTBOX_KEY = 'pf_outbox';
+    let outboxFlushing = false;
+    function newClientId() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    }
+    function loadOutbox() {
+      try { const a = JSON.parse(localStorage.getItem(OUTBOX_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+    }
+    function saveOutbox(list) {
+      try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(list)); } catch (e) {}
+    }
+    function queueSpend(payload) {
+      saveOutbox(loadOutbox().concat([{ id: payload.clientId, payload }]));
+      updateSyncUi();
+    }
+    function sendNewSpend(payload) {
+      if (!IS_GAS_ENV && navigator.onLine === false) {
+        queueSpend(payload);
+        showToast("You're offline - saved on this phone, it will send when you're back online.", { kind: 'info' });
+        return;
+      }
+      apiCall('addTransactionBundle', payload)
+        .then(applyStateIfViewing(payload.sheetName))
+        .catch(err => {
+          if (err && err.network && !IS_GAS_ENV) {
+            queueSpend(payload);
+            showToast("No connection - saved on this phone, it will send when you're back online.", { kind: 'info' });
+          } else handleSaveError('the transaction', err);
+        });
+    }
+    async function flushOutbox() {
+      if (outboxFlushing || IS_GAS_ENV || !loadOutbox().length || navigator.onLine === false) return;
+      outboxFlushing = true;
+      try {
+        let list = loadOutbox();
+        while (list.length) {
+          const item = list[0];
+          try {
+            const s = await apiCall('addTransactionBundle', item.payload);
+            saveOutbox(loadOutbox().filter(x => x.id !== item.id));
+            applyStateIfViewing(item.payload.sheetName)(s);
+          } catch (err) {
+            if (!err || err.network || err.auth || err.message === 'Authentication required') break;   // try again later
+            saveOutbox(loadOutbox().filter(x => x.id !== item.id));   // the server refused it: don't retry forever
+            showToast('A spend saved offline was rejected (' + item.payload.merchant + '): ' + err.message);
+          }
+          list = loadOutbox();
+        }
+      } finally {
+        outboxFlushing = false;
+        updateSyncUi();
+      }
+    }
+    window.addEventListener('online', () => { flushOutbox(); });
+    window.addEventListener('offline', updateSyncUi);
+    setInterval(flushOutbox, 60000);
     
     // ================= EDIT OR MOVE TRANSACTION MODAL =================
     function setEditTxSign(sign) {
@@ -2391,7 +2460,8 @@ async function postToServer(bodyObj) {
       
       apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: false })
         .then(applyServerState)
-        .catch(console.error);
+        .catch(console.error)
+        .then(flushOutbox);
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startApp);
