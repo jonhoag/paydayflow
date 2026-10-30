@@ -72,6 +72,7 @@
     latency: Number(q.get('latency') || 300),
     nextLatencies: [],    // consumed one per request before falling back to `latency`
     failNext: 0,          // number of upcoming write calls that should fail
+    categoryChoices: {},  // the mock server's saved Spending category choices
     calls: [],            // log of { action, payload, start, end }
     db, db2, snapshot, MONTH, MONTH2,
     makeToken,
@@ -104,7 +105,14 @@
       else d.budgets.push({ row: nextRow(d.budgets), name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring });
       return snapshot(d, n);
     },
-    deleteBudgetItem: (p, d, n) => { const i = d.budgets.findIndex(b => b.row === Number(p.row)); if (i > -1) d.budgets.splice(i, 1); return snapshot(d, n); }
+    deleteBudgetItem: (p, d, n) => { const i = d.budgets.findIndex(b => b.row === Number(p.row)); if (i > -1) d.budgets.splice(i, 1); return snapshot(d, n); },
+    getCategoryChoices: () => ({ choices: JSON.parse(JSON.stringify(MOCK.categoryChoices)) }),
+    setCategoryChoice: p => {
+      const k = String(p.merchant || '').trim().toLowerCase();
+      delete MOCK.categoryChoices[k];
+      if (p.category) MOCK.categoryChoices[k] = p.category;
+      return { choices: JSON.parse(JSON.stringify(MOCK.categoryChoices)) };
+    }
   };
 
   window.fetch = async function (url, opts) {

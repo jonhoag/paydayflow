@@ -178,6 +178,69 @@ test('addTransactionBundle: no clientId still saves every time (older pages)', (
   assert.ok(env.writes.count > n);
 });
 
+// ---------- Spending category choices (shared by every device) ----------
+test('category choices: start empty, save one, read it back', () => {
+  const env = makeEnv();
+  assert.deepStrictEqual(post(env, 'getCategoryChoices', {}).data.choices, {});
+  const r = post(env, 'setCategoryChoice', { merchant: '  Morgan ', category: 'Groceries' });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.deepStrictEqual(post(env, 'getCategoryChoices', {}).data.choices, { morgan: 'Groceries' });
+});
+
+test('category choices: merchant keys are case- and spacing-insensitive', () => {
+  const env = makeEnv();
+  post(env, 'setCategoryChoice', { merchant: 'Uber   Eats', category: 'Transport' });
+  post(env, 'setCategoryChoice', { merchant: 'uber eats', category: 'Eating out' });
+  assert.deepStrictEqual(post(env, 'getCategoryChoices', {}).data.choices, { 'uber eats': 'Eating out' });
+});
+
+test('category choices: an empty category removes the choice', () => {
+  const env = makeEnv();
+  post(env, 'setCategoryChoice', { merchant: 'morgan', category: 'Groceries' });
+  const r = post(env, 'setCategoryChoice', { merchant: 'morgan', category: '' });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.deepStrictEqual(r.data.choices, {});
+});
+
+test('category choices: an unknown category or a missing merchant is refused and stores nothing', () => {
+  const env = makeEnv();
+  assert.strictEqual(post(env, 'setCategoryChoice', { merchant: 'x', category: 'Made up' }).ok, false);
+  assert.strictEqual(post(env, 'setCategoryChoice', { merchant: '  ', category: 'Other' }).ok, false);
+  assert.strictEqual(env.props['PF_CATS'], undefined);
+});
+
+test('category choices: when full, the oldest choices are dropped and the newest is kept', () => {
+  const env = makeEnv();
+  for (let i = 1; i <= 400; i++) post(env, 'setCategoryChoice', { merchant: 'merchant number ' + i, category: 'Shopping' });
+  assert.ok(env.props['PF_CATS'].length <= 8000, 'property grew past the cap');
+  const choices = post(env, 'getCategoryChoices', {}).data.choices;
+  assert.strictEqual(choices['merchant number 400'], 'Shopping');
+  assert.ok(!('merchant number 1' in choices), 'oldest should have been dropped');
+});
+
+test('category choices: saving takes the lock, reading does not, and a bad token is refused', () => {
+  const env = makeEnv();
+  post(env, 'getCategoryChoices', {});
+  assert.strictEqual(env.lockCalls.waits, 0);
+  post(env, 'setCategoryChoice', { merchant: 'x', category: 'Other' });
+  assert.strictEqual(env.lockCalls.waits, 1);
+  const bad = makeEnv();
+  bad.sandbox.UrlFetchApp.fetch = () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ email_verified: 'true', email: 'evil@example.com', aud: CLIENT_ID, exp: '9999999999' }) });
+  const r = post(bad, 'setCategoryChoice', { merchant: 'x', category: 'Other' });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.authError, true);
+  assert.strictEqual(bad.props['PF_CATS'], undefined);
+});
+
+test('category choices: the backend and the page offer the same categories', () => {
+  const env = makeEnv();
+  const backend = vm.runInContext('SPEND_CATEGORIES', env.sandbox);
+  const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
+  const m = html.match(/const SPEND_CATEGORIES = (\[[^\]]*\]);/);
+  assert.ok(m, 'could not find the page list');
+  assert.deepStrictEqual(JSON.parse(m[1].replace(/'/g, '"')), Array.from(backend));
+});
+
 // ---------- report ----------
 let failed = 0;
 results.forEach(([ok, name]) => { if (!ok) failed++; console.log((ok ? '  PASS  ' : '  FAIL  ') + name); });
