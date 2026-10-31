@@ -163,7 +163,7 @@
     // "styled" = body got a Tailwind background (light or dark); "data" = KPI no longer shows the static placeholder.
     if (perf.styled == null && body && getComputedStyle(body).backgroundColor !== 'rgba(0, 0, 0, 0)') perf.styled = Math.round(now);
     const k = document.getElementById('kpiNCA');
-    if (perf.data == null && k && k.textContent && k.textContent !== '£5,823.55' && /^£|^-£/.test(k.textContent)) perf.data = Math.round(now);
+    if (perf.data == null && k && k.textContent && k.textContent !== '£5,823.55' && /^£|^[-−]£/.test(k.textContent)) perf.data = Math.round(now);
     if ((perf.styled != null && perf.data != null) || now > 15000) clearInterval(poll);
   }, 5);
 

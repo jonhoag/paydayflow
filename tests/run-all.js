@@ -16,6 +16,7 @@ const suites = [
 if (process.env.PW_PATH) {
   suites.push(['real-Chrome end-to-end', ['tests/e2e-passkey.js']]);
   suites.push(['service worker (real Chrome)', ['tests/sw.test.js']]);
+  suites.push(['screens and buttons (real Chrome)', ['tests/ui-flows.test.js']]);
 } else console.log('(skipping the real-Chrome tests: set PW_PATH to a playwright-core folder to include them)\n');
 
 let failed = 0;
