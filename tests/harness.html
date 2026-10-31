@@ -35,14 +35,14 @@
   // ?demo=1 seeds realistic-looking data so screenshots resemble the real app.
   if (q.get('demo')) {
     const rowsOf = list => list.map((r, i) => ({ row: 4 + i, ...r }));
-    db.checking = rowsOf([{ desc: 'Start', amount: 2449.95 }, { desc: 'paycheck', amount: 2921.03 }, { desc: 'jon to savings', amount: -500 },
-      { desc: 'napier Foundry', amount: 3.3, need: true }, { desc: 'napier Chipotle', amount: 12.45, need: true }, { desc: 'napier Smiths', amount: 6.18, need: true },
-      { desc: 'shannon Brighton taxi', amount: 52 }, { desc: 'amanda Tfl', amount: 8.9 }, { desc: 'amanda Waitrose', amount: 42.39 }, { desc: 'To marcus', amount: -300 }]);
-    db.amex = rowsOf([{ desc: 'Start', amount: -409.72 }, { desc: 'Tfl', amount: -8.9 }, { desc: 'Waitrose', amount: -84.78 }, { desc: 'Southern', amount: -43.6 }, { desc: 'Claude', amount: -18 }]);
-    db.barclays = rowsOf([{ desc: 'Start', amount: -1597.91 }]);
-    db.marcus = rowsOf([{ desc: 'Start', amount: 4101.81 }, { desc: 'Jon savings', amount: 500 }, { desc: 'Amanda savings', amount: 300 }]);
-    db.budgets = rowsOf([['Food Week 1', -40, true], ['Petrol Week 2', -40, true], ['Food Week 3', -40, true], ['Nationwide Fee', -20, true], ['Spotify', -10, true],
-      ['Mortgage', -786, true], ['EE Broadband', -76, true], ['sky glass', -155, true], ['Energy', -129, true], ['Dentist', -25, false], ['Xmas gifts', -150, false]]
+    db.checking = rowsOf([{ desc: 'Start', amount: 1850 }, { desc: 'paycheck', amount: 2600 }, { desc: 'jon to savings', amount: -500 },
+      { desc: 'robin Foundry', amount: 3.3, need: true }, { desc: 'robin Chipotle', amount: 12.45, need: true }, { desc: 'robin Smiths', amount: 6.18, need: true },
+      { desc: 'sam Brighton taxi', amount: 52 }, { desc: 'amanda Tfl', amount: 8.9 }, { desc: 'amanda Waitrose', amount: 42.39 }, { desc: 'To marcus', amount: -300 }]);
+    db.amex = rowsOf([{ desc: 'Start', amount: -312.4 }, { desc: 'Tfl', amount: -8.9 }, { desc: 'Waitrose', amount: -84.78 }, { desc: 'Southern', amount: -43.6 }, { desc: 'Claude', amount: -18 }]);
+    db.barclays = rowsOf([{ desc: 'Start', amount: -1240.15 }]);
+    db.marcus = rowsOf([{ desc: 'Start', amount: 2750 }, { desc: 'Jon savings', amount: 500 }, { desc: 'Amanda savings', amount: 300 }]);
+    db.budgets = rowsOf([['Food Week 1', -40, true], ['Petrol Week 2', -40, true], ['Food Week 3', -40, true], ['Account fee', -20, true], ['Spotify', -10, true],
+      ['Mortgage', -850, true], ['Broadband', -45, true], ['TV package', -60, true], ['Energy', -110, true], ['Dentist', -25, false], ['Xmas gifts', -150, false]]
       .map(([name, amount, isRecurring]) => ({ name, amount, originalBudget: amount, isRecurring })));
   }
   const dbs = { [MONTH]: db, [MONTH2]: db2 };
@@ -163,7 +163,7 @@
     // "styled" = body got a Tailwind background (light or dark); "data" = KPI no longer shows the static placeholder.
     if (perf.styled == null && body && getComputedStyle(body).backgroundColor !== 'rgba(0, 0, 0, 0)') perf.styled = Math.round(now);
     const k = document.getElementById('kpiNCA');
-    if (perf.data == null && k && k.textContent && k.textContent !== '£5,823.55' && /^£|^[-−]£/.test(k.textContent)) perf.data = Math.round(now);
+    if (perf.data == null && k && k.textContent && k.textContent !== '£—' && /^£|^[-−]£/.test(k.textContent)) perf.data = Math.round(now);
     if ((perf.styled != null && perf.data != null) || now > 15000) clearInterval(poll);
   }, 5);
 

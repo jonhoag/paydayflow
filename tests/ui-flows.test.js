@@ -27,12 +27,12 @@ async function step(name, fn) {
   catch (e) { results.push([false, name + '\n      ' + String(e.message).split('\n')[0]]); }
 }
 
-// 21 extra "owed" items (Amanda 10, Napier 4 more, Shannon 4, Nita 3) on top of the demo data.
+// 21 extra "owed" items (Amanda 10, Robin 4 more, Sam 4, Nita 3) on top of the demo data.
 const SEED_OWED = `(async () => {
   const add = [['amanda Tesco', 23.4], ['amanda Pret', 6.85], ['amanda Uber', 14.2], ['amanda Boots', 9.99], ['amanda Cinema', 12.5],
     ['amanda Deliveroo', 18.75], ['amanda Sainsburys', 31.1], ['amanda Trainline', 22.6], ['amanda Costa', 4.3], ['amanda Zara', 27.5],
-    ['napier Nandos', 15.4], ['napier Spoons', 11.2], ['napier Five Guys', 13.95], ['napier Greggs', 3.8],
-    ['shannon Airbnb', 64], ['shannon Petrol', 25], ['shannon M&S', 8.45], ['shannon Lidl', 12.3],
+    ['robin Nandos', 15.4], ['robin Spoons', 11.2], ['robin Five Guys', 13.95], ['robin Greggs', 3.8],
+    ['sam Airbnb', 64], ['sam Petrol', 25], ['sam M&S', 8.45], ['sam Lidl', 12.3],
     ['nita Gift', 20], ['nita Pizza', 16.7], ['nita Parking', 4.5]];
   const ch = MOCK.db.checking;
   add.forEach(([desc, amount]) => ch.push({ row: Math.max(...ch.map(r => r.row)) + 1, desc, amount, need: true }));
@@ -55,7 +55,7 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
     page.on('response', r => { if (r.status() >= 400 && r.url().startsWith('http://localhost')) errors.push(r.status() + ' ' + r.url()); });
     await page.goto(`http://localhost:${PORT}/tests/harness.html?${query}&latency=50`);
-    await page.waitForFunction(() => document.getElementById('kpiNCA') && /£/.test(document.getElementById('kpiNCA').textContent) && window.MOCK && MOCK.calls.length > 0);
+    await page.waitForFunction(() => document.getElementById('kpiNCA') && /£\d/.test(document.getElementById('kpiNCA').textContent) && window.MOCK && MOCK.calls.length > 0);
     await page.waitForTimeout(400);
     return { ctx, page };
   };
@@ -135,8 +135,8 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     assert.ok(await visible(page, '.owed-groups') && !(await visible(page, '.owed-summary')));
     assert.ok(await visible(page, '#heroSection') === false, 'Owed tab should show only the Owed section');
     const names = await page.$$eval('.owed-groups .text-sm.font-semibold.truncate', els => els.map(e => e.textContent));
-    assert.deepStrictEqual(names, ['Amanda', 'Shannon', 'Napier', 'Nita'], 'biggest amount owed first: ' + JSON.stringify(names));
-    await page.click('.owed-groups button[aria-label="Mark Shannon Lidl paid back"]');
+    assert.deepStrictEqual(names, ['Amanda', 'Sam', 'Robin', 'Nita'], 'biggest amount owed first: ' + JSON.stringify(names));
+    await page.click('.owed-groups button[aria-label="Mark Sam Lidl paid back"]');
     await page.waitForTimeout(250);
     const t = (await calls(page, 'toggleNeedFlag')).pop();
     assert.ok(t && t.setNeed === false, JSON.stringify(t));
@@ -144,13 +144,13 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
   });
 
   await step('owed tab: "All paid back" for one person saves only their items', async () => {
-    const before = await page.evaluate(() => state.checking.filter(r => r.need && /^napier/i.test(r.desc)).map(r => r.row).sort());
-    await page.click('.owed-groups button[data-person="napier"]');
+    const before = await page.evaluate(() => state.checking.filter(r => r.need && /^robin/i.test(r.desc)).map(r => r.row).sort());
+    await page.click('.owed-groups button[data-person="robin"]');
     await page.waitForTimeout(250);
     const s = (await calls(page, 'settleAllNeeds')).pop();
     assert.deepStrictEqual(s.rows.slice().sort(), before);
     assert.strictEqual(await page.textContent('#cntPending'), String(23 - before.length), 'count after: ' + (await page.textContent('#cntPending')) + ' rows ' + JSON.stringify(before));
-    const left = await page.evaluate(() => state.checking.filter(r => r.need && /^napier/i.test(r.desc)).length);
+    const left = await page.evaluate(() => state.checking.filter(r => r.need && /^robin/i.test(r.desc)).length);
     assert.strictEqual(left, 0);
   });
 
