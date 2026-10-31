@@ -21,6 +21,14 @@ $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
+# A rehearsal needs all three test settings together. Any one alone could push the "only me" manifest to live
+# (locking the website out) or the public manifest to the test copy.
+$liveDeploymentId = 'AKfycbwiuLsruSCA-k2EeMn8bH6AZygi0ISA2WDTB_UJmetDOJdU6S4qLE21WmjyJK1ktCMrUA'
+$testSettings = @([bool]$ScriptId, [bool]$PrivateManifest, ($DeploymentId -ne $liveDeploymentId))
+if (($testSettings -contains $true) -and ($testSettings -contains $false)) {
+  throw 'For a rehearsal pass -ScriptId, -DeploymentId (the test copy''s) and -PrivateManifest together; for live pass none of them. Nothing was pushed.'
+}
+
 # Fail early if the pre-built stylesheet doesn't match index.html's classes.
 $ErrorActionPreference = 'Continue'   # native tools write notices to stderr; judge them by exit code instead
 node "$root\build-css.js" --check

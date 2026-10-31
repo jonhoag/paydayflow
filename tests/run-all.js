@@ -1,6 +1,6 @@
 // Runs every automated check:  node tests/run-all.js
 //   - backend unit tests, passkey crypto, passkey flow, and the mutation check (all need only Node)
-//   - the real-Chrome end-to-end test, if playwright-core is available (set PW_PATH to its folder)
+//   - the real-Chrome tests (end-to-end sign-in, service worker), if playwright-core is available (set PW_PATH)
 //   - tailwind.css freshness
 const { spawnSync } = require('child_process');
 const path = require('path');
@@ -13,8 +13,10 @@ const suites = [
   ['mutation check', ['tests/mutation-check.js']],
   ['tailwind.css is current', ['build-css.js', '--check']],
 ];
-if (process.env.PW_PATH) suites.push(['real-Chrome end-to-end', ['tests/e2e-passkey.js']]);
-else console.log('(skipping the real-Chrome end-to-end test: set PW_PATH to a playwright-core folder to include it)\n');
+if (process.env.PW_PATH) {
+  suites.push(['real-Chrome end-to-end', ['tests/e2e-passkey.js']]);
+  suites.push(['service worker (real Chrome)', ['tests/sw.test.js']]);
+} else console.log('(skipping the real-Chrome tests: set PW_PATH to a playwright-core folder to include them)\n');
 
 let failed = 0;
 for (const [name, args] of suites) {

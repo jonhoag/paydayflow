@@ -1,5 +1,7 @@
 const CACHE_NAME = 'paydayflow-v5';
 const ASSETS = ['/', '/index.html', '/manifest.json'];
+// On a weak signal, wait this long for the network before opening the saved copy instead.
+const NETWORK_TIMEOUT_MS = 3000;
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -16,6 +18,11 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Only a good reply is worth keeping: a 404 or an error page must never replace a working copy.
+function isGood(res) {
+  return res && res.ok && res.type === 'basic';
+}
+
 self.addEventListener('fetch', (event) => {
   // Never intercept POST requests or external Google/Apps Script URLs
   if (event.request.method !== 'GET' || !event.request.url.startsWith(self.location.origin)) {
@@ -27,6 +34,7 @@ self.addEventListener('fetch', (event) => {
   if (new URL(event.request.url).pathname === '/tailwind.css') {
     event.respondWith(
       caches.match(event.request).then((hit) => hit || fetch(event.request).then((res) => {
+        if (!isGood(res)) return res;
         const copy = res.clone();
         caches.open(CACHE_NAME).then(async (cache) => {
           // Drop older versions of the stylesheet so they don't pile up.
@@ -41,14 +49,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Everything else: network-first so updates on GitHub appear immediately
-  event.respondWith(
-    fetch(event.request)
-      .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        return res;
-      })
-      .catch(() => caches.match(event.request))
-  );
+  // Everything else: network-first so updates on GitHub appear immediately, but with a time limit. If the
+  // network is slow, failing or returns an error, the saved copy is used; a late network reply still
+  // refreshes the saved copy for next time.
+  const network = fetch(event.request).then((res) => {
+    if (isGood(res)) {
+      const copy = res.clone();
+      caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+    }
+    return res;
+  });
+  event.waitUntil(network.catch(() => {}));
+  event.respondWith((async () => {
+    const timedOut = new Promise((resolve) => setTimeout(() => resolve(null), NETWORK_TIMEOUT_MS));
+    const res = await Promise.race([network.catch(() => null), timedOut]);
+    if (res && res.ok) return res;
+    const cached = await caches.match(event.request);
+    if (cached) return cached;
+    return res || network;   // nothing saved yet: keep waiting for the network (or pass on its error)
+  })());
 });
