@@ -19,16 +19,16 @@ function test(name, fn) {
   catch (e) { results.push([false, name + '\n      ' + String(e.message).split('\n')[0]]); }
 }
 
-// Merchants taken from a real month's card columns.
+// Typical merchant spellings, one or more per category rule.
 const expected = {
   'waitrose': 'Groceries', 'Sainsburys': 'Groceries', 'tesco': 'Groceries', 'lidl': 'Groceries', 'M&s': 'Groceries',
   'sains petrol': 'Transport', 'Tfl': 'Transport', 'Southern rail': 'Transport', 'bus in': 'Transport', 'Work taxi thurs': 'Transport',
-  'uber eats': 'Eating out', 'deliveroo': 'Eating out', 'mcdonalds': 'Eating out', 'Wolf 1': 'Eating out', 'spoons': 'Eating out', 'lakeside tea': 'Eating out',
-  'gatwick parking': 'Travel',
+  'uber eats': 'Eating out', 'deliveroo': 'Eating out', 'mcdonalds': 'Eating out', 'Wolf 1': 'Eating out', 'spoons': 'Eating out', 'garden tea': 'Eating out',
+  'airport parking': 'Travel',
   'sky tv': 'Bills & subscriptions', 'ee broadband': 'Bills & subscriptions', 'o2 bill': 'Bills & subscriptions', 'avios sub': 'Bills & subscriptions', 'yt premium': 'Bills & subscriptions', 'Spotify': 'Bills & subscriptions', 'windscribe': 'Bills & subscriptions',
   'amazon': 'Shopping', 'Ebay': 'Shopping', 'vinted': 'Shopping', 'Primark': 'Shopping', 'home bargins': 'Shopping', 'DHL': 'Shopping',
-  'Komedia': 'Entertainment', 'Day lewis pharmacy': 'Health', 'boots': 'Health',
-  'Offie whisky': 'Other', 'Morgan': 'Other'
+  'comedy club': 'Entertainment', 'High st pharmacy': 'Health', 'boots': 'Health',
+  'Corner shop': 'Other', 'Misc': 'Other'
 };
 Object.keys(expected).forEach(desc => {
   test(`"${desc}" is ${expected[desc]}`, () => assert.strictEqual(guessCategory(desc.toLowerCase()), expected[desc]));
@@ -44,7 +44,7 @@ const st = {
     { desc: 'Balance', amount: 12 }, { desc: 'Start', amount: -93.16 }, { desc: 'uber eats', amount: -15.47 }
   ],
   barclays: [{ desc: 'Dhl refund', amount: 8.42 }, { desc: 'DHL', amount: -50.53 }, { desc: 'Amex payment', amount: -1434.16 }, { desc: 'tfl', amount: -8.9 }],
-  checking: [{ desc: 'mortgage', amount: -703.27 }, { desc: 'amanda waitrose', amount: 47.59 }]
+  checking: [{ desc: 'mortgage', amount: -800 }, { desc: 'amanda waitrose', amount: 40 }]
 };
 
 test('payments, balance and start rows are not spending; checking is ignored', () => {
