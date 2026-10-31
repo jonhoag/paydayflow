@@ -289,20 +289,20 @@
                 <!-- 1. Choose Type: Monthly Bill (rolls over) vs One-Off Event -->
                 <div class="grid grid-cols-2 gap-1.5 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-xl text-xs font-semibold">
                   <button type="button" onclick="setBudFormType(false)" id="btype_event" class="py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs">
-                    <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="sparkle" data-class="w-3.5 h-3.5"></span>One-Off Event</span>
+                    <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="sparkle" data-class="w-3.5 h-3.5"></span>One-off event</span>
                   </button>
                   <button type="button" onclick="setBudFormType(true)" id="btype_bill" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
-                    <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="repeat" data-class="w-3.5 h-3.5"></span>Monthly Bill (Rolls Over)</span>
+                    <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="repeat" data-class="w-3.5 h-3.5"></span>Monthly bill</span>
                   </button>
                 </div>
 
                 <!-- 2. Choose Sign: Expense (-) vs Carry-In (+) (No minus key needed!) -->
                 <div class="grid grid-cols-2 gap-1.5 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-xl text-xs font-semibold">
                   <button type="button" onclick="setBudFormSign(-1)" id="bsign_neg" class="py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs">
-                    <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="arrow-up-right" data-class="w-3.5 h-3.5"></span>Money Out (-)</span>
+                    <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-up-right" data-class="w-3.5 h-3.5"></span>Money out (−)</span>
                   </button>
                   <button type="button" onclick="setBudFormSign(1)" id="bsign_pos" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
-                    <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="arrow-down-left" data-class="w-3.5 h-3.5"></span>Money In / Carry (+)</span>
+                    <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-down-left" data-class="w-3.5 h-3.5"></span>Money in (+)</span>
                   </button>
                 </div>
 
@@ -325,10 +325,10 @@
               </div>
 
               <!-- Filter Chips -->
-              <div class="flex gap-1.5 text-xs font-semibold">
-                <button onclick="setBudFilter('all')" id="bf_all" class="px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900">All Left</button>
-                <button onclick="setBudFilter('recurring')" id="bf_recurring" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><span class="inline-flex items-center gap-1"><span data-icon="repeat" data-class="w-3 h-3"></span>Monthly Bills</span></button>
-                <button onclick="setBudFilter('events')" id="bf_events" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><span class="inline-flex items-center gap-1"><span data-icon="sparkle" data-class="w-3 h-3"></span>One-Off Events</span></button>
+              <div class="chip-row flex gap-1.5 text-xs font-semibold overflow-x-auto">
+                <button onclick="setBudFilter('all')" id="bf_all" class="shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900">All</button>
+                <button onclick="setBudFilter('recurring')" id="bf_recurring" class="shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><span class="inline-flex items-center gap-1"><span data-icon="repeat" data-class="w-3 h-3"></span>Monthly</span></button>
+                <button onclick="setBudFilter('events')" id="bf_events" class="shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><span class="inline-flex items-center gap-1"><span data-icon="sparkle" data-class="w-3 h-3"></span>One-off</span></button>
               </div>
 
               <!-- Active Unpaid Budgets -->
@@ -480,10 +480,10 @@
       <!-- Spend (-) vs Refund / Money In (+) Toggle -->
       <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
         <button type="button" onclick="setTxDirection('spend')" id="dir_spend" class="py-2 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">
-          <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="arrow-up-right" data-class="w-3.5 h-3.5"></span>Spend (-)</span>
+          <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-up-right" data-class="w-3.5 h-3.5"></span>Spend (−)</span>
         </button>
         <button type="button" onclick="setTxDirection('refund')" id="dir_refund" class="py-2 rounded-lg text-slate-500 dark:text-slate-400">
-          <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="arrow-down-left" data-class="w-3.5 h-3.5"></span>Refund / Money In (+)</span>
+          <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-down-left" data-class="w-3.5 h-3.5"></span>Refund / in (+)</span>
         </button>
       </div>
 
@@ -588,10 +588,10 @@
       <!-- Sign Toggle for Edit Modal -->
       <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
         <button type="button" onclick="setEditTxSign(-1)" id="etsign_neg" class="py-1.5 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">
-          <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="minus" data-class="w-3.5 h-3.5"></span>Spend / Out (-)</span>
+          <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="minus" data-class="w-3.5 h-3.5"></span>Spend / out (−)</span>
         </button>
         <button type="button" onclick="setEditTxSign(1)" id="etsign_pos" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
-          <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="plus" data-class="w-3.5 h-3.5"></span>Credit / In (+)</span>
+          <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="plus" data-class="w-3.5 h-3.5"></span>Credit / in (+)</span>
         </button>
       </div>
 
@@ -620,7 +620,7 @@
 
       <div class="flex gap-2 pt-1">
         <button type="button" onclick="deleteCurrentTx()" class="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 font-bold text-xs transition">
-          <span class="inline-flex items-center justify-center gap-1.5"><span data-icon="trash" data-class="w-3.5 h-3.5"></span>Delete</span>
+          <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="trash" data-class="w-3.5 h-3.5"></span>Delete</span>
         </button>
         <button type="button" onclick="saveEditedTx()" class="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
           Save Changes
@@ -1757,8 +1757,8 @@ async function postToServer(bodyObj) {
       budFilter = f;
       ['all', 'recurring', 'events'].forEach(k => {
         document.getElementById('bf_' + k).className = k === f
-          ? 'px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900'
-          : 'px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400';
+          ? 'shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900'
+          : 'shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400';
       });
       renderBudgets();
     }
