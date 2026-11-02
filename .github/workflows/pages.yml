@@ -1,20 +1,22 @@
-# Publishes the website to GitHub Pages: only the files the site needs, never the tests or the deploy scripts.
+# Checks the website, then publishes it to GitHub Pages: only the files the site needs, never the tests or the deploy
+# scripts. A pull request runs the checks only; publishing happens from main, and only when every check passes.
 # Each action is pinned to an exact commit (its version is in the comment beside it).
 name: Publish site
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  group: pages
+  group: ${{ github.event_name == 'pull_request' && format('checks-{0}', github.ref) || 'pages' }}
   cancel-in-progress: false
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -24,6 +26,31 @@ jobs:
           persist-credentials: false
       - name: The stylesheet matches the page
         run: node build-css.js --check
+      - name: Spending summary
+        run: node tests/spending.test.js
+      # The browser tests drive the runner's own Chrome. playwright-core has no dependencies of its own; it is
+      # pinned to an exact version and its install scripts are not run.
+      - name: Install the browser driver
+        run: npm install --no-save --no-package-lock --ignore-scripts playwright-core@1.64.1
+      - name: Service worker (real Chrome)
+        run: node tests/sw.test.js
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+      - name: Screens and buttons (real Chrome)
+        run: node tests/ui-flows.test.js
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+
+  build:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Collect the site files
         run: |
           mkdir _site
