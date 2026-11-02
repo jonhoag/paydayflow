@@ -35,9 +35,10 @@
       "url": "/?go=add",
       "icons": [
         {
-          "src": "icons/icon-192.png",
+          "src": "icons/shortcut-add.png",
           "sizes": "192x192",
-          "type": "image/png"
+          "type": "image/png",
+          "purpose": "maskable"
         }
       ]
     },
@@ -47,9 +48,10 @@
       "url": "/?go=owed",
       "icons": [
         {
-          "src": "icons/icon-192.png",
+          "src": "icons/shortcut-owed.png",
           "sizes": "192x192",
-          "type": "image/png"
+          "type": "image/png",
+          "purpose": "maskable"
         }
       ]
     },
@@ -59,9 +61,10 @@
       "url": "/?go=spending",
       "icons": [
         {
-          "src": "icons/icon-192.png",
+          "src": "icons/shortcut-spending.png",
           "sizes": "192x192",
-          "type": "image/png"
+          "type": "image/png",
+          "purpose": "maskable"
         }
       ]
     }
