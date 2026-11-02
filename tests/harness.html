@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>PaydayFlow test harness</title></head>
+<body>
+<script>
+// Loads the real ../index.html with a mocked Apps Script backend and a mocked Google sign-in.
+// Query params: ?token=none  -> start signed out (expired token)
+//               ?latency=400 -> mock server delay in ms (default 300)
+//               ?evil=1      -> seed rows with quotes, angle brackets, backslash, ampersand
+//               ?noconfig=1  -> the server sends no names (like an older backend)
+// Every name, shop and figure here is invented.
+// The mock "server" runs each request the moment it arrives, then replies after its latency, so
+// replies can overtake each other exactly like real Apps Script. MOCK.nextLatencies = [1500, 100]
+// gives the next requests custom delays.
+(function () {
+  const q = new URLSearchParams(location.search);
+  const b64 = o => btoa(JSON.stringify(o)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const makeToken = (email, ttl) => 'h.' + b64({ email, exp: Math.floor(Date.now() / 1000) + (ttl || 3600) }) + '.s';
+
+  // ---------- mock sheet (two months) ----------
+  const MONTH = 'Test Payday 2026';
+  const MONTH2 = 'Other Payday 2026';
+  const db = {
+    checking: [{ row: 4, desc: 'start', amount: 1000, need: false }, { row: 5, desc: 'paycheck', amount: 2000, need: false }],
+    amex: [{ row: 4, desc: 'start', amount: 0 }],
+    barclays: [{ row: 4, desc: 'start', amount: 0 }],
+    marcus: [{ row: 4, desc: 'start', amount: 500 }],
+    budgets: [{ row: 4, name: 'mortgage', amount: -800, originalBudget: -800, isRecurring: true }]
+  };
+  const db2 = {
+    checking: [{ row: 4, desc: 'start', amount: 50, need: false }],
+    amex: [{ row: 4, desc: 'start', amount: 0 }, { row: 5, desc: 'OTHER MONTH item', amount: -9 }],
+    barclays: [{ row: 4, desc: 'start', amount: 0 }],
+    marcus: [{ row: 4, desc: 'start', amount: 0 }],
+    budgets: []
+  };
+  // ?demo=1 seeds realistic-looking (but made-up) data so screenshots resemble the real app.
+  if (q.get('demo')) {
+    const rowsOf = list => list.map((r, i) => ({ row: 4 + i, ...r }));
+    db.checking = rowsOf([{ desc: 'Start', amount: 1850 }, { desc: 'paycheck', amount: 2600 }, { desc: 'me to savings', amount: -500 },
+      { desc: 'robin Lunch', amount: 9.6, need: true }, { desc: 'robin Cinema', amount: 7.5, need: true }, { desc: 'robin Snacks', amount: 4.2, need: true },
+      { desc: 'sam Taxi', amount: 24 }, { desc: 'kim Bus', amount: 3.2 }, { desc: 'kim Groceries', amount: 36.8 }, { desc: 'To savings', amount: -300 }]);
+    db.amex = rowsOf([{ desc: 'Start', amount: -312.4 }, { desc: 'Bus fare', amount: -3.2 }, { desc: 'Lidl', amount: -73.6 }, { desc: 'Bowling alley', amount: -28 }, { desc: 'Music sub', amount: -11.99 }]);
+    db.barclays = rowsOf([{ desc: 'Start', amount: -1240.15 }]);
+    db.marcus = rowsOf([{ desc: 'Start', amount: 2750 }, { desc: 'Monthly savings', amount: 500 }, { desc: 'Holiday pot', amount: 300 }]);
+    db.budgets = rowsOf([['Groceries wk 1', -45, true], ['Fuel wk 2', -35, true], ['Groceries wk 3', -45, true], ['Account fee', -20, true], ['Music sub', -12, true],
+      ['Mortgage', -850, true], ['Broadband', -45, true], ['TV package', -60, true], ['Energy', -110, true], ['Optician', -30, false], ['Birthday gifts', -120, false]]
+      .map(([name, amount, isRecurring]) => ({ name, amount, originalBudget: amount, isRecurring })));
+  }
+  const dbs = { [MONTH]: db, [MONTH2]: db2 };
+  // ?evil=1 seeds awkward text: quotes, angle brackets, backslash, ampersand.
+  const EVIL = `O'Brien "Quote" <b>bold</b> \\back & co`;
+  if (q.get('evil')) {
+    db.amex.push({ row: 5, desc: EVIL, amount: -3 });
+    db.checking.push({ row: 6, desc: 'kim ' + EVIL, amount: 3, need: true });
+    db.budgets.push({ row: 5, name: EVIL, amount: -7, originalBudget: -7, isRecurring: false });
+  }
+  // The names the backend sends with every reply (the real ones live only in the private backend).
+  const CONFIG = q.get('noconfig') ? null
+    : { people: ['kim', 'lee', 'robin', 'sam', 'jo'], quickSplit: 'kim', spendWords: { 'Entertainment': ['bowling'] } };
+  const sum = a => +a.reduce((t, x) => t + Number(x.amount || 0), 0).toFixed(2);
+  const rev = (arr, acct) => arr.slice().reverse().map(r => ({ ...r, acct }));
+  function snapshot(d = db, name = MONTH) {
+    const nCA = sum(d.checking), amex = sum(d.amex), barclays = sum(d.barclays);
+    const budgetRem = sum(d.budgets);
+    return {
+      ...(MOCK.config ? { config: JSON.parse(JSON.stringify(MOCK.config)) } : {}),
+      sheetUrl: '#', availableMonths: [MONTH, MONTH2], activeMonth: name,
+      checking: rev(d.checking, 'checking'), marcus: rev(d.marcus, 'marcus'),
+      barclays: rev(d.barclays, 'barclays'), amex: rev(d.amex, 'amex'),
+      budgets: JSON.parse(JSON.stringify(d.budgets)),
+      summary: { nCA, mSAV: sum(d.marcus), amex, barclays, budgetRem, checkingExpected: +(nCA + budgetRem).toFixed(2), eomSavingsJ: +(nCA + budgetRem + amex + barclays).toFixed(2) }
+    };
+  }
+  const nextRow = arr => Math.max(3, ...arr.map(r => r.row)) + 1;
+  // Like the real server: an edit or delete that says what it expects in the row is refused if the row changed.
+  const checkExpect = (it, p) => {
+    if (p.expect && (!it || it.desc !== p.expect.desc || Math.abs(it.amount - p.expect.amount) >= 0.005)) {
+      throw new Error('STALE: This entry was changed on another device.');
+    }
+  };
+
+  const MOCK = window.MOCK = {
+    latency: Number(q.get('latency') || 300),
+    nextLatencies: [],    // consumed one per request before falling back to `latency`
+    failNext: 0,          // number of upcoming write calls that should fail
+    authError: null,      // set to an error text and the server turns down every request as a sign-in problem
+    config: CONFIG,       // the names sent with every reply (null: none, like an older backend)
+    categoryChoices: {},  // the mock server's saved Spending category choices
+    calls: [],            // log of { action, payload, start, end }
+    db, db2, snapshot, MONTH, MONTH2,
+    makeToken,
+    gsiCallback: null,
+    gsiAccount: null,     // the account Google would sign in automatically (null: none)
+    gsi: { initialize: 0, prompt: 0, disableAutoSelect: 0 }   // calls to the pretend Google sign-in
+  };
+
+  const handlers = {
+    getCachedSheetState: (p, d, n) => snapshot(d, n),
+    addTransactionBundle: (p, d, n) => {
+      const arr = d[p.account];
+      arr.push({ row: nextRow(arr), desc: p.merchant, amount: p.isRefund ? Math.abs(p.grossAmount) : -Math.abs(p.grossAmount), need: false });
+      (p.splits || []).forEach(s => d.checking.push({ row: nextRow(d.checking), desc: s.person + ' ' + p.merchant, amount: s.amount, need: !!s.need }));
+      return snapshot(d, n);
+    },
+    editOrMoveTransaction: (p, d, n) => {
+      const it = d[p.oldAcct].find(r => r.row === Number(p.row));
+      checkExpect(it, p);
+      if (it) { it.desc = p.newDesc; it.amount = p.newAmount; }
+      return snapshot(d, n);
+    },
+    deleteTransactionRow: (p, d, n) => {
+      const i = d[p.acct].findIndex(r => r.row === Number(p.row));
+      checkExpect(d[p.acct][i], p);
+      if (i > -1) d[p.acct].splice(i, 1);
+      return snapshot(d, n);
+    },
+    toggleNeedFlag: (p, d, n) => { const it = d.checking.find(r => r.row === Number(p.row)); if (it) it.need = !!p.setNeed; return snapshot(d, n); },
+    settleAllNeeds: (p, d, n) => { d.checking.forEach(r => { if ((p.rows || []).includes(r.row)) r.need = false; }); return snapshot(d, n); },
+    updateBudgetRow: (p, d, n) => { const it = d.budgets.find(b => b.row === Number(p.row)); if (it) it.amount = Number(p.newAmount); return snapshot(d, n); },
+    saveBudgetItem: (p, d, n) => {
+      if (p.row) { const it = d.budgets.find(b => b.row === Number(p.row)); if (it) Object.assign(it, { name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring }); }
+      else d.budgets.push({ row: nextRow(d.budgets), name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring });
+      return snapshot(d, n);
+    },
+    deleteBudgetItem: (p, d, n) => { const i = d.budgets.findIndex(b => b.row === Number(p.row)); if (i > -1) d.budgets.splice(i, 1); return snapshot(d, n); },
+    // Like the real server: an existing month is only replaced when the page says so (nothing else is modelled).
+    startNewMonth: (p, d, n) => {
+      if (dbs[p.newMonthName] && p.replaceExisting !== true) throw new Error('EXISTS: There is already a month called "' + p.newMonthName + '". Nothing was changed.');
+      return snapshot(d, n);
+    },
+    getCategoryChoices: () => ({ choices: JSON.parse(JSON.stringify(MOCK.categoryChoices)) }),
+    setCategoryChoice: p => {
+      const k = String(p.merchant || '').trim().toLowerCase();
+      delete MOCK.categoryChoices[k];
+      if (p.category) MOCK.categoryChoices[k] = p.category;
+      return { choices: JSON.parse(JSON.stringify(MOCK.categoryChoices)) };
+    }
+  };
+
+  window.fetch = async function (url, opts) {
+    const body = JSON.parse(opts.body);
+    const call = { action: body.action, payload: body.payload, start: Date.now(), end: null };
+    MOCK.calls.push(call);
+    const wait = MOCK.nextLatencies.length ? MOCK.nextLatencies.shift() : MOCK.latency;
+    const isWrite = body.action !== 'getCachedSheetState';
+
+    // The server does its work as soon as the request arrives...
+    let reply;
+    if (MOCK.authError) {
+      reply = { ok: false, authError: true, error: MOCK.authError };
+    } else if (isWrite && MOCK.failNext > 0) {
+      MOCK.failNext--;
+      reply = { ok: false, error: 'Mock server failure' };
+    } else if (!handlers[body.action]) {
+      reply = { ok: false, error: 'Unknown action ' + body.action };
+    } else {
+      const p = body.payload || {};
+      const name = dbs[p.sheetName || p.sourceSheetName] ? (p.sheetName || p.sourceSheetName) : MONTH;
+      try { reply = { ok: true, data: handlers[body.action](p, dbs[name], name) }; }
+      catch (e) { reply = { ok: false, error: e.message }; }
+    }
+    // ...but the reply reaches the browser only after its latency.
+    await new Promise(r => setTimeout(r, wait));
+    call.end = Date.now();
+    return { text: async () => JSON.stringify(reply) };
+  };
+
+  // ---------- mock Google Identity Services ----------
+  // Like the real one, with auto_select a prompt() signs the remembered account (MOCK.gsiAccount) straight back in,
+  // until disableAutoSelect() is called. That is what would loop if the page let a refused account straight back in.
+  let gsiCfg = {}, gsiAutoOff = false;
+  window.google = { accounts: { id: {
+    initialize: cfg => { MOCK.gsi.initialize++; gsiCfg = cfg; MOCK.gsiCallback = cfg.callback; },
+    renderButton: () => {},
+    prompt: () => {
+      MOCK.gsi.prompt++;
+      if (gsiCfg.auto_select && !gsiAutoOff && MOCK.gsiAccount) setTimeout(() => gsiCfg.callback({ credential: makeToken(MOCK.gsiAccount) }), 30);
+    },
+    disableAutoSelect: () => { MOCK.gsi.disableAutoSelect++; gsiAutoOff = true; }
+  } } };
+
+  // ---------- load timing: ms from harness start until styles apply / first data renders ----------
+  const perf = window.__perf = { t0: performance.now(), styled: null, data: null };
+  const poll = setInterval(() => {
+    const now = performance.now() - perf.t0;
+    const body = document.body;
+    // "styled" = body got a Tailwind background (light or dark); "data" = KPI no longer shows the static placeholder.
+    if (perf.styled == null && body && getComputedStyle(body).backgroundColor !== 'rgba(0, 0, 0, 0)') perf.styled = Math.round(now);
+    const k = document.getElementById('kpiNCA');
+    if (perf.data == null && k && k.textContent && k.textContent !== '£—' && /^£|^[-−]£/.test(k.textContent)) perf.data = Math.round(now);
+    if ((perf.styled != null && perf.data != null) || now > 15000) clearInterval(poll);
+  }, 5);
+
+  // ---------- style capture: records every element's computed styles in several UI states ----------
+  // Used to prove two builds of the page look identical: capture each, then compareCaptures(a, b).
+  const STYLE_PROPS = ['display', 'position', 'top', 'right', 'bottom', 'left', 'z-index', 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height',
+    'margin-top', 'margin-right', 'margin-bottom', 'margin-left', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+    'color', 'background-color', 'background-image', 'opacity', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing',
+    'text-align', 'text-transform', 'text-decoration-line', 'white-space', 'overflow-x', 'overflow-y', 'text-overflow',
+    'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width', 'border-top-style', 'border-top-color', 'border-bottom-color',
+    'border-left-color', 'border-right-color', 'border-top-left-radius', 'border-bottom-right-radius', 'box-shadow', 'transform', 'cursor',
+    'flex-direction', 'flex-wrap', 'flex-grow', 'flex-shrink', 'align-items', 'justify-content', 'gap', 'grid-template-columns', 'pointer-events',
+    'backdrop-filter', 'object-fit', 'appearance', 'outline-style', 'list-style-type', 'vertical-align', 'visibility'];
+  const STATES = [
+    ['overview-light', () => { localStorage.setItem('pf_theme_mode', 'light'); applyThemeMode(); }],
+    ['overview-dark', () => { localStorage.setItem('pf_theme_mode', 'dark'); applyThemeMode(); }],
+    ['breakdown-open', () => { document.getElementById('mathDrawer').classList.remove('hidden'); }],
+    ['add-modal-custom-split', () => { document.getElementById('mathDrawer').classList.add('hidden'); openAddModal(); selectSplit('custom'); }],
+    ['edit-modal', () => { closeAddModal(); openEditTxForRow('amex', 5); }],
+    ['budget-form', () => { closeEditTxModal(); openBudgetForm('', '', '', false); }],
+    ['new-month-modal', () => { closeBudgetForm(); openNewMonthModal(); }],
+    ['lock-screen', () => { closeNewMonthModal(); document.getElementById('authLockScreen').style.display = 'flex'; }],
+    ['toast', () => { document.getElementById('authLockScreen').style.display = 'none'; showToast('Couldn\'t save the thing - refreshing.'); }],
+    ['light-again', () => { document.getElementById('toast').classList.add('hidden'); localStorage.setItem('pf_theme_mode', 'light'); applyThemeMode(); }],
+  ];
+  window.captureAll = async function (key) {
+    const frame = () => new Promise(r => setTimeout(r, 60));
+    const out = { width: innerWidth, states: {}, descs: [] };
+    for (const [name, apply] of STATES) {
+      apply(); await frame();
+      const rows = [];
+      document.body.querySelectorAll('*').forEach((el, i) => {
+        if (['SCRIPT', 'STYLE', 'LINK', 'NOSCRIPT'].includes(el.tagName)) return;
+        const cs = getComputedStyle(el);
+        rows.push(STYLE_PROPS.map(p => cs.getPropertyValue(p)).join('|'));
+        if (!out.descs[rows.length - 1]) out.descs[rows.length - 1] = el.tagName.toLowerCase() + '.' + String(el.getAttribute('class') || '').slice(0, 50) + (el.id ? '#' + el.id : '');
+      });
+      out.states[name] = rows;
+    }
+    sessionStorage.setItem('cap_' + key, JSON.stringify(out));
+    return { key, width: out.width, states: Object.keys(out.states).length, elements: out.states['overview-light'].length };
+  };
+  window.compareCaptures = function (keyA, keyB) {
+    const a = JSON.parse(sessionStorage.getItem('cap_' + keyA)), b = JSON.parse(sessionStorage.getItem('cap_' + keyB));
+    const res = { widths: [a.width, b.width], differingElements: 0, totalElements: 0, examples: [] };
+    for (const state of Object.keys(a.states)) {
+      const ra = a.states[state], rb = b.states[state];
+      if (ra.length !== rb.length) { res.examples.push(state + ': element count ' + ra.length + ' vs ' + rb.length); continue; }
+      for (let i = 0; i < ra.length; i++) {
+        res.totalElements++;
+        if (ra[i] === rb[i]) continue;
+        res.differingElements++;
+        if (res.examples.length < 15) {
+          const pa = ra[i].split('|'), pb = rb[i].split('|');
+          const diffs = STYLE_PROPS.map((p, k) => pa[k] !== pb[k] ? p + ': ' + pa[k] + ' -> ' + pb[k] : null).filter(Boolean);
+          res.examples.push(state + ' | ' + a.descs[i] + ' | ' + diffs.slice(0, 4).join('; '));
+        }
+      }
+    }
+    return res;
+  };
+
+  // ---------- sign-in state ----------
+  try {
+    localStorage.clear();
+    if (q.get('token') !== 'none') localStorage.setItem('pf_google_id_token', makeToken('owner@example.com'));
+  } catch (e) {}
+})();
+</script>
+<script>
+// Separate block so the mock fetch above is already installed; we need the REAL fetch to read index.html.
+(async function () {
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', new URLSearchParams(location.search).get('src') || '/index.html', false);
+  xhr.send();
+  let html = xhr.responseText;
+  // Google sign-in is mocked, so drop its script. The Tailwind CDN script is also dropped (faster, offline
+  // friendly) unless ?cdn=1, which keeps the page exactly as the browser would load it.
+  html = html.replace(/<script src="https:\/\/accounts\.google\.com[^>]*><\/script>/, '');
+  if (new URLSearchParams(location.search).get('cdn') !== '1') {
+    html = html.replace(/<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/, '');
+    html = html.replace(/<script>\s*tailwind\.config[^<]*<\/script>/, '');
+  }
+  // The page is served from /tests/ here, so make its relative links (tailwind.css, sw.js...) resolve from the root.
+  html = html.replace(/<head>/i, '<head><base href="/">');
+  // Written once this harness has finished parsing. While its own parser is running, document.open() does nothing
+  // and the page would land inside the harness's <body>, where the browser ignores the page's security policy tag.
+  const write = () => { document.open(); document.write(html); document.close(); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', write); else write();
+})();
+</script>
+</body>
+</html>

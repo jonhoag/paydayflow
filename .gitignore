@@ -1,0 +1,16 @@
+# Apps Script backend (deployed with clasp, not published via GitHub Pages)
+Code.js
+Passkeys.js
+*.gs
+.clasp.json
+.clasprc.json
+appsscript.json
+node_modules/
+
+# local tooling
+.deployed-backend.json
+.backend-history/
+.claude/
+tests/index.orig.html
+# backend-only tests (they need the private backend files above)
+tests/private/
