@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Styles are pre-built into tailwind.css (see build-css.js); the service worker keeps a copy for offline use. -->
-  <link rel="stylesheet" href="tailwind.css?v=bd05517943">
+  <link rel="stylesheet" href="tailwind.css?v=8df08dbb81">
   <style>
     /* Inter, served from this site (SIL Open Font License: fonts/OFL.txt): one variable file per set of characters,
        fetched only when the page uses them. Text shows in the fallback font until it arrives. */
@@ -115,6 +115,9 @@
          class="w-full py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-slate-800/50 dark:hover:bg-slate-800 dark:text-emerald-400 text-xs font-medium flex items-center justify-center gap-1.5">
         <span data-icon="sheet" data-class="w-3.5 h-3.5"></span><span>Open Sheet</span>
       </a>
+      <button id="sideSignOutBtn" onclick="openSignOutModal()" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 text-xs font-medium inline-flex items-center justify-center gap-1.5">
+        <span data-icon="logout" data-class="w-3.5 h-3.5"></span> Sign out
+      </button>
     </div>
   </aside>
 
@@ -167,6 +170,11 @@
               <span data-icon="sheet" data-class="w-4 h-4"></span>
               <span class="flex-1">Open Google Sheet</span>
             </a>
+            <div id="menuSignOutRule" class="my-1.5 border-t border-slate-200 dark:border-slate-700"></div>
+            <button id="menuSignOutItem" onclick="openSignOutModal()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+              <span data-icon="logout" data-class="w-4 h-4"></span>
+              <span class="flex-1">Sign out</span>
+            </button>
           </div>
         </div>
       </div>
@@ -462,6 +470,30 @@
     </div>
   </div>
 
+  <!-- SIGN OUT DIALOG -->
+  <div id="signOutModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeSignOutModal()">
+    <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="logout" data-class="w-4 h-4"></span>Sign out of this device</h3>
+        <button onclick="closeSignOutModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+      </div>
+      <p class="text-xs text-slate-600 dark:text-slate-300">Clears everything this device has saved (figures, bills, Owed, sign-in) and locks the app. Your Google Sheet isn't touched.</p>
+      <div id="soWaiting" class="hidden rounded-xl px-3 py-2.5 text-xs bg-amber-500/15 text-amber-700 dark:text-amber-300 flex items-center gap-3">
+        <span id="soWaitingText" class="flex-1"></span>
+        <button id="soSendBtn" onclick="sendWaitingBeforeSignOut()" class="h-9 px-3 rounded-lg font-bold whitespace-nowrap disabled:opacity-60" style="background:#F59E0B;color:#0B0F19">Send now</button>
+      </div>
+      <p id="soMsg" class="hidden"></p>
+      <div class="space-y-1.5">
+        <button id="soBtn" onclick="signOut(false)" class="w-full h-11 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-bold disabled:opacity-50">Sign out</button>
+        <p id="soKeepNote" class="text-xs text-slate-500 dark:text-slate-400">Fingerprint sign-in stays on, so you can unlock again with a touch.</p>
+      </div>
+      <div id="soForgetBlock" class="space-y-1.5">
+        <button id="soForgetBtn" onclick="signOut(true)" class="w-full h-11 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 text-sm font-bold disabled:opacity-50">Sign out and forget this device</button>
+        <p class="text-xs text-slate-500 dark:text-slate-400">Also turns off fingerprint sign-in here. For a phone you're passing on or a shared computer.</p>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL 1: ADD SPEND OR REFUND / MONEY IN (+ DYNAMIC GROUP SPLIT BUILDER) -->
   <div id="addModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
@@ -714,6 +746,7 @@ const ICON_PATHS = {
   chevron_up: '<path d="m6 15 6-6 6 6"/>',
   chart: '<path d="M4 20V11"/><path d="M10 20V4"/><path d="M16 20v-6"/><path d="M22 20H2"/>',
   pound: '<circle cx="12" cy="12" r="9"/><path d="M14.5 8.8a2.6 2.6 0 0 0-5 .9V16h5.5M8.5 12.5h4.5"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
   chevron_right: '<path d="m9 6 6 6-6 6"/>',
   // Spending categories
   cat_groceries: '<path d="M5 9h14l-1.6 10.5H6.6z"/><path d="M9 9l3-5 3 5"/>',
@@ -820,6 +853,7 @@ function showLockScreen(msg, opts) {
 // chosen, so a refusal can say which account it was.
 function afterSignIn(viaGoogle, email) {
   passkeyAutoTried = false;   // if the session later expires while the app is open, prompt for the fingerprint again
+  try { sessionStorage.removeItem(SIGNED_OUT_FLAG); } catch (e) {}
   initAppUi();
   if (loadPhoneCache(activeMonth)) renderAll();
   apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
@@ -882,6 +916,8 @@ function initGoogleAuthButton() {
       width: 260
     });
   }
+  // Straight after signing out, Google must not sign the same account back in by itself.
+  if (justSignedOut()) stopGoogleAutoSignIn();
   google.accounts.id.prompt();
 }
 
@@ -1144,6 +1180,119 @@ async function removePasskeyDevice(id, fromTurnOff) {
   }
   renderPasskeyModal();
   refreshPasskeyDevices();
+}
+
+// ---- Sign out: clears everything this device has saved and locks the app. The Google Sheet is never touched. ----
+// "Forget this device" first turns off this device's fingerprint sign-in on the server. Then the page reloads, so
+// nothing from the signed-in session stays in memory; a flag for this tab tells the fresh page to say so.
+const SIGNED_OUT_FLAG = 'pf_signed_out';                              // sessionStorage
+const SIGN_OUT_KEEP = ['pf_theme_mode', PASSKEY_OFFER_DISMISSED_KEY];   // preferences, not data
+let soArmed = null, soArmTimer = null, soBusy = false;
+
+function justSignedOut() {
+  try { return sessionStorage.getItem(SIGNED_OUT_FLAG) === '1'; } catch (e) { return false; }
+}
+function setSoMessage(text) {
+  const el = document.getElementById('soMsg');
+  el.textContent = text || '';
+  el.className = text ? 'text-xs rounded-xl px-3 py-2 bg-rose-500/10 text-rose-600 dark:text-rose-400' : 'hidden';
+}
+function renderSignOutModal() {
+  const waiting = loadOutbox().length;
+  document.getElementById('soWaiting').classList.toggle('hidden', !waiting);
+  document.getElementById('soWaitingText').textContent = waiting === 1
+    ? "1 spend saved offline hasn't been sent yet. Signing out would lose it."
+    : waiting + " spends saved offline haven't been sent yet. Signing out would lose them.";
+  // Without fingerprint sign-in on this device there is nothing more to forget.
+  const here = passkeyEnrolledHere();
+  document.getElementById('soKeepNote').classList.toggle('hidden', !here);
+  document.getElementById('soForgetBlock').classList.toggle('hidden', !here);
+  document.getElementById('soBtn').textContent = soArmed === 'keep' ? 'Tap again to sign out anyway' : 'Sign out';
+  document.getElementById('soForgetBtn').textContent = soArmed === 'forget' ? 'Tap again to sign out anyway' : 'Sign out and forget this device';
+  ['soBtn', 'soForgetBtn', 'soSendBtn'].forEach(id => { document.getElementById(id).disabled = soBusy; });
+}
+function openSignOutModal() {
+  closeMenu();
+  soArmed = null;
+  clearTimeout(soArmTimer);
+  setSoMessage('');
+  renderSignOutModal();
+  document.getElementById('signOutModal').classList.remove('hidden');
+}
+function closeSignOutModal() {
+  if (soBusy) return;
+  document.getElementById('signOutModal').classList.add('hidden');
+  soArmed = null;
+  clearTimeout(soArmTimer);
+}
+async function sendWaitingBeforeSignOut() {
+  if (navigator.onLine === false) { setSoMessage('Still offline. Try again when you have signal.'); return; }
+  const btn = document.getElementById('soSendBtn');
+  soBusy = true;
+  soArmed = null;
+  setSoMessage('');
+  renderSignOutModal();
+  btn.textContent = 'Sending…';
+  try { await flushOutbox(); } finally {
+    soBusy = false;
+    btn.textContent = 'Send now';
+  }
+  renderSignOutModal();
+  if (loadOutbox().length) setSoMessage("Couldn't send them yet. Try again in a moment.");
+}
+// Every saved key of this app goes, except the preferences above and, for a plain sign-out, the fingerprint link.
+function clearThisDevice(forget) {
+  const keep = SIGN_OUT_KEEP.concat(forget ? [] : [PASSKEY_ID_KEY]);
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf('pf_') === 0 && keep.indexOf(k) === -1) localStorage.removeItem(k);
+    }
+  } catch (e) {}
+}
+// With spends still waiting to send, the first tap only warns; a second tap within a few seconds signs out anyway.
+async function signOut(forget) {
+  if (soBusy) return;
+  // Let any save that is still on its way finish first: one that can't get through is kept to send later, and
+  // then counts as waiting below.
+  if (apiInflight) {
+    soBusy = true;
+    renderSignOutModal();
+    await apiQueue;
+    await new Promise(r => setTimeout(r, 0));
+    soBusy = false;
+    renderSignOutModal();
+  }
+  const which = forget ? 'forget' : 'keep';
+  if (loadOutbox().length && soArmed !== which) {
+    soArmed = which;
+    clearTimeout(soArmTimer);
+    soArmTimer = setTimeout(() => { soArmed = null; renderSignOutModal(); }, 4000);
+    renderSignOutModal();
+    return;
+  }
+  clearTimeout(soArmTimer);
+  soArmed = null;
+  const cid = localStorage.getItem(PASSKEY_ID_KEY);
+  if (forget && cid) {
+    soBusy = true;
+    setSoMessage('');
+    renderSignOutModal();
+    try {
+      await apiCall('passkeyRemove', { credentialId: cid });
+    } catch (err) {
+      soBusy = false;
+      renderSignOutModal();
+      setSoMessage(err && (err.auth || err.message === 'Authentication required')
+        ? 'Sign in again, then tap "Sign out and forget this device" once more. Nothing has been cleared yet.'
+        : "Couldn't turn off fingerprint sign-in (" + ((err && err.message) || 'unknown error') + '). Nothing has been cleared yet.');
+      return;
+    }
+  }
+  clearThisDevice(forget);
+  try { sessionStorage.setItem(SIGNED_OUT_FLAG, '1'); } catch (e) {}
+  stopGoogleAutoSignIn();
+  location.reload();
 }
 
     // Requests go to the server strictly one at a time. Apps Script can answer two quick requests out of
@@ -1446,6 +1595,7 @@ async function postToServer(bodyObj) {
       else if (open('editTxModal')) closeEditTxModal();
       else if (open('newMonthModal')) closeNewMonthModal();
       else if (open('passkeyModal')) closePasskeyModal();
+      else if (open('signOutModal')) closeSignOutModal();
     });
 
     // "October Payday 2026" -> a sortable number (year * 12 + month), or 0 if the name doesn't follow that pattern.
@@ -2862,9 +3012,14 @@ async function postToServer(bodyObj) {
       if (!passkeySupported()) {   // e.g. inside Apps Script, or a browser without WebAuthn
         ['menuPasskeyItem', 'sidePasskeyBtn'].forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('hidden'); });
       }
-      // If on jonhoag.co.uk without a valid token, stop here and show Lock Screen
+      if (IS_GAS_ENV) {   // Apps Script signs you in with your Google account itself, so there is nothing to sign out of here
+        ['menuSignOutRule', 'menuSignOutItem', 'sideSignOutBtn'].forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('hidden'); });
+      }
+      // If on jonhoag.co.uk without a valid token, stop here and show Lock Screen. Straight after signing out, say
+      // so, and don't ask for the fingerprint by itself.
       if (!IS_GAS_ENV && !hasValidToken()) {
-        showLockScreen();
+        if (justSignedOut()) showLockScreen('Signed out. Nothing is saved on this device any more.', { noAuto: true });
+        else showLockScreen();
         return;
       }
       hideLockScreen();

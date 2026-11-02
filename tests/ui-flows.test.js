@@ -494,6 +494,148 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
   });
   await ctx.close();
 
+  // ---------------- sign out ----------------
+  {
+    const keys = p => p.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('pf_')).sort());
+    const locked = p => p.evaluate(() => getComputedStyle(document.getElementById('authLockScreen')).display !== 'none');
+    const shown = (p, id) => p.evaluate(i => !document.getElementById(i).classList.contains('hidden'), id);
+    // This device has fingerprint sign-in, a theme and a dismissed offer, on top of the saved figures.
+    const seed = p => p.evaluate(() => {
+      localStorage.setItem('pf_passkey_cid', 'cid-test');
+      localStorage.setItem('pf_theme_mode', 'dark');
+      localStorage.setItem('pf_passkey_offer_dismissed', '1');
+    });
+    const afterReload = async p => {
+      await p.waitForLoadState('load');
+      await p.waitForFunction(() => window.MOCK && document.getElementById('authLockMsg') && getComputedStyle(document.getElementById('authLockScreen')).display !== 'none');
+      await p.waitForTimeout(800);   // long enough for Google (auto select) or the fingerprint to have jumped in
+    };
+
+    let { ctx: c3, page: p3 } = await open(phone);
+    await step('sign out: in the phone menu, and the sheet says what it clears; fingerprint options only when set up', async () => {
+      await p3.click('#menuBtn');
+      assert.ok(await visible(p3, '#menuSignOutItem'), 'no Sign out in the menu');
+      await p3.click('#menuSignOutItem');
+      assert.ok(await shown(p3, 'signOutModal') && !(await shown(p3, 'menuPanel')), 'the sheet should open and the menu close');
+      assert.ok(!(await shown(p3, 'soForgetBlock')) && !(await shown(p3, 'soKeepNote')) && !(await shown(p3, 'soWaiting')), 'no fingerprint here, nothing waiting');
+      await p3.keyboard.press('Escape');
+      assert.ok(!(await shown(p3, 'signOutModal')), 'Escape should close it');
+      await seed(p3);
+      await p3.evaluate(() => openSignOutModal());
+      assert.ok(await shown(p3, 'soForgetBlock') && await shown(p3, 'soKeepNote'), 'fingerprint options missing');
+    });
+    await step('sign out: clears the figures and sign-in, keeps theme and fingerprint, and locks without asking for the fingerprint', async () => {
+      assert.ok((await keys(p3)).some(k => k.startsWith('pf_cache_')), 'test set-up: nothing saved to clear');
+      await p3.click('#soBtn');
+      await afterReload(p3);
+      assert.deepStrictEqual(await keys(p3), ['pf_passkey_cid', 'pf_passkey_offer_dismissed', 'pf_theme_mode']);
+      const s = await p3.evaluate(() => ({ msg: document.getElementById('authLockMsg').textContent, calls: MOCK.calls.map(c => c.action),
+        off: MOCK.gsi.disableAutoSelect, finger: getComputedStyle(document.getElementById('passkeyUnlockBtn')).display, money: document.getElementById('kpiNCA').textContent }));
+      assert.ok(await locked(p3), 'should be locked');
+      assert.strictEqual(s.msg, 'Signed out. Nothing is saved on this device any more.');
+      assert.deepStrictEqual(s.calls, [], 'nothing should be asked of the server (no fingerprint prompt, no data)');
+      assert.ok(s.off >= 1, "Google's automatic sign-in was not stopped");
+      assert.strictEqual(s.finger, 'flex', 'the fingerprint button should still be offered');
+      assert.ok(!/£\d/.test(s.money), 'figures still on the page: ' + s.money);
+    });
+    await step('sign out: then choosing the account on the Google button gets straight back in', async () => {
+      await p3.evaluate(() => MOCK.gsiCallback({ credential: MOCK.makeToken('owner@example.com') }));
+      await p3.waitForFunction(() => getComputedStyle(document.getElementById('authLockScreen')).display === 'none' && /£\d/.test(document.getElementById('kpiNCA').textContent));
+      assert.strictEqual(await p3.evaluate(() => sessionStorage.getItem('pf_signed_out')), null, 'the signed-out note should go once signed in');
+    });
+    await c3.close();
+
+    ({ ctx: c3, page: p3 } = await open(phone));
+    await step('sign out with a spend still waiting to send: warns, first tap only arms, Send now sends it', async () => {
+      await p3.evaluate(() => {
+        const payload = { sheetName: activeMonth, account: 'amex', merchant: 'Waiting shop', grossAmount: 7.5, isRefund: false, splits: [], clientId: 'wait1' };
+        localStorage.setItem('pf_outbox', JSON.stringify([{ id: 'wait1', payload }]));
+        openSignOutModal();
+      });
+      assert.ok(await shown(p3, 'soWaiting'));
+      assert.strictEqual(await p3.textContent('#soWaitingText'), "1 spend saved offline hasn't been sent yet. Signing out would lose it.");
+      await p3.click('#soBtn');
+      await p3.waitForTimeout(200);
+      assert.strictEqual(await p3.textContent('#soBtn'), 'Tap again to sign out anyway');
+      assert.ok(!(await locked(p3)) && (await keys(p3)).includes('pf_outbox'), 'one tap must not sign out');
+      await p3.click('#soSendBtn');
+      await p3.waitForFunction(() => !JSON.parse(localStorage.getItem('pf_outbox') || '[]').length);
+      await p3.waitForTimeout(200);
+      assert.deepStrictEqual((await calls(p3, 'addTransactionBundle')).map(c => c.merchant), ['Waiting shop']);
+      assert.ok(!(await shown(p3, 'soWaiting')), 'the warning should go once sent');
+      assert.strictEqual(await p3.textContent('#soBtn'), 'Sign out');
+    });
+    await step('sign out anyway: a second tap with a spend waiting signs out', async () => {
+      await p3.evaluate(() => { localStorage.setItem('pf_outbox', JSON.stringify([{ id: 'w2', payload: { merchant: 'x' } }])); renderSignOutModal(); });
+      await p3.click('#soBtn');
+      await p3.click('#soBtn');
+      await afterReload(p3);
+      assert.deepStrictEqual(await keys(p3), []);
+    });
+    await c3.close();
+
+    ({ ctx: c3, page: p3 } = await open(phone));
+    await step('sign out waits for a save that is still on its way before clearing anything', async () => {
+      await p3.evaluate(() => {
+        MOCK.nextLatencies = [1500];
+        sendNewSpend({ sheetName: activeMonth, account: 'amex', merchant: 'Slow shop', grossAmount: 3, isRefund: false, splits: [], clientId: 'slow1' });
+        openSignOutModal();
+      });
+      await p3.click('#soBtn');
+      await p3.waitForTimeout(500);
+      const s = await p3.evaluate(() => ({ disabled: document.getElementById('soBtn').disabled, token: !!localStorage.getItem('pf_google_id_token'),
+        ended: MOCK.calls.filter(c => c.action === 'addTransactionBundle').map(c => c.end) }));
+      assert.ok(s.disabled && s.token && s.ended.length === 1 && s.ended[0] === null, 'signed out before the save finished: ' + JSON.stringify(s));
+      await afterReload(p3);
+      assert.deepStrictEqual(await keys(p3), []);
+    });
+    await c3.close();
+
+    ({ ctx: c3, page: p3 } = await open(phone));
+    await step('forget this device: if the server says no, nothing is cleared and it says why', async () => {
+      await seed(p3);
+      await p3.evaluate(() => { MOCK.failNext = 1; openSignOutModal(); });
+      await p3.click('#soForgetBtn');
+      await p3.waitForFunction(() => /Nothing has been cleared yet/.test(document.getElementById('soMsg').textContent));
+      assert.ok(await shown(p3, 'signOutModal') && !(await locked(p3)));
+      const k = await keys(p3);
+      assert.ok(k.includes('pf_passkey_cid') && k.includes('pf_google_id_token') && k.some(x => x.startsWith('pf_cache_')), JSON.stringify(k));
+    });
+    await step('forget this device: turns fingerprint off on the server, then clears its link too', async () => {
+      await p3.click('#soForgetBtn');
+      await afterReload(p3);
+      assert.strictEqual(await p3.evaluate(() => sessionStorage.getItem('mock_passkey_removed')), 'cid-test');
+      assert.deepStrictEqual(await keys(p3), ['pf_passkey_offer_dismissed', 'pf_theme_mode']);
+      assert.strictEqual(await p3.evaluate(() => getComputedStyle(document.getElementById('passkeyUnlockBtn')).display), 'none');
+    });
+    await c3.close();
+
+    ({ ctx: c3, page: p3 } = await open(desk));
+    await step('desktop: Sign out sits under Open Sheet in the sidebar and opens the same sheet', async () => {
+      assert.ok(await visible(p3, '#sideSignOutBtn'));
+      const order = await p3.evaluate(() => { const a = document.getElementById('rawSheetBtn'), b = document.getElementById('sideSignOutBtn'); return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); });
+      assert.ok(order, 'should come after Open Sheet');
+      await p3.click('#sideSignOutBtn');
+      assert.ok(await shown(p3, 'signOutModal'));
+      await p3.click('#signOutModal', { position: { x: 5, y: 5 } });
+      assert.ok(!(await shown(p3, 'signOutModal')), 'tapping outside should close it');
+    });
+    await c3.close();
+
+    ({ ctx: c3, page: p3 } = await open({ ...phone, viewport: { width: 344, height: 780 } }));
+    await step('sign out sheet fits a 344px phone: no button label wraps, even "Tap again"', async () => {
+      await seed(p3);
+      await p3.evaluate(() => { localStorage.setItem('pf_outbox', JSON.stringify([{ id: 'w3', payload: { merchant: 'x' } }])); openSignOutModal(); });
+      await p3.click('#soBtn');
+      const lines = await p3.evaluate(() => ['soBtn', 'soForgetBtn', 'soSendBtn'].map(id => {
+        const r = document.createRange(); r.selectNodeContents(document.getElementById(id));
+        return id + ':' + new Set([...r.getClientRects()].filter(x => x.width > 0).map(x => Math.round(x.top))).size;
+      }));
+      assert.deepStrictEqual(lines.filter(x => !/:1$/.test(x)), [], lines.join(' '));
+    });
+    await c3.close();
+  }
+
   // ---------------- a Google account the server turns down ----------------
   {
     const c2 = await browser.newContext(desk);

@@ -129,6 +129,8 @@
       if (dbs[p.newMonthName] && p.replaceExisting !== true) throw new Error('EXISTS: There is already a month called "' + p.newMonthName + '". Nothing was changed.');
       return snapshot(d, n);
     },
+    // Remembered for this tab, because Sign out reloads the page (and with it this pretend server).
+    passkeyRemove: p => { try { sessionStorage.setItem('mock_passkey_removed', String(p.credentialId)); } catch (e) {} return { passkeys: [] }; },
     getCategoryChoices: () => ({ choices: JSON.parse(JSON.stringify(MOCK.categoryChoices)) }),
     setCategoryChoice: p => {
       const k = String(p.merchant || '').trim().toLowerCase();
@@ -252,9 +254,14 @@
   };
 
   // ---------- sign-in state ----------
+  // The reload after Sign out keeps what the page left behind, and Google still remembers the account (as the real
+  // one would), so the test can see that it does not sign straight back in.
   try {
-    localStorage.clear();
-    if (q.get('token') !== 'none') localStorage.setItem('pf_google_id_token', makeToken('owner@example.com'));
+    if (sessionStorage.getItem('pf_signed_out') === '1') MOCK.gsiAccount = 'owner@example.com';
+    else {
+      localStorage.clear();
+      if (q.get('token') !== 'none') localStorage.setItem('pf_google_id_token', makeToken('owner@example.com'));
+    }
   } catch (e) {}
 })();
 </script>
