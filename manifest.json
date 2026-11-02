@@ -38,6 +38,12 @@
           "src": "icons/shortcut-add.png",
           "sizes": "192x192",
           "type": "image/png",
+          "purpose": "any"
+        },
+        {
+          "src": "icons/shortcut-add.png",
+          "sizes": "192x192",
+          "type": "image/png",
           "purpose": "maskable"
         }
       ]
@@ -51,6 +57,12 @@
           "src": "icons/shortcut-owed.png",
           "sizes": "192x192",
           "type": "image/png",
+          "purpose": "any"
+        },
+        {
+          "src": "icons/shortcut-owed.png",
+          "sizes": "192x192",
+          "type": "image/png",
           "purpose": "maskable"
         }
       ]
@@ -60,6 +72,12 @@
       "short_name": "Spending",
       "url": "/?go=spending",
       "icons": [
+        {
+          "src": "icons/shortcut-spending.png",
+          "sizes": "192x192",
+          "type": "image/png",
+          "purpose": "any"
+        },
         {
           "src": "icons/shortcut-spending.png",
           "sizes": "192x192",

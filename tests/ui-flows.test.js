@@ -827,12 +827,14 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
       const m = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
       assert.deepStrictEqual(m.shortcuts.map(s => [s.name, s.url]), [['Add spend', '/?go=add'], ['Owed', '/?go=owed'], ['Spending', '/?go=spending']]);
     });
-    await step('each shortcut has its own icon made for Android to cut to shape (maskable, 192x192 PNG, on the site)', async () => {
+    // Chrome on Android picks a shortcut's icon from the ordinary ("any") ones: with only a maskable one the menu showed
+    // blank squares. The same full-bleed picture is listed both ways, so it fills the circle either way.
+    await step('each shortcut has its own full-bleed icon, listed as ordinary and maskable (192x192 PNG, on the site)', async () => {
       const m = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
       const srcs = m.shortcuts.map(s => {
-        assert.strictEqual(s.icons.length, 1, s.name);
+        assert.deepStrictEqual(s.icons.map(i => i.purpose), ['any', 'maskable'], s.name + ': needs an ordinary icon (Chrome shows a blank square without one) and a maskable one');
+        assert.strictEqual(s.icons[0].src, s.icons[1].src, s.name + ': both entries should be the same picture');
         const ic = s.icons[0];
-        assert.strictEqual(ic.purpose, 'maskable', s.name + ' icon is not maskable, so Android shrinks it into a frame');
         assert.strictEqual(ic.sizes, '192x192');
         const png = fs.readFileSync(path.join(root, ic.src));
         assert.strictEqual(png.toString('latin1', 1, 4), 'PNG', ic.src);
