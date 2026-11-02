@@ -7,6 +7,16 @@
        script.googleusercontent.com) and Google's sign-in. A backstop in case a bug ever let a script in. The copy of
        the page Apps Script serves leaves this out (deploy-backend.ps1), as Google serves that one from its own sandbox. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; font-src 'self'; img-src 'self' data:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <!-- No other website may show this page inside its own (where hidden buttons could be clicked for you). GitHub
+       Pages can't send the header that says so, and the policy above can't say it from inside the page, so the page
+       checks for itself: in someone else's frame it stays blank and never starts. The Apps Script copy is always
+       shown inside Google's own frame (googleusercontent.com), so it is left alone. -->
+  <script>
+    if (window.top !== window.self && !/\.googleusercontent\.com$/.test(location.hostname)) {
+      window.PF_FRAMED = true;
+      document.documentElement.style.display = 'none';
+    }
+  </script>
   <title>PaydayFlow</title>
   <link rel="manifest" href="manifest.json">
   <!-- Google's sign-in script is loaded only when the lock screen needs it (see initGoogleAuthButton). -->
@@ -3005,6 +3015,7 @@ async function postToServer(bodyObj) {
     // Start as soon as the page is parsed rather than on `load`, which also waits for every font and
     // script (including Google sign-in) and so delayed the first data request.
     function startApp() {
+      if (window.PF_FRAMED) return;   // inside another website's frame (see the check at the top of the page)
       hydrateIcons();
       renderPersonChips();
       loadSavedConfig();
@@ -3039,7 +3050,7 @@ async function postToServer(bodyObj) {
 
     // The service worker can wait until the page has fully loaded.
     window.addEventListener('load', () => {
-      if (!IS_GAS_ENV && 'serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(() => {}); }
+      if (!IS_GAS_ENV && !window.PF_FRAMED && 'serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(() => {}); }
     });
   </script>
 </body>

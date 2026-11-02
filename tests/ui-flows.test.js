@@ -663,6 +663,18 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     await c2.close();
   }
 
+  await step('shown inside another website\'s frame, the page stays blank and never starts', async () => {
+    const c4 = await browser.newContext(desk);
+    const p4 = await c4.newPage();
+    await p4.setContent(`<iframe src="http://localhost:${PORT}/tests/harness.html?demo=1&latency=50" style="width:1200px;height:700px"></iframe>`);
+    await p4.waitForFunction(() => document.querySelector('iframe').contentWindow.frames !== undefined);
+    await p4.waitForTimeout(2000);
+    const f = p4.frames().find(x => x.url().includes('harness.html'));
+    const s = await f.evaluate(() => ({ framed: window.PF_FRAMED, display: getComputedStyle(document.documentElement).display,
+      calls: window.MOCK ? MOCK.calls.length : -1, gsi: window.MOCK ? MOCK.gsi.initialize : -1, icons: document.querySelectorAll('svg').length }));
+    assert.deepStrictEqual(s, { framed: true, display: 'none', calls: 0, gsi: 0, icons: 0 });
+    await c4.close();
+  });
   await step('no page errors anywhere (nothing refused by the security policy either)', async () => {
     assert.deepStrictEqual(errors, [], JSON.stringify(errors));
   });
