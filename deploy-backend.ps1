@@ -168,8 +168,10 @@ try {
     [IO.File]::WriteAllText("$stage\.clasp.json", ('{"scriptId":"' + $ScriptId + '","rootDir":""}'), $utf8NoBom)
   }
   if ($PrivateManifest) {
-    [IO.File]::WriteAllText("$stage\appsscript.json",
-      '{"timeZone":"Europe/London","dependencies":{},"exceptionLogging":"STACKDRIVER","runtimeVersion":"V8","webapp":{"executeAs":"USER_ACCESSING","access":"MYSELF"}}', $utf8NoBom)
+    # The same manifest (so the same permissions), with the web app limited to you.
+    $manifest = Get-Content "$root\appsscript.json" -Raw | ConvertFrom-Json
+    $manifest.webapp = [pscustomobject]@{ executeAs = 'USER_ACCESSING'; access = 'MYSELF' }
+    [IO.File]::WriteAllText("$stage\appsscript.json", ($manifest | ConvertTo-Json -Depth 5), $utf8NoBom)
   }
 
   if ($StageOnly) {
