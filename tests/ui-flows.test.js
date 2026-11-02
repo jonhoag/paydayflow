@@ -827,6 +827,20 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
       const m = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
       assert.deepStrictEqual(m.shortcuts.map(s => [s.name, s.url]), [['Add spend', '/?go=add'], ['Owed', '/?go=owed'], ['Spending', '/?go=spending']]);
     });
+    await step('each shortcut has its own icon made for Android to cut to shape (maskable, 192x192 PNG, on the site)', async () => {
+      const m = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+      const srcs = m.shortcuts.map(s => {
+        assert.strictEqual(s.icons.length, 1, s.name);
+        const ic = s.icons[0];
+        assert.strictEqual(ic.purpose, 'maskable', s.name + ' icon is not maskable, so Android shrinks it into a frame');
+        assert.strictEqual(ic.sizes, '192x192');
+        const png = fs.readFileSync(path.join(root, ic.src));
+        assert.strictEqual(png.toString('latin1', 1, 4), 'PNG', ic.src);
+        assert.deepStrictEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [192, 192], ic.src + ' is not 192x192');
+        return ic.src;
+      });
+      assert.strictEqual(new Set(srcs).size, 3, 'the shortcuts should not share an icon');
+    });
   }
 
   await step('shown inside another website\'s frame, the page stays blank and never starts', async () => {
