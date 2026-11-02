@@ -173,7 +173,7 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     await page.click('nav [data-nav="activity"]');
     assert.ok(await visible(page, '#actSpend'), 'spending summary hidden');
     assert.ok(/Activity$/.test((await page.textContent('#sec_activity h2')).trim()) && !(await visible(page, '.act-title-home')));
-    const rows = await page.$$eval('#txListContainer > div', d => d.length);
+    const rows = await page.$$eval('#txListContainer > .tx-row', d => d.length);
     const total = await page.evaluate(() => ['amex', 'barclays', 'checking', 'marcus'].reduce((n, a) => n + state[a].filter(r => r.desc.toLowerCase() !== 'start').length, 0));
     assert.strictEqual(rows, total, 'should list every transaction');
     assert.ok(!(await page.$('#sec_activity button:has-text("Show all")')));
@@ -181,7 +181,7 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
 
   await step('activity tab: tapping a category chip filters the list to that category', async () => {
     await page.click('#actSpend button[data-cat="Groceries"]');
-    const names = await page.$$eval('#txListContainer > div .truncate', els => els.map(e => e.textContent));
+    const names = await page.$$eval('#txListContainer > .tx-row .truncate', els => els.map(e => e.textContent));
     assert.ok(names.length >= 2, 'expected grocery rows, got ' + JSON.stringify(names));
     const cats = await page.evaluate(n => n.map(x => categoryFor(x, loadSpendOverrides())), names);
     assert.ok(cats.every(c => c === 'Groceries'), JSON.stringify(names));
@@ -193,7 +193,7 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
   await step('leaving the Activity tab clears the filter; Home shows the latest few', async () => {
     await page.click('#actSpend button[data-cat="Groceries"]');
     await page.click('nav [data-nav="home"]');
-    const rows = await page.$$eval('#txListContainer > div', d => d.length);
+    const rows = await page.$$eval('#txListContainer > .tx-row', d => d.length);
     assert.strictEqual(rows, 8);
     assert.ok(await page.$('#sec_activity button:has-text("Show all")'));
     assert.ok(!(await visible(page, '#actSpend')));
@@ -225,14 +225,14 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
   });
 
   await step('edit then delete a transaction (with what the row should contain), and Undo', async () => {
-    await page.click('#txListContainer > div:has-text("Flow test shop")');
+    await page.click('#txListContainer > .tx-row:has-text("Flow test shop")');
     assert.ok(await visible(page, '#editTxModal'));
     await page.fill('#editTxDesc', 'Flow test shop 2');
     await page.click('#editTxModal button:has-text("Save")');
     await page.waitForTimeout(300);
     const e = (await calls(page, 'editOrMoveTransaction')).pop();
     assert.ok(e && e.newDesc === 'Flow test shop 2' && e.expect && e.expect.desc === 'Flow test shop', JSON.stringify(e));
-    await page.click('#txListContainer > div:has-text("Flow test shop 2")');
+    await page.click('#txListContainer > .tx-row:has-text("Flow test shop 2")');
     await page.click('#editTxModal button:has-text("Delete")');
     await page.waitForTimeout(300);
     const d = (await calls(page, 'deleteTransactionRow')).pop();
@@ -242,6 +242,17 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     assert.ok((await page.textContent('#txListContainer')).includes('Flow test shop 2'), 'Undo should bring it back');
   });
 
+  await step('activity rows: tap to edit like Bills, no pencil; a row is a real button (keyboard works too)', async () => {
+    const s = await page.$$eval('#txListContainer > .tx-row', rows => rows.map(r => ({ tag: r.tagName, label: r.getAttribute('aria-label') || '', svgs: r.querySelectorAll('svg').length, wide: r.getBoundingClientRect().width >= r.parentElement.getBoundingClientRect().width })));
+    assert.ok(s.length > 0);
+    assert.ok(s.every(r => r.tag === 'BUTTON' && r.label.startsWith('Edit ')), JSON.stringify(s.slice(0, 2)));
+    assert.ok(s.every(r => r.svgs === 0), 'a pencil (or other icon) is still on a row');
+    assert.ok(s.every(r => r.wide), 'a row no longer spans the list');
+    await page.focus('#txListContainer > .tx-row');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => !document.getElementById('editTxModal').classList.contains('hidden'));
+    await page.evaluate(() => closeEditTxModal());
+  });
   await step('Escape closes the Add form', async () => {
     await page.click('nav button[aria-label="Add transaction"]');
     await page.keyboard.press('Escape');
@@ -450,7 +461,7 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     assert.ok(await visible(page, '.owed-groups') && !(await visible(page, '.owed-summary')));
     assert.ok(await visible(page, '#owedTabs'));
     assert.ok(!(await visible(page, '#actSpend')));
-    const rows = await page.$$eval('#txListContainer > div', d => d.length);
+    const rows = await page.$$eval('#txListContainer > .tx-row', d => d.length);
     assert.strictEqual(rows, 8);
   });
   await step('desktop light mode: the sidebar is light too', async () => {
