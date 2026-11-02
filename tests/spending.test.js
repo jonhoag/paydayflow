@@ -10,8 +10,8 @@ const m = html.match(/\/\/ <spending-core>([\s\S]*?)\/\/ <\/spending-core>/);
 if (!m) { console.log('  FAIL  could not find the <spending-core> block in index.html'); process.exit(1); }
 const sandbox = {};
 vm.createContext(sandbox);
-vm.runInContext(m[1] + '\nthis.api = { guessCategory, categoryFor, summariseSpend, spendKey, setSpendWords, SPEND_CATEGORIES };', sandbox);
-const { guessCategory, categoryFor, summariseSpend, setSpendWords, SPEND_CATEGORIES } = sandbox.api;
+vm.runInContext(m[1] + '\nthis.api = { guessCategory, categoryFor, summariseSpend, spendKey, setSpendWords, SPEND_CATEGORIES, paydayIn, nextPayday, compareSpend };', sandbox);
+const { guessCategory, categoryFor, summariseSpend, setSpendWords, SPEND_CATEGORIES, paydayIn, nextPayday, compareSpend } = sandbox.api;
 
 const results = [];
 function test(name, fn) {
@@ -111,6 +111,40 @@ test('backend words: unknown categories and non-lists are ignored, and . or ( ar
   assert.strictEqual(guessCategory('a.b'), 'Health');
   assert.strictEqual(guessCategory('the clinic (east)'), 'Health');
   setSpendWords(null);
+});
+
+// Payday: the 30th (the last day in February), or the Friday before when that falls on a weekend.
+const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+[[2026, 11, '2026-11-30', 'a Monday: the 30th itself'], [2026, 12, '2026-12-30', 'a Wednesday'],
+ [2026, 5, '2026-05-29', 'Saturday the 30th: Friday the 29th'], [2026, 8, '2026-08-28', 'Sunday the 30th: Friday the 28th'],
+ [2027, 2, '2027-02-26', 'February: Sunday the 28th, so Friday the 26th'], [2028, 2, '2028-02-29', 'leap-year February: Tuesday the 29th']
+].forEach(([y, mo, want, why]) => {
+  test(`payday ${y}-${mo}: ${why}`, () => assert.strictEqual(ymd(paydayIn(y, mo - 1)), want));
+});
+
+test('days to payday: counted from today, 0 on payday itself, next month once it has passed', () => {
+  const p1 = nextPayday(new Date(2026, 10, 2, 9, 30));
+  assert.strictEqual(ymd(p1.date), '2026-11-30');
+  assert.strictEqual(p1.days, 28);
+  const p2 = nextPayday(new Date(2026, 10, 30, 18, 0));
+  assert.strictEqual(p2.days, 0);
+  const p3 = nextPayday(new Date(2026, 4, 30, 8, 0));   // Saturday 30 May: payday was Friday the 29th
+  assert.strictEqual(ymd(p3.date), '2026-06-30');
+  const p4 = nextPayday(new Date(2026, 11, 31, 23, 0));   // across the new year
+  assert.strictEqual(ymd(p4.date), '2027-01-29');
+  assert.strictEqual(p4.days, 29);
+});
+
+test('days to payday: the clocks changing (late October) does not throw the count out', () => {
+  assert.strictEqual(nextPayday(new Date(2026, 9, 20, 12, 0)).days, 10);   // 30 Oct 2026 is a Friday; clocks go back on the 25th
+});
+
+test('vs last month: up, down, the same within 50p, or new', () => {
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(compareSpend(120, 85))), { kind: 'up', diff: 35 });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(compareSpend(40.5, 52.75))), { kind: 'down', diff: 12.25 });
+  assert.strictEqual(compareSpend(20.3, 20).kind, 'same');
+  assert.strictEqual(compareSpend(15, 0).kind, 'new');
+  assert.strictEqual(compareSpend(15, undefined).kind, 'new');
 });
 
 let failed = 0;

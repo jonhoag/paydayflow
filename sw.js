@@ -55,16 +55,20 @@ self.addEventListener('fetch', (event) => {
   // offline. A fresh copy is fetched at the same time and saved for next time (never an error page). When the page
   // itself has changed, the open app is told, and offers to reload. With nothing saved yet, the network is used.
   const isPage = event.request.mode === 'navigate';
-  const cachedP = caches.match(event.request);
+  // A home-screen shortcut opens the page as /?go=..., which is still the same page: it is saved and found under
+  // its plain address, so it opens offline too and the saved copies don't pile up.
+  const pageUrl = new URL(event.request.url);
+  const key = isPage ? pageUrl.origin + pageUrl.pathname : event.request;
+  const cachedP = caches.match(key);
   // The copy is taken as soon as the reply arrives, before the browser starts reading it.
   const networkP = fetch(event.request).then((res) => ({ res, copy: isGood(res) ? res.clone() : null }));
   event.waitUntil(networkP.then(async ({ copy }) => {
     if (!copy) return;
     const cache = await caches.open(CACHE_NAME);
     // Compared with its own read of the saved copy (the one being shown is the browser's to read).
-    const saved = isPage ? await cache.match(event.request) : null;
+    const saved = isPage ? await cache.match(key) : null;
     const changed = !!saved && (await saved.text()) !== (await copy.clone().text());
-    await cache.put(event.request, copy);
+    await cache.put(key, copy);
     if (changed) {
       const client = await self.clients.get(event.resultingClientId || event.clientId);
       if (client) client.postMessage({ type: 'pf-updated' });
