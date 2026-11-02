@@ -155,6 +155,17 @@ async function step(name, fn) {
     assert.ok(font.loaded, 'Inter did not load offline');
   });
 
+  await step('offline: a home-screen shortcut (/?go=add) opens the saved app too, and saves no extra copy', async () => {
+    await page.goto(`http://localhost:${PORT}/?go=add`);
+    assert.strictEqual(await page.title(), 'PaydayFlow');
+    const keys = await page.evaluate(async () => {
+      const names = await caches.keys();
+      const c = await caches.open(names[0]);
+      return (await c.keys()).map(r => new URL(r.url).pathname + new URL(r.url).search).filter(u => u.includes('go='));
+    });
+    assert.deepStrictEqual(keys, []);
+  });
+
   await browser.close();
   server.close();
   let failed = 0;

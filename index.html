@@ -23,7 +23,7 @@
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Styles are pre-built into tailwind.css (see build-css.js); the service worker keeps a copy for offline use. -->
-  <link rel="stylesheet" href="tailwind.css?v=8df08dbb81">
+  <link rel="stylesheet" href="tailwind.css?v=d30b784087">
   <style>
     /* Inter, served from this site (SIL Open Font License: fonts/OFL.txt): one variable file per set of characters,
        fetched only when the page uses them. Text shows in the fallback font until it arrives. */
@@ -218,7 +218,6 @@
               <span id="simBadge" class="hidden text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold">What-If</span>
             </div>
             <div id="kpiSurplus" class="text-4xl font-semibold tracking-tight mt-1.5 tabular-nums whitespace-nowrap">£—</div>
-            <div class="text-sm text-slate-500 dark:text-slate-400 mt-1">Left after cards &amp; bills</div>
           </div>
           <button onclick="document.getElementById('mathDrawer').classList.toggle('hidden')"
                   class="text-xs font-medium px-3 py-1.5 rounded-lg border border-emerald-300 hover:bg-emerald-100 text-emerald-700 dark:border-emerald-900 dark:hover:bg-emerald-950 dark:text-emerald-300 whitespace-nowrap shrink-0">
@@ -226,7 +225,14 @@
           </button>
         </div>
 
+        <!-- What's left per day until the next payday (current month only; see renderDailyStrip). -->
+        <div id="dailyStrip" class="hidden mt-4 pt-3 border-t border-emerald-200 dark:border-emerald-900 flex items-center justify-between gap-3 text-sm">
+          <span id="dailyLeft" class="whitespace-nowrap"></span>
+          <span id="dailyPayday" class="text-slate-500 dark:text-slate-400 whitespace-nowrap"></span>
+        </div>
+
         <div id="mathDrawer" class="hidden mt-4 pt-3 border-t border-emerald-200 dark:border-emerald-900 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+          <div class="col-span-2 sm:col-span-4 text-xs text-slate-500 dark:text-slate-400">Money Left is what's left after cards &amp; bills:</div>
           <div><span class="text-slate-500 dark:text-slate-400 block text-xs">Nationwide</span><strong id="mathNCA" class="tabular-nums font-semibold">£—</strong></div>
           <div><span class="text-slate-500 dark:text-slate-400 block text-xs">Bills Left</span><strong id="mathBud" class="tabular-nums font-semibold">£—</strong></div>
           <div><span class="text-slate-500 dark:text-slate-400 block text-xs">Amex</span><strong id="mathAmex" class="tabular-nums font-semibold">£—</strong></div>
@@ -757,6 +763,7 @@ const ICON_PATHS = {
   chart: '<path d="M4 20V11"/><path d="M10 20V4"/><path d="M16 20v-6"/><path d="M22 20H2"/>',
   pound: '<circle cx="12" cy="12" r="9"/><path d="M14.5 8.8a2.6 2.6 0 0 0-5 .9V16h5.5M8.5 12.5h4.5"/>',
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
+  share: '<path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="m16 6-4-4-4 4"/><path d="M12 2v13"/>',
   chevron_right: '<path d="m9 6 6 6-6 6"/>',
   // Spending categories
   cat_groceries: '<path d="M5 9h14l-1.6 10.5H6.6z"/><path d="M9 9l3-5 3 5"/>',
@@ -866,6 +873,7 @@ function afterSignIn(viaGoogle, email) {
   try { sessionStorage.removeItem(SIGNED_OUT_FLAG); } catch (e) {}
   initAppUi();
   if (loadPhoneCache(activeMonth)) renderAll();
+  applyLaunchShortcut();
   apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
     .then(s => {
       hideLockScreen();
@@ -1558,6 +1566,28 @@ async function postToServer(bodyObj) {
         .sort((a, b) => b.total - a.total);
       return { total: r2(total), categories };
     }
+    // Payday is the 30th (the last day in February), or the Friday before when that falls on a weekend.
+    function paydayIn(year, month) {
+      const d = new Date(year, month, Math.min(30, new Date(year, month + 1, 0).getDate()));
+      const dow = d.getDay();
+      if (dow === 6) d.setDate(d.getDate() - 1);
+      if (dow === 0) d.setDate(d.getDate() - 2);
+      return d;
+    }
+    // The next payday on or after `today` (local time), and the whole days until it (0 on payday itself).
+    function nextPayday(today) {
+      const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      let p = paydayIn(t.getFullYear(), t.getMonth());
+      if (p < t) p = paydayIn(t.getFullYear(), t.getMonth() + 1);
+      return { date: p, days: Math.round((p - t) / 86400000) };
+    }
+    // One category against last month: up or down by how much, the same (within 50p), or new this month.
+    function compareSpend(now, before) {
+      if (!(before > 0.005)) return { kind: 'new' };
+      const diff = +(now - before).toFixed(2);
+      if (Math.abs(diff) < 0.5) return { kind: 'same' };
+      return { kind: diff > 0 ? 'up' : 'down', diff: Math.abs(diff) };
+    }
     // </spending-core>
 
     const SPEND_COLOURS = { 'Groceries': '#10b981', 'Eating out': '#f59e0b', 'Transport': '#0ea5e9', 'Bills & subscriptions': '#8b5cf6', 'Shopping': '#ec4899', 'Travel': '#14b8a6', 'Entertainment': '#f97316', 'Health': '#ef4444', 'Other': '#94a3b8' };
@@ -1628,9 +1658,47 @@ async function postToServer(bodyObj) {
       return out.sort((a, b) => monthSortValue(b.name) - monthSortValue(a.name));
     }
 
+    // The month before the one on screen: by name when the names say so ("October Payday 2026"), otherwise the next
+    // tab along (the sheet keeps the newest first).
+    function previousMonthName() {
+      const months = state.availableMonths || [];
+      const v = monthSortValue(activeMonth);
+      const older = v ? months.filter(m => monthSortValue(m) && monthSortValue(m) < v).sort((a, b) => monthSortValue(b) - monthSortValue(a)) : [];
+      if (older.length) return older[0];
+      const i = months.indexOf(activeMonth);
+      return i > -1 && i + 1 < months.length ? months[i + 1] : null;
+    }
+    // Last month's figures from this device's saved copy. Without one, they're fetched once, quietly, and the
+    // Spending details redrawn when they arrive.
+    let prevMonthAsked = null;
+    function previousMonthState(name) {
+      try { const st = JSON.parse(localStorage.getItem('pf_cache_' + name) || 'null'); if (st) return st; } catch (e) {}
+      if (prevMonthAsked !== name) {
+        prevMonthAsked = name;
+        apiCall('getCachedSheetState', { sheetName: name, forceRefresh: false })
+          .then(s => {
+            savePhoneCache(name, s, false);
+            if (!document.getElementById('spendModal').classList.contains('hidden')) renderSpend();
+          })
+          .catch(() => {});
+      }
+      return null;
+    }
+    function spendChangeHtml(now, before, monthLabel) {
+      const c = compareSpend(now, before);
+      if (c.kind === 'new') return ' · New';
+      if (c.kind === 'same') return ' · Same as ' + esc(monthLabel);
+      const tone = c.kind === 'up' ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400';
+      return ' · <span class="' + tone + '">' + (c.kind === 'up' ? '▲ ' : '▼ ') + fmtGBP(Math.round(c.diff)).replace(/\.00$/, '') + ' vs ' + esc(monthLabel) + '</span>';
+    }
+
     function renderSpend() {
       const overrides = loadSpendOverrides();
       const sum = summariseSpend(state, overrides);
+      const prevName = previousMonthName();
+      const prevState = prevName ? previousMonthState(prevName) : null;
+      const prevSum = prevState ? summariseSpend(prevState, overrides) : null;
+      const prevLabel = prevName && monthSortValue(prevName) ? prevName.slice(0, 3) : 'last month';
       const catRows = sum.categories.filter(c => Math.abs(c.total) >= 0.005);
       const ringCats = catRows.filter(c => c.total > 0);
       const opts = sel => ['<option value="">Automatic</option>'].concat(SPEND_CATEGORIES.map(c => '<option value="' + esc(c) + '"' + (c === sel ? ' selected' : '') + '>' + esc(c) + '</option>')).join('');
@@ -1649,7 +1717,8 @@ async function postToServer(bodyObj) {
           + '<button data-cat="' + esc(c.cat) + '" onclick="toggleSpendCat(this.dataset.cat)" class="w-full text-left py-2.5 flex items-center gap-3" aria-expanded="' + open + '">'
           + '<span class="w-9 h-9 rounded-xl shrink-0 inline-flex items-center justify-center" style="background:' + colour + '26;color:' + colour + '">' + icon(CAT_ICON_NAMES[c.cat] || 'cat_other', 'w-[18px] h-[18px]') + '</span>'
           + '<span class="min-w-0 flex-1"><span class="block text-sm font-semibold text-slate-900 dark:text-white">' + esc(c.cat) + '</span>'
-          + '<span class="block text-xs text-slate-500 dark:text-slate-400">' + n + (n === 1 ? ' purchase' : ' purchases') + ' · ' + pct + '%</span></span>'
+          + '<span class="block text-xs text-slate-500 dark:text-slate-400">' + n + (n === 1 ? ' purchase' : ' purchases') + ' · ' + pct + '%'
+          + (prevSum ? spendChangeHtml(c.total, (prevSum.categories.find(x => x.cat === c.cat) || { total: 0 }).total, prevLabel) : '') + '</span></span>'
           + '<span class="tabular-nums text-sm font-semibold text-slate-900 dark:text-white">' + fmtGBP(c.total) + '</span>'
           + '<span class="text-slate-400">' + icon(open ? 'chevron_up' : 'chevron_down', 'w-4 h-4') + '</span></button>';
         if (open) {
@@ -1898,6 +1967,23 @@ async function postToServer(bodyObj) {
       s.eomSavingsJ = +(s.checkingExpected + s.amex + s.barclays).toFixed(2);
     }
 
+    // Money Left spread over the days until payday, shown only on the newest month (older months are history).
+    function renderDailyStrip(left) {
+      const strip = document.getElementById('dailyStrip');
+      const months = state.availableMonths || [];
+      if (!months.length || activeMonth !== months[0] || !isFinite(Number(left))) { strip.classList.add('hidden'); return; }
+      const pay = nextPayday(new Date());
+      const fig = (cls, amount, words) => '<span class="font-semibold tabular-nums ' + cls + '">' + fmtGBP(amount) + '</span> <span class="text-slate-500 dark:text-slate-400">' + words + '</span>';
+      document.getElementById('dailyLeft').innerHTML = pay.days === 0
+        ? '<span class="font-semibold text-emerald-700 dark:text-emerald-300">Payday today</span>'
+        : Number(left) <= 0
+          ? fig('text-rose-600 dark:text-rose-400', Math.abs(Number(left)), 'over')
+          : fig('text-emerald-700 dark:text-emerald-300', Math.floor(Number(left) / pay.days * 100) / 100, 'a day');
+      document.getElementById('dailyPayday').textContent = pay.days === 0 ? ''
+        : 'Payday ' + pay.date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '');
+      strip.classList.remove('hidden');
+    }
+
     function renderAll() {
       recomputeSummary();
       const s = state.summary;
@@ -1906,6 +1992,7 @@ async function postToServer(bodyObj) {
       document.getElementById('kpiNCA').textContent = fmtGBP(s.nCA);
       document.getElementById('kpiMarcus').textContent = fmtGBP(s.mSAV);
       document.getElementById('kpiSurplus').textContent = fmtGBP(s.eomSavingsJ);
+      renderDailyStrip(s.eomSavingsJ);
 
       document.getElementById('mathNCA').textContent = fmtGBP(s.nCA);
       document.getElementById('mathBud').textContent = fmtGBP(s.budgetRem);
@@ -2195,6 +2282,27 @@ async function postToServer(bodyObj) {
       });
       return Object.values(groups).sort((x, y) => y.total - x.total);
     }
+    // ---- "Send them what they owe": a plain message for the phone's own share sheet (copied, on a computer) ----
+    let owedGroupsShown = [];
+    function owedMessage(g) {
+      const lines = g.items.map(r => (displayName(r.what) || 'Shared') + '  ' + fmtGBP(r.amount));
+      return 'Hi ' + g.name + ", here's what you owe me:\n\n" + lines.join('\n') + '\n\nTotal  ' + fmtGBP(g.total) + '\n\nThanks!';
+    }
+    async function shareOwed(personKey) {
+      const g = owedGroupsShown.find(x => x.key === personKey);
+      if (!g) return;
+      const text = owedMessage(g);
+      if (navigator.share) {
+        try { await navigator.share({ text }); return; }
+        catch (e) { if (e && e.name === 'AbortError') return; }   // cancelled; any other refusal: copy it instead
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('Copied. Paste it into a message to ' + g.name + '.', { kind: 'info' });
+      } catch (e) {
+        showToast("Couldn't copy the message.");
+      }
+    }
     const signedAmt = n => (n > 0 ? '+' : '') + fmtGBP(n);
     const amtTone = n => n < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400';
 
@@ -2214,6 +2322,7 @@ async function postToServer(bodyObj) {
       document.getElementById('btnSettleAll').classList.toggle('hidden', pending.length === 0);
 
       const groups = groupOwed(pending);
+      owedGroupsShown = groups;
       const avatar = g => `<span class="w-8 h-8 rounded-full shrink-0 inline-flex items-center justify-center text-sm font-bold" style="background:${personColour(g.key)}26;color:${personColour(g.key)}">${esc(g.name.charAt(0) || '?')}</span>`;
       const count = g => g.items.length + (g.items.length === 1 ? ' item' : ' items');
       const pill = 'h-8 px-3 rounded-full border text-xs font-semibold whitespace-nowrap border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950';
@@ -2248,6 +2357,8 @@ async function postToServer(bodyObj) {
                   : `<button onclick="toggleSplitNeed(${r.row}, false)" aria-label="Mark ${esc(g.name)} ${esc(r.what)} paid back"
                             class="w-8 h-8 shrink-0 rounded-full border inline-flex items-center justify-center border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950">${icon('check', 'w-3.5 h-3.5')}</button>`}
               </div>`).join('')}
+            ${g.total > 0 ? `<div class="pl-11"><button data-person="${esc(g.key)}" onclick="shareOwed(this.dataset.person)" aria-label="Send ${esc(g.name)} what they owe"
+                      class="h-9 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:underline dark:text-emerald-300">${icon('share', 'w-3.5 h-3.5')}Send ${esc(g.name)} what they owe</button></div>` : ''}
           </div>`).join('')}</div>`;
 
       document.getElementById('panel_pending').innerHTML = pending.length ? summary + full
@@ -3014,6 +3125,20 @@ async function postToServer(bodyObj) {
 
     // Start as soon as the page is parsed rather than on `load`, which also waits for every font and
     // script (including Google sign-in) and so delayed the first data request.
+    // Home-screen shortcuts (manifest.json) open the app at /?go=add, ?go=owed or ?go=spending. The marker is taken
+    // off the address straight away, so a reload doesn't open the same screen again; the screen opens once signed in.
+    let launchGo = new URLSearchParams(location.search).get('go') || '';
+    if (launchGo) {
+      try { const u = new URL(location.href); u.searchParams.delete('go'); history.replaceState(null, '', u.pathname + u.search + u.hash); } catch (e) {}
+    }
+    function applyLaunchShortcut() {
+      const go = launchGo;
+      launchGo = '';
+      if (go === 'add') openAddModal();
+      else if (go === 'owed') setView('pending');
+      else if (go === 'spending') openSpendModal();
+    }
+
     function startApp() {
       if (window.PF_FRAMED) return;   // inside another website's frame (see the check at the top of the page)
       hydrateIcons();
@@ -3038,7 +3163,8 @@ async function postToServer(bodyObj) {
       initAppUi();
       loadPhoneCache(activeMonth);
       renderAll();
-      
+      applyLaunchShortcut();
+
       apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: false })
         .then(applyServerState)
         .catch(console.error)
