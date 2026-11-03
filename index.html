@@ -847,6 +847,13 @@ function getAuthFields() {
 
 let passkeyAutoTried = false;
 let lockAllowsAuto = false;   // whether the lock screen now showing may ask for the fingerprint by itself
+// Being away from the app: when it was last hidden (set by the "back in the app" check below, and by
+// unlockWithPasskey, so that time in the fingerprint prompt doesn't count), and how long counts as a while.
+const RETURN_REFRESH_MS = 60 * 1000;
+let hiddenAt = 0;
+const PASSKEY_FOCUS_WAIT_MS = 3000;   // how long the automatic fingerprint prompt waits for focus to be reported
+const PASSKEY_RETRY_MS = 1500;        // gap before trying the fingerprint's first request again
+const OFFLINE_RESYNC_MS = 5000;       // signed in without the figures: when to try fetching them again
 function showLockScreen(msg, opts) {
   if (IS_GAS_ENV) return;
   const lockEl = document.getElementById('authLockScreen');
@@ -883,12 +890,12 @@ function autoUnlockWithPasskey() {
   };
   const check = () => {
     // Only while the lock screen is still up and still wants it (a Google sign-in may have happened meanwhile).
-    if (!lockAllowsAuto || document.getElementById('authLockScreen').style.display === 'none') return stop();
+    if (!lockAllowsAuto || !lockScreenShowing()) return stop();
     if (online() && (document.hasFocus() || (waitedLong && document.visibilityState === 'visible'))) { stop(); unlockWithPasskey(true); }
   };
   window.addEventListener('focus', check);
   window.addEventListener('online', check);
-  const timer = setTimeout(() => { waitedLong = true; check(); }, 3000);
+  const timer = setTimeout(() => { waitedLong = true; check(); }, PASSKEY_FOCUS_WAIT_MS);
 }
 
 // Everything that happens once the user is in, whichever way they signed in. `email` is the Google account just
@@ -911,14 +918,14 @@ function afterSignIn(viaGoogle, email) {
     })
     .catch(err => {
       signInInFlight = false;
-      if (err && (err.network || err.badReply) && !err.auth) {
+      if (isConnectionError(err)) {
         // No signal yet, or the server hiccuped: that is not a refusal. A fingerprint sign-in was already accepted by
         // the server, so open the app with the figures saved here, as when opening it offline; they refresh when you
         // come back to the app. A Google account the server hasn't checked yet stays on the lock screen.
         if (!viaGoogle && getSession()) {
           hideLockScreen();
           showToast("Signed in, but couldn't reach the server. Showing the figures saved on this device.");
-          setTimeout(forceSyncSheet, 5000);
+          setTimeout(forceSyncSheet, OFFLINE_RESYNC_MS);
         } else {
           showLockScreen("Couldn't reach the server. Try again in a moment.", { noAuto: true });
         }
@@ -929,6 +936,9 @@ function afterSignIn(viaGoogle, email) {
     });
 }
 
+function lockScreenShowing() {
+  return document.getElementById('authLockScreen').style.display !== 'none';
+}
 function hideLockScreen() {
   const lockEl = document.getElementById('authLockScreen');
   if (lockEl) lockEl.style.display = 'none';
@@ -966,7 +976,7 @@ function initGoogleAuthButton() {
       client_id: GOOGLE_CLIENT_ID,
       callback: (response) => {
         // Already unlocked, or unlocking (say, by fingerprint): a late Google sign-in has nothing to do.
-        if (signInInFlight || document.getElementById('authLockScreen').style.display === 'none') return;
+        if (signInInFlight || !lockScreenShowing()) return;
         if (response && response.credential) {
           // The server checks that this is the owner's account; a refusal comes back as an auth error (apiCallNow).
           const payload = parseJwtPayload(response.credential);
@@ -1038,7 +1048,7 @@ function describePasskeyError(err, auto) {
   if (err && err.name === 'InvalidStateError') return { text: 'This device already has a fingerprint sign-in for PaydayFlow. Remove it in your password manager (or turn it off below) and try again.', error: true };
   if (err && err.name === 'SecurityError') return { text: 'This page address does not match the fingerprint sign-in, so the browser blocked it.', error: true };
   if (err && err.network) return { text: 'No connection yet. Try again in a moment.', error: false };
-  if (err && err.badReply) return { text: 'The server didn\'t answer properly. Try again in a moment.', error: false };
+  if (isConnectionError(err)) return { text: 'The server didn\'t answer properly. Try again in a moment.', error: false };
   return { text: "Fingerprint sign-in didn't work (" + ((err && err.message) || 'unknown error') + '). You can sign in with Google instead.', error: true };
 }
 
@@ -1057,7 +1067,7 @@ async function passkeyLoginRoundTrip() {
   // Just after the phone wakes up, the first request often fails before the connection is back: try once more.
   const begin = await postToServer(beginReq).catch(err => {
     if (!err || !err.network || err.timedOut) throw err;   // not after a 45 s wait: that is long enough
-    return new Promise(r => setTimeout(r, 1500)).then(() => postToServer(beginReq));
+    return new Promise(r => setTimeout(r, PASSKEY_RETRY_MS)).then(() => postToServer(beginReq));
   });
   if (!begin.ok) throw Object.assign(new Error(begin.error || 'Sign-in failed'), { serverCode: begin.error });
   const cred = await navigator.credentials.get({ publicKey: {
@@ -1428,6 +1438,9 @@ async function signOut(forget) {
   }
   return json.data;
 }
+
+// No reply, or one that wasn't readable: a connection problem, not a refusal.
+const isConnectionError = err => !!(err && (err.network || err.badReply));
 
 // One POST to the Apps Script web app; resolves with the parsed { ok, data | error, authError } reply.
 async function postToServer(bodyObj) {
@@ -3154,8 +3167,6 @@ async function postToServer(bodyObj) {
 
     // Back in the app after a minute or more away: fetch the latest figures and send anything saved offline. If the
     // sign-in ran out while you were away, the lock screen (and fingerprint prompt) appears now, not on your next tap.
-    const RETURN_REFRESH_MS = 60 * 1000;
-    let hiddenAt = 0;
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
       updateSyncUi();
@@ -3164,7 +3175,7 @@ async function postToServer(bodyObj) {
       if (IS_GAS_ENV || awayFor < RETURN_REFRESH_MS) return;
       // Left on the lock screen: ask for the fingerprint again now you're back, in place of any old message (but not
       // after Sign out or a refused account, where the lock screen never asks by itself).
-      if (document.getElementById('authLockScreen').style.display !== 'none') {
+      if (lockScreenShowing()) {
         if (lockAllowsAuto && !passkeyBusy && passkeyEnrolledHere()) { passkeyAutoTried = false; showLockScreen('Unlock to continue.'); }
         return;
       }
