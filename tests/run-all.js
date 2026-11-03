@@ -39,6 +39,11 @@ for (const [name, args] of suites) {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + name + '  ' + tail);
   if (!ok) console.log((r.stdout || '') + (r.stderr || ''));
 }
+const hook = path.join(root, '.git', 'hooks', 'pre-push');
+const hookCopy = path.join(__dirname, 'private', 'pre-push');
+if (privateSuites && fs.existsSync(hookCopy) && !(fs.existsSync(hook) && fs.readFileSync(hook, 'utf8') === fs.readFileSync(hookCopy, 'utf8'))) {
+  console.log('\n!! The private-data push check is not installed (or is out of date): cp tests/private/pre-push .git/hooks/pre-push');
+}
 if (!privateSuites) {
   console.log('\n!! The backend checks (tests/private) are not on this computer, so they did not run.');
   if (requirePrivate) failed++;

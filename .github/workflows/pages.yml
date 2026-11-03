@@ -12,7 +12,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('checks-{0}', github.ref) || 'pages' }}
+  group: ${{ github.event_name == 'pull_request' && format('checks-{0}', github.ref) || format('pages-{0}', github.ref) }}
   cancel-in-progress: false
 
 jobs:
@@ -43,7 +43,8 @@ jobs:
 
   build:
     needs: test
-    if: github.event_name != 'pull_request'
+    # Only main is ever published (a manual run from another branch only runs the tests).
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -51,6 +52,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Keep in step with SITE in tests/lib/site-files.js (and ALLOWED in the private public-files check).
       - name: Collect the site files
         run: |
           mkdir _site
