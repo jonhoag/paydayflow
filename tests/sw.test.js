@@ -14,24 +14,23 @@ const { chromium } = require(process.env.PW_PATH || 'playwright-core');
 const CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
 const PORT = 8127;
 const origin = 'http://localhost:' + PORT;
-const root = path.resolve(__dirname, '..');
-const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css', '.png': 'image/png', '.woff2': 'font/woff2' };
+const { HOST, TYPES, siteRel, siteFile } = require('./lib/site-files');
 
 // normal | fresh (adds a marker to the page) | slow (10 s) | 404 | down (drops the connection)
 let mode = 'normal';
 let fontHits = 0;   // requests for the font files that reached this server
 const server = http.createServer((req, res) => {
-  const rel = decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '') || 'index.html';
+  const rel = siteRel(req.url) || '';
   const isPage = rel === 'index.html';
   if (rel.startsWith('fonts/')) fontHits++;
   if (mode === 'down') return req.socket.destroy();
   if (mode === '404' && rel !== 'sw.js') { res.writeHead(404, { 'Content-Type': 'text/html' }); return res.end('<title>Not found</title>Not found'); }
-  const file = path.resolve(root, rel);
-  if (!file.startsWith(root) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end('Not found'); }
+  const file = siteFile(req.url);
+  if (!file) { res.writeHead(404); return res.end('Not found'); }
   const send = () => {
     let body = fs.readFileSync(file);
     if (isPage && mode === 'fresh') body = Buffer.from(body.toString('utf8').replace('</body>', '<div id="fresh-marker"></div></body>'));
-    res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
     res.end(body);
   };
   if (mode === 'slow' && isPage) setTimeout(send, 10000); else send();
@@ -44,7 +43,7 @@ async function step(name, fn) {
 }
 
 (async () => {
-  await new Promise(r => server.listen(PORT, r));
+  await new Promise(r => server.listen(PORT, HOST, r));
   const browser = await chromium.launch({ executablePath: CHROME, headless: true });
   const context = await browser.newContext({ serviceWorkers: 'allow' });
   // Keep the test local: Google's sign-in script and the Apps Script backend are not needed here.

@@ -11,15 +11,8 @@ const assert = require('assert');
 const { chromium } = require(process.env.PW_PATH || 'playwright-core');
 const CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
 const PORT = 8129;
-const root = path.resolve(__dirname, '..');
-const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css', '.png': 'image/png', '.woff2': 'font/woff2' };
-const server = http.createServer((req, res) => {
-  const rel = decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '') || 'index.html';
-  const file = path.resolve(root, rel);
-  if (!file.startsWith(root) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end('Not found'); }
-  res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
-  fs.createReadStream(file).pipe(res);
-});
+const { root, HOST, sendSiteFile } = require('./lib/site-files');
+const server = http.createServer(sendSiteFile);
 
 const results = [];
 async function step(name, fn) {
@@ -45,7 +38,7 @@ const calls = (page, action) => page.evaluate(a => MOCK.calls.filter(c => c.acti
 const visible = (page, sel) => page.evaluate(s => { const el = document.querySelector(s); return !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden'; }, sel);
 
 (async () => {
-  await new Promise(r => server.listen(PORT, r));
+  await new Promise(r => server.listen(PORT, HOST, r));
   const browser = await chromium.launch({ executablePath: CHROME, headless: true });
   const errors = [];
   const offSite = [];   // every request that leaves this test server (there should be none)

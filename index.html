@@ -97,13 +97,11 @@
         <button onclick="jumpToSection('top')" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl bg-slate-100 text-slate-900 dark:bg-slate-700/70 dark:text-white font-medium">
           <span data-icon="home" data-class="w-4 h-4"></span> <span>Overview</span>
         </button>
-        <button onclick="jumpToSection('budgets')" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60 font-medium">
-          <div class="flex items-center gap-3"><span data-icon="calendar" data-class="w-4 h-4"></span> <span>Bills &amp; Budgets</span></div>
-          <span id="sideBadgeBudgets" class="text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300">0</span>
+        <button onclick="jumpToSection('budgets')" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60 font-medium">
+          <span data-icon="calendar" data-class="w-4 h-4"></span> <span>Bills &amp; Budgets</span>
         </button>
-        <button onclick="jumpToSection('pending')" class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60 font-medium">
-          <div class="flex items-center gap-3"><span data-icon="pound" data-class="w-4 h-4"></span> <span>Owed</span></div>
-          <span id="sideBadgePending" class="hidden">0</span>
+        <button onclick="jumpToSection('pending')" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60 font-medium">
+          <span data-icon="pound" data-class="w-4 h-4"></span> <span>Owed</span>
         </button>
         <button onclick="jumpToSection('activity')" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60 font-medium">
           <span data-icon="card" data-class="w-4 h-4"></span> <span>Activity</span>
@@ -2124,7 +2122,6 @@ async function postToServer(bodyObj) {
       const totalCount = state.budgets.length;
       const pct = totalCount ? Math.round((cleared.length / totalCount) * 100) : 0;
 
-      document.getElementById('sideBadgeBudgets').textContent = allUpcoming.length;
       document.getElementById('budLeftVal').textContent = `${fmtGBP(state.summary.budgetRem)} left`;
       document.getElementById('budClearedCount').textContent = `${cleared.length} of ${totalCount} paid`;
       document.getElementById('budProgressBar').style.width = `${pct}%`;
@@ -2396,7 +2393,6 @@ async function postToServer(bodyObj) {
 
       document.getElementById('cntPending').textContent = pending.length;
       document.getElementById('cntPendingTab').textContent = pending.length;
-      document.getElementById('sideBadgePending').textContent = pending.length;
       document.getElementById('sumPending').textContent = fmtGBP(pendingSum);
       document.getElementById('cntSettled').textContent = settled.length;
       document.getElementById('btnSettleAll').classList.toggle('hidden', pending.length === 0);

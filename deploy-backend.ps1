@@ -19,14 +19,16 @@ param(
   [string]$Description,
   [switch]$StageOnly,
   [string]$ScriptId,
-  # Default: the "Github Hosted V12" deployment; its /exec URL is hard-coded in index.html, so redeploy in place.
-  [string]$DeploymentId = 'AKfycbwiuLsruSCA-k2EeMn8bH6AZygi0ISA2WDTB_UJmetDOJdU6S4qLE21WmjyJK1ktCMrUA',
+  [string]$DeploymentId,   # default: the live deployment (below)
   [switch]$PrivateManifest,
   [switch]$CheckLiveOnly,
   [switch]$AcceptLiveAsBaseline
 )
 
 $ErrorActionPreference = 'Stop'
+# The "Github Hosted V12" deployment; its /exec URL is hard-coded in index.html, so it is redeployed in place.
+$liveDeploymentId = 'AKfycbwiuLsruSCA-k2EeMn8bH6AZygi0ISA2WDTB_UJmetDOJdU6S4qLE21WmjyJK1ktCMrUA'
+if (-not $DeploymentId) { $DeploymentId = $liveDeploymentId }
 $root = $PSScriptRoot
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $liveScriptId = (Get-Content "$root\.clasp.json" -Raw | ConvertFrom-Json).scriptId
@@ -116,7 +118,6 @@ if (-not $Description) { throw 'Pass -Description "what changed". Nothing was pu
 
 # A rehearsal needs all three test settings together. Any one alone could push the "only me" manifest to live
 # (locking the website out) or the public manifest to the test copy.
-$liveDeploymentId = 'AKfycbwiuLsruSCA-k2EeMn8bH6AZygi0ISA2WDTB_UJmetDOJdU6S4qLE21WmjyJK1ktCMrUA'
 $testSettings = @([bool]$ScriptId, [bool]$PrivateManifest, ($DeploymentId -ne $liveDeploymentId))
 if (($testSettings -contains $true) -and ($testSettings -contains $false)) {
   throw 'For a rehearsal pass -ScriptId, -DeploymentId (the test copy''s) and -PrivateManifest together; for live pass none of them. Nothing was pushed.'
@@ -184,14 +185,15 @@ try {
   try {
     clasp push --force
     if ($LASTEXITCODE -ne 0) { throw 'clasp push failed' }
+    # The live script now holds this code (time triggers such as the weekly backup already run it), so record it
+    # straight away: a failed redeploy below must not make the next deploy think live was changed elsewhere.
+    if ($isLive) {
+      Save-Record (Get-Fingerprints $stage) $Description
+      Save-BackendHistory $Description
+    }
     clasp deploy --deploymentId $DeploymentId --description $Description
-    if ($LASTEXITCODE -ne 0) { throw 'clasp deploy failed' }
+    if ($LASTEXITCODE -ne 0) { throw 'clasp deploy failed: the new code is pushed (and recorded) but the web app still runs the previous version. Run this script again with the same -Description to redeploy.' }
   } finally { Pop-Location }
-
-  if ($isLive) {
-    Save-Record (Get-Fingerprints $stage) $Description
-    Save-BackendHistory $Description
-  }
 } finally {
   Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 }
