@@ -549,6 +549,12 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
       assert.strictEqual(s.finger, 'flex', 'the fingerprint button should still be offered');
       assert.ok(!/£\d/.test(s.money), 'figures still on the page: ' + s.money);
     });
+    await step('sign out: coming back to the app later still does not ask for the fingerprint by itself', async () => {
+      await awayAndBack(p3, 2 * 60 * 1000);
+      await p3.waitForTimeout(400);
+      assert.deepStrictEqual(await p3.evaluate(() => MOCK.calls.map(c => c.action)), []);
+      assert.strictEqual(await p3.textContent('#authLockMsg'), 'Signed out. Nothing is saved on this device any more.');
+    });
     await step('sign out: then choosing the account on the Google button gets straight back in', async () => {
       await p3.evaluate(() => MOCK.gsiCallback({ credential: MOCK.makeToken('owner@example.com') }));
       await p3.waitForFunction(() => getComputedStyle(document.getElementById('authLockScreen')).display === 'none' && /£\d/.test(document.getElementById('kpiNCA').textContent));
@@ -666,6 +672,7 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
       assert.strictEqual(s.token, null, 'the refused token was kept');
       assert.ok(s.off >= 1, 'automatic Google sign-in was not stopped');
       assert.strictEqual(s.calls, 1, 'signed itself in again: ' + s.calls + ' requests');
+      assert.strictEqual(await p2.evaluate(() => MOCK.gsi.initialize), 1, "Google's sign-in should be set up once per page load");
     });
     await step('then picking the right account on the button gets straight in', async () => {
       await p2.evaluate(() => { MOCK.authError = null; MOCK.gsiCallback({ credential: MOCK.makeToken('owner@example.com') }); });
