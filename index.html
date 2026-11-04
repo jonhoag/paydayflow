@@ -172,7 +172,7 @@
                 class="w-10 h-10 lg:w-8 lg:h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
           <span data-icon="refresh" data-class="w-4 h-4"></span>
         </button>
-        <!-- Overflow menu (phone): theme, start new month, open sheet. Desktop has these in the sidebar. -->
+        <!-- Overflow menu (phone): theme, fingerprint, Spending, new month, the sheet, sign out. Desktop has these in the sidebar. -->
         <div class="relative lg:hidden">
           <button onclick="toggleMenu(event)" id="menuBtn" aria-label="More options" aria-haspopup="true" aria-expanded="false"
                   class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
@@ -314,7 +314,7 @@
 
                 <!-- 1. Choose Type: Monthly Bill (rolls over) vs One-Off Event -->
                 <div class="grid grid-cols-2 gap-1.5 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-xl text-xs font-semibold">
-                  <button type="button" onclick="setBudFormType(false)" id="btype_event" class="py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs">
+                  <button type="button" onclick="setBudFormType(false)" id="btype_event" class="py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
                     <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="sparkle" data-class="w-3.5 h-3.5"></span>One-off event</span>
                   </button>
                   <button type="button" onclick="setBudFormType(true)" id="btype_bill" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
@@ -324,7 +324,7 @@
 
                 <!-- 2. Choose Sign: Expense (-) vs Carry-In (+) (No minus key needed!) -->
                 <div class="grid grid-cols-2 gap-1.5 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-xl text-xs font-semibold">
-                  <button type="button" onclick="setBudFormSign(-1)" id="bsign_neg" class="py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs">
+                  <button type="button" onclick="setBudFormSign(-1)" id="bsign_neg" class="py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
                     <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-up-right" data-class="w-3.5 h-3.5"></span>Money out (−)</span>
                   </button>
                   <button type="button" onclick="setBudFormSign(1)" id="bsign_pos" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
@@ -372,7 +372,7 @@
           </div>
         </div>
 
-        <!-- SECTION B: TO SETTLE -->
+        <!-- SECTION B: OWED -->
         <div id="sec_pending" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
           <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('pendingBody', 'chevPending')">
             <div class="sec-head flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2 min-w-0">
@@ -392,7 +392,7 @@
 
           <div id="pendingBody" class="px-4 pb-4 space-y-3 border-t border-slate-100 dark:border-slate-800/80 pt-3">
             <div id="owedTabs" class="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit text-xs font-semibold">
-              <button onclick="setSplitPanel('pending')" id="pill_pending" class="hit px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">
+              <button onclick="setSplitPanel('pending')" id="pill_pending" class="hit px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
                 Still owed
               </button>
               <button onclick="setSplitPanel('settled')" id="pill_settled" class="hit px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400">
@@ -419,7 +419,7 @@
             <div id="actSpend"></div>
             <div id="txFilters"><div class="chip-row overflow-x-auto">
               <div class="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold w-max">
-                <button onclick="setTxFilter('all')" id="txf_all" class="hit px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">All</button>
+                <button onclick="setTxFilter('all')" id="txf_all" class="hit px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">All</button>
                 <button onclick="setTxFilter('amex')" id="txf_amex" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Amex</button>
                 <button onclick="setTxFilter('barclays')" id="txf_barclays" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Barclays</button>
                 <button onclick="setTxFilter('checking')" id="txf_checking" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Nationwide</button>
@@ -456,7 +456,7 @@
   </nav>
 
   <!-- SPENDING SUMMARY DIALOG -->
-  <div id="spendModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeSpendModal()">
+  <div id="spendModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeSpendModal()">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 class="text-base font-semibold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="chart" data-class="w-4 h-4"></span>Spending</h3>
@@ -467,7 +467,7 @@
   </div>
 
   <!-- FINGERPRINT SIGN-IN DIALOG -->
-  <div id="passkeyModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div id="passkeyModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="fingerprint" data-class="w-4 h-4"></span>Fingerprint sign-in</h3>
@@ -489,7 +489,7 @@
   </div>
 
   <!-- SIGN OUT DIALOG -->
-  <div id="signOutModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeSignOutModal()">
+  <div id="signOutModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeSignOutModal()">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="logout" data-class="w-4 h-4"></span>Sign out of this device</h3>
@@ -513,7 +513,7 @@
   </div>
 
   <!-- MODAL 1: ADD SPEND OR REFUND / MONEY IN (+ DYNAMIC GROUP SPLIT BUILDER) -->
-  <div id="addModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div id="addModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 id="addModalTitle" class="text-sm font-bold text-slate-900 dark:text-white">Add Transaction</h3>
@@ -522,7 +522,7 @@
 
       <!-- Spend (-) vs Refund / Money In (+) Toggle -->
       <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
-        <button type="button" onclick="setTxDirection('spend')" id="dir_spend" class="py-2 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">
+        <button type="button" onclick="setTxDirection('spend')" id="dir_spend" class="py-2 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-up-right" data-class="w-3.5 h-3.5"></span>Spend (−)</span>
         </button>
         <button type="button" onclick="setTxDirection('refund')" id="dir_refund" class="py-2 rounded-lg text-slate-500 dark:text-slate-400">
@@ -544,7 +544,7 @@
       </div>
 
       <div>
-        <label id="lblPaidWith" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Card / Account</label>
+        <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Card / Account</label>
         <div class="grid grid-cols-4 gap-1.5 text-xs font-semibold">
           <button type="button" onclick="selectAcct('amex')" id="acct_amex" class="py-2 rounded-xl bg-emerald-500 text-slate-950">Amex</button>
           <button type="button" onclick="selectAcct('barclays')" id="acct_barclays" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
@@ -553,8 +553,8 @@
         </div>
       </div>
 
-      <!-- Split Section (Hidden when logging a Refund / Money In) -->
-      <div id="splitSectionWrap" class="space-y-3">
+      <!-- Who's paying: for a spend and for a refund / money in alike -->
+      <div class="space-y-3">
         <div>
           <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Who's Paying?</label>
           <div class="flex flex-wrap gap-1.5 text-xs font-semibold">
@@ -608,7 +608,7 @@
   </div>
 
   <!-- MODAL 2: EDIT OR MOVE SPEND (With Spend (-) vs Credit (+) Toggle) -->
-  <div id="editTxModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div id="editTxModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
         <div>
@@ -623,7 +623,7 @@
 
       <!-- Sign Toggle for Edit Modal -->
       <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
-        <button type="button" onclick="setEditTxSign(-1)" id="etsign_neg" class="py-1.5 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">
+        <button type="button" onclick="setEditTxSign(-1)" id="etsign_neg" class="py-1.5 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="minus" data-class="w-3.5 h-3.5"></span>Spend / out (−)</span>
         </button>
         <button type="button" onclick="setEditTxSign(1)" id="etsign_pos" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
@@ -666,7 +666,7 @@
   </div>
 
   <!-- MODAL 3: START NEW MONTH (With Interactive Rollover Checklist) -->
-  <div id="newMonthModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+  <div id="newMonthModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-bold text-slate-900 dark:text-white">Start New Month</h3>
@@ -739,13 +739,11 @@ const PASSKEY_OFFER_DISMISSED_KEY = 'pf_passkey_offer_dismissed';
 const ICON_PATHS = {
   home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
-  hourglass: '<path d="M6 3h12M6 21h12"/><path d="M7 3c0 5 5 5 5 9s-5 4-5 9"/><path d="M17 3c0 5-5 5-5 9s5 4 5 9"/>',
   card: '<rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19M6.5 15h3"/>',
   repeat: '<path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>',
   sparkle: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17v4M17 19h4"/>',
   'arrow-up-right': '<path d="M7 17 17 7M8 7h9v9"/>',
   'arrow-down-left': '<path d="M17 7 7 17M16 17H7V8"/>',
-  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   skip: '<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>',
   more: '<circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/>',
   refresh: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/>',
@@ -2205,13 +2203,13 @@ async function postToServer(bodyObj, opts = {}) {
 
     function setBudFormType(isRec) {
       budFormIsRecurring = Boolean(isRec);
-      markChoice('btype_', ['bill', 'event'], budFormIsRecurring ? 'bill' : 'event', 'py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs', 'py-1.5 rounded-lg text-slate-500 dark:text-slate-400');
+      markChoice('btype_', ['bill', 'event'], budFormIsRecurring ? 'bill' : 'event', 'py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white', 'py-1.5 rounded-lg text-slate-500 dark:text-slate-400');
     }
 
     function setBudFormSign(sign) {
       budFormSign = sign < 0 ? -1 : 1;
       markChoice('bsign_', ['neg', 'pos'], budFormSign < 0 ? 'neg' : 'pos',
-        k => k === 'pos' ? 'py-1.5 rounded-lg bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-2xs' : 'py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-2xs',
+        k => k === 'pos' ? 'py-1.5 rounded-lg bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400' : 'py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white',
         'py-1.5 rounded-lg text-slate-500 dark:text-slate-400');
     }
 
@@ -2268,7 +2266,7 @@ async function postToServer(bodyObj, opts = {}) {
             <div class="flex items-center gap-2 shrink-0">
               <span class="tabular-nums font-semibold whitespace-nowrap ${b.amount < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'}">${b.amount > 0 ? '+' : ''}${fmtGBP(b.amount)}</span>
               ${b.pending ? '<span class="text-xs text-slate-500 dark:text-slate-400">saving…</span>' : `
-              <button onclick="markBudgetPaid(${b.row}, 0, ${b.amount}, ${b.isRecurring})" aria-label="Mark ${esc(b.name)} paid"
+              <button onclick="markBudgetPaid(${b.row})" aria-label="Mark ${esc(b.name)} paid"
                       class="hit ${pill} border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950">
                 ${icon('check', 'w-3.5 h-3.5')} Paid
               </button>`}
@@ -2285,7 +2283,7 @@ async function postToServer(bodyObj, opts = {}) {
             ${nameBtn(b, '')}
             ${b.originalBudget ? `<span class="tabular-nums text-xs shrink-0">(${fmtGBP(b.originalBudget)})</span>` : ''}
           </div>
-          <button onclick="${b.originalBudget ? `markBudgetPaid(${b.row}, ${b.originalBudget}, ${b.originalBudget}, ${b.isRecurring})` : `openBudgetFormForRow(${b.row})`}" ${b.pending ? 'disabled' : ''}
+          <button onclick="restoreBudget(${b.row})" ${b.pending ? 'disabled' : ''}
                   class="hit ${pill} shrink-0 border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Restore</button>
         </div>
       `).join('');
@@ -2356,16 +2354,14 @@ async function postToServer(bodyObj, opts = {}) {
       savePhoneCache(activeMonth, state);
       renderAll();
 
-      {
-        apiCall('saveBudgetItem', {
-          sheetName: activeMonth,
-          row: row || null,
-          name,
-          amount: signedAmt,
-          isRecurring: budFormIsRecurring,
-          expect
-        }).then(applyServerState).catch(err => handleSaveError('the bill', err));
-      }
+      apiCall('saveBudgetItem', {
+        sheetName: activeMonth,
+        row: row || null,
+        name,
+        amount: signedAmt,
+        isRecurring: budFormIsRecurring,
+        expect
+      }).then(applyServerState).catch(err => handleSaveError('the bill', err));
     }
 
     // The saved (not still-saving) bill in a row, and only if it is still the one expected.
@@ -2405,27 +2401,37 @@ async function postToServer(bodyObj, opts = {}) {
         .catch(err => handleSaveError('the restored bill', err));
     }
 
-    function markBudgetPaid(row, newAmt, origAmt, isRec) {
+    // Paid sets a bill to 0 and remembers its amount (originalBudget); Restore puts that amount back. A paid bill
+    // with no remembered amount opens its form instead, to ask for one rather than guess.
+    function markBudgetPaid(row) {
+      const item = findBudget(row);
+      if (item) setBudgetAmount(item, 0, Number(item.amount));
+    }
+    function restoreBudget(row) {
       const item = findBudget(row);
       if (!item) return;
+      if (!item.originalBudget) return openBudgetFormForRow(row);
+      setBudgetAmount(item, Number(item.originalBudget), Number(item.originalBudget));
+    }
+    function setBudgetAmount(item, newAmt, origAmt) {
       const expect = { name: item.name, amount: item.amount };
       if (newAmt === 0 && item.amount !== 0) item.originalBudget = item.amount;
-      item.amount = Number(newAmt);
+      item.amount = newAmt;
       savePhoneCache(activeMonth, state);
       renderAll();
 
-      apiCall('updateBudgetRow', { sheetName: activeMonth, row, newAmount: newAmt, originalBudget: origAmt, expect })
+      apiCall('updateBudgetRow', { sheetName: activeMonth, row: item.row, newAmount: newAmt, originalBudget: origAmt, expect })
         .then(applyServerState)
         .catch(err => handleSaveError('the bill update', err));
     }
 
-    // ================= TO SETTLE & SPLITS PANEL =================
+    // ================= OWED & SPLITS PANEL =================
     function setSplitPanel(mode) {
       splitPanelMode = mode;
       document.getElementById('panel_pending').classList.toggle('hidden', mode !== 'pending');
       document.getElementById('panel_settled').classList.toggle('hidden', mode !== 'settled');
       markChoice('pill_', ['pending', 'settled'], mode,
-        'hit px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs', 'hit px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400');
+        'hit px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white', 'hit px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400');
     }
 
     // Friends you split with: their quick-tap chips, the split rows and the "Paid back" list all use this list. The
@@ -2627,7 +2633,7 @@ async function postToServer(bodyObj, opts = {}) {
     function markTxFilter(flt) {
       txFilter = flt;
       markChoice('txf_', ['all', 'amex', 'barclays', 'marcus', 'checking'], flt,
-        'hit px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs', 'hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400');
+        'hit px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white', 'hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400');
     }
     function setTxFilter(flt) {
       markTxFilter(flt);
@@ -2763,11 +2769,9 @@ async function postToServer(bodyObj, opts = {}) {
       txDirection = dir;
       const isRefund = dir === 'refund';
       markChoice('dir_', ['spend', 'refund'], dir,
-        k => k === 'refund' ? 'py-2 rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs' : 'py-2 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs',
+        k => k === 'refund' ? 'py-2 rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400' : 'py-2 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white',
         'py-2 rounded-lg text-slate-500 dark:text-slate-400');
 
-      // Keep split options visible for both Spend AND Refund / Cashback
-      document.getElementById('splitSectionWrap').classList.remove('hidden');
       document.getElementById('needToggleWrap').classList.toggle('hidden', formSplit === '100_me');
       document.getElementById('btnSubmitTx').textContent = isRefund ? 'Save Refund / Money In (+)' : 'Save Spend';
       updateSplitSummary();
@@ -3056,7 +3060,7 @@ async function postToServer(bodyObj, opts = {}) {
     function setEditTxSign(sign) {
       editTxSign = sign < 0 ? -1 : 1;
       markChoice('etsign_', ['neg', 'pos'], editTxSign < 0 ? 'neg' : 'pos',
-        k => k === 'pos' ? 'py-1.5 rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs' : 'py-1.5 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs',
+        k => k === 'pos' ? 'py-1.5 rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400' : 'py-1.5 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white',
         'py-1.5 rounded-lg text-slate-500 dark:text-slate-400');
     }
 
@@ -3225,7 +3229,7 @@ async function postToServer(bodyObj, opts = {}) {
       document.getElementById('roAmex').textContent = fmtGBP(s.amex);
       document.getElementById('roBarclays').textContent = fmtGBP(s.barclays);
 
-      // Calculate unsettled ("To Settle") items carrying over
+      // What is still owed carries over to the new month
       const pendingItems = (state.checking || []).filter(r => r.need);
       const pendingSum = +pendingItems.reduce((acc, r) => acc + Number(r.amount || 0), 0).toFixed(2);
       const signPrefix = pendingSum > 0 ? '+' : (pendingSum < 0 ? '−' : '');
@@ -3359,8 +3363,6 @@ async function postToServer(bodyObj, opts = {}) {
       applyThemeMode();
     }
 
-    // Start as soon as the page is parsed rather than on `load`, which also waits for every font and
-    // script (including Google sign-in) and so delayed the first data request.
     // Home-screen shortcuts (manifest.json) open the app at /?go=add, ?go=owed or ?go=spending. The marker is taken
     // off the address straight away, so a reload doesn't open the same screen again; the screen opens once signed in.
     let launchGo = new URLSearchParams(location.search).get('go') || '';
@@ -3413,6 +3415,8 @@ async function postToServer(bodyObj, opts = {}) {
         .then(flushOutbox);
     }
 
+    // Start as soon as the page is parsed rather than on `load`, which also waits for every font and
+    // script (including Google sign-in) and so delayed the first data request.
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startApp);
     else startApp();
 

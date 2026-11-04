@@ -406,7 +406,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     });
     await step(`${w}px: the changed labels each fit on one line`, async () => {
       const sels = ['#budLeftVal', '#heroNote', '#sumPending', '#budClearedCount', '#txListContainer > button:not(.tx-row)', '.owed-summary .text-xs'];
-      await page.evaluate(() => { markBudgetPaid(state.budgets.find(b => Number(b.amount) < 0).row, 0, state.budgets.find(b => Number(b.amount) < 0).amount); });
+      await page.evaluate(() => { markBudgetPaid(state.budgets.find(b => Number(b.amount) < 0).row); });
       await page.waitForFunction(() => !state.budgets.some(b => b.pending));
       let lines = await lineCounts(page, sels.concat('#paidFold summary > span:first-child'));
       await page.evaluate(() => setView('pending'));
@@ -618,7 +618,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
 
   await step('bills: Undo after deleting a paid bill brings it back paid, with its amount kept', async () => {
     const b = await page.evaluate(() => { const x = state.budgets.find(y => !y.pending && Number(y.amount) !== 0); return { row: x.row, name: x.name, amount: Number(x.amount) }; });
-    await page.evaluate(row => markBudgetPaid(row, 0, state.budgets.find(y => y.row === row).amount), b.row);
+    await page.evaluate(row => markBudgetPaid(row), b.row);
     await page.waitForFunction(row => state.budgets.some(y => y.row === row && !y.pending && Number(y.amount) === 0), b.row);
     await page.evaluate(row => removeBudgetRow(row), b.row);
     await page.click('#toastAction');
