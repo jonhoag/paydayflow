@@ -204,7 +204,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     const paid = (await calls(page, 'updateBudgetRow')).pop();
     assert.ok(paid && paid.newAmount === 0, 'expected updateBudgetRow with 0, got ' + JSON.stringify(paid));
     const name = first.replace(/^Mark | paid$/g, '');
-    assert.ok((await page.textContent('#clearedBudgetsList')).includes(name), 'bill should move to Already Paid');
+    assert.ok((await page.textContent('#clearedBudgetsList')).includes(name), 'bill should move to Paid');
     await page.evaluate(() => document.querySelector('#clearedBudgetsList').closest('details').open = true);
     await page.click('#clearedBudgetsList button:has-text("Restore")');
     await page.waitForTimeout(250);
@@ -811,6 +811,16 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.ok(await visible(page, 'aside button[onclick="openAddModal()"]'), 'no Add Transaction in the sidebar at ' + w + 'px');
     }
     await page.setViewportSize({ width: 1280, height: 800 });
+  });
+  await step('a section folded on the desktop opens again when the window narrows to its phone tab (which has no ▾)', async () => {
+    await page.evaluate(() => setView('activity'));
+    await page.click('#chevActivity');
+    assert.ok(!(await visible(page, '#activityBody')), 'the ▾ should fold Activity on the desktop');
+    await page.setViewportSize({ width: 400, height: 860 });
+    await page.waitForTimeout(200);
+    assert.ok(await visible(page, '#activityBody'), 'the Activity tab is stuck folded with no ▾ to open it');
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.evaluate(() => setView('home'));
   });
   await step('desktop: the header "All paid back" shows with several people owing; Bills say "to pay"', async () => {
     assert.ok(await visible(page, '#btnSettleAll'));

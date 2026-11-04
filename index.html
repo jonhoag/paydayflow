@@ -67,6 +67,8 @@
       body[data-view="budgets"] #chevBudgets, body[data-view="pending"] #chevPending, body[data-view="activity"] #chevActivity { display: none; }
       /* Home shows the latest few spends with no filters; the Activity tab has the filters (see renderTransactions). */
       body:not([data-view="activity"]) #txFilters, body:not([data-view="activity"]) #txSearch { display: none; }
+      /* space-y-3 still spaces the list from those hidden filters, so take that gap away. */
+      body:not([data-view="activity"]) #txListContainer { margin-top: 0; }
     }
     /* Main sections: one column on a phone. Unfolded (Home): Bills beside Owed + Activity. Desktop: Bills + Owed beside
        Activity. The second row takes up the slack, so the shorter column never leaves a gap between its two sections. */
@@ -1916,7 +1918,7 @@ async function postToServer(bodyObj, opts = {}) {
     }
 
     // ---- Phone views: the bottom bar switches between Home (everything) and one focused section ----
-    const PHONE_MQ = window.matchMedia('(max-width: 1023px)');
+    const PHONE_MQ = window.matchMedia('(max-width: 1023px)');   // must match the 1023px / 1024px lines in the CSS above
     // The section each phone tab shows on its own: its body and its ▾ button.
     const VIEW_SECTIONS = { budgets: ['budgetsBody', 'chevBudgets'], pending: ['pendingBody', 'chevPending'], activity: ['activityBody', 'chevActivity'] };
     // On a phone, showing tab v (budgets, pending or activity). On a desktop there are no tabs: everything shows.
@@ -1933,7 +1935,12 @@ async function postToServer(bodyObj, opts = {}) {
       window.scrollTo({ top: 0 });
     }
     // Folding or unfolding the phone (or resizing a window) across the phone/desktop line changes what the lists show.
-    if (PHONE_MQ.addEventListener) PHONE_MQ.addEventListener('change', () => renderAll());
+    // A section folded on the desktop must open again if it becomes a phone tab, which has no ▾ to open it.
+    if (PHONE_MQ.addEventListener) PHONE_MQ.addEventListener('change', () => {
+      const tab = VIEW_SECTIONS[document.body.dataset.view];
+      if (tab && PHONE_MQ.matches) setSectionOpen(...tab, true);
+      renderAll();
+    });
 
     // ---- Long lists show a few rows with a "Show all" toggle instead of scrolling inside the page ----
     // (Home on a phone shows HOME_TX_PREVIEW spends and "See all", which opens the Activity tab.)
@@ -2668,7 +2675,7 @@ async function postToServer(bodyObj, opts = {}) {
           </div>
           <button onclick="openSpendModal()" class="h-8 px-3 rounded-full border text-xs font-semibold border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300">Details</button>
         </div>
-        ${cats.length ? `<div class="chip-row flex gap-2 overflow-x-auto" style="margin-bottom:-6px">${cats.map(c => {
+        ${cats.length ? `<div class="chip-row flex gap-2 overflow-x-auto">${cats.map(c => {
           const on = actCat === c.cat, col = SPEND_COLOURS[c.cat] || '#94a3b8';
           return `<button data-cat="${esc(c.cat)}" onclick="setActCat(this.dataset.cat)" aria-pressed="${on}"
                     class="hit shrink-0 h-9 px-3 rounded-full border text-sm font-semibold inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-200 ${on ? '' : 'border-slate-200 dark:border-slate-700'}"
@@ -2683,6 +2690,7 @@ async function postToServer(bodyObj, opts = {}) {
       const onTab = onPhoneTab('activity');
       const phoneHome = PHONE_MQ.matches && !onTab;
       if (!onTab) actCat = null;
+      // Home on a phone has no filters, so none may be left on (this also clears them when a window narrows to phone size).
       if (phoneHome && (txFilter !== 'all' || search.value)) { markTxFilter('all'); search.value = ''; }
       if (onTab) renderActSpend();
       const q = (search.value || '').toLowerCase();
@@ -3381,7 +3389,6 @@ async function postToServer(bodyObj, opts = {}) {
       hydrateIcons();
       renderPersonChips();
       loadSavedConfig();
-      document.body.dataset.view = 'home';
       if (!passkeySupported()) {   // e.g. inside Apps Script, or a browser without WebAuthn
         ['menuPasskeyItem', 'sidePasskeyBtn'].forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('hidden'); });
       }
