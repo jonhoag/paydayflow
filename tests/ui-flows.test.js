@@ -15,6 +15,26 @@ const { root, HOST, sendSiteFile } = require('./lib/site-files');
 const server = http.createServer(sendSiteFile);
 
 const results = [];
+// Spending's month bars with six big months: the bars it shows, each label's text, line count and whether it fits
+// its own bar; or a message if the row spills out of the box.
+async function monthBars(page) {
+  return page.evaluate(() => {
+    const real = spendMonthTotals;
+    spendMonthTotals = () => ['May', 'June', 'July', 'August', 'September', 'October'].map(m => ({ name: m + ' Payday 2026', total: 1234.56 }));
+    try {
+      openSpendModal();
+      const labels = [...document.querySelectorAll('#spendBody .items-end > div > span:first-child')];
+      const row = document.querySelector('#spendBody .items-end'), box = document.getElementById('spendBody').getBoundingClientRect();
+      if (row.scrollWidth > row.clientWidth || row.getBoundingClientRect().right > box.right + 0.5 || box.right > innerWidth) return 'the month bars spill out of the box';
+      return labels.map(l => {
+        const r = document.createRange(); r.selectNodeContents(l);
+        const col = l.parentElement.getBoundingClientRect(), txt = r.getBoundingClientRect();
+        return { text: l.textContent, lines: r.getClientRects().length, fits: txt.left >= col.left - 0.5 && txt.right <= col.right + 0.5 };
+      });
+    } finally { spendMonthTotals = real; closeSpendModal(); }
+  });
+}
+
 async function step(name, fn) {
   try { await fn(); results.push([true, name]); }
   catch (e) { results.push([false, name + '\n      ' + String(e.message).split('\n')[0]]); }
@@ -36,6 +56,55 @@ const SEED_OWED = `(async () => {
 
 const calls = (page, action) => page.evaluate(a => MOCK.calls.filter(c => c.action === a).map(c => c.payload), action);
 const visible = (page, sel) => page.evaluate(s => { const el = document.querySelector(s); return !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden'; }, sel);
+const owedCount = page => page.evaluate(() => state.checking.filter(r => r.need).length);
+// How many lines each element's text takes (1 = it does not wrap). Hidden elements count as 0.
+const lineCounts = (page, sels) => page.evaluate(list => list.map(sel => {
+  const el = document.querySelector(sel);
+  if (!el || !el.getClientRects().length) return sel + ':0';
+  const r = document.createRange(); r.selectNodeContents(el);
+  return sel + ':' + new Set([...r.getClientRects()].filter(x => x.width > 0).map(x => Math.round(x.top))).size;
+}), sels);
+// The page never scrolls sideways, and no balance spills out of its card.
+const noSideways = page => page.evaluate(() => ({ width: innerWidth, sideways: document.documentElement.scrollWidth > innerWidth,
+  kpi: [...document.querySelectorAll('.kpi-figure')].filter(e => e.getClientRects().length && e.scrollWidth > e.clientWidth).map(e => e.id) }));
+// Each button's hit area: at least 44x44px, and every part of it really reaches that button (not cut off by a
+// scrolling box, not covered by a neighbour's hit area). Returns the problems found, plus the sizes measured.
+const hitAreas = (page, sel) => page.evaluate(async s => {
+  const n = document.querySelectorAll(s).length;
+  const out = { count: 0, sizes: [], bad: [] };
+  for (let i = 0; i < n; i++) {
+    const el = document.querySelectorAll(s)[i];   // looked up afresh: a reply may have redrawn the list meanwhile
+    if (!el || !el.getClientRects().length) continue;
+    out.count++;
+    el.scrollIntoView({ block: 'center', inline: 'nearest' });
+    await new Promise(r => requestAnimationFrame(r));
+    const b = el.getBoundingClientRect(), a = getComputedStyle(el, '::after');
+    const w = Math.max(b.width, a.content !== 'none' ? parseFloat(a.width) || 0 : 0), h = Math.max(b.height, a.content !== 'none' ? parseFloat(a.height) || 0 : 0);
+    const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+    out.sizes.push(Math.round(w) + 'x' + Math.round(h));
+    const name = (el.id || el.getAttribute('aria-label') || el.textContent.trim()).slice(0, 30);
+    if (w < 44 || h < 44) out.bad.push(name + ' is ' + Math.round(w) + 'x' + Math.round(h));
+    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      const x = cx + dx * (Math.max(w, 44) / 2 - 1.5), y = cy + dy * (Math.max(h, 44) / 2 - 1.5);
+      const hit = document.elementFromPoint(x, y);
+      if (!hit || !el.contains(hit)) { out.bad.push(name + ' misses at ' + dx + ',' + dy + ' (hits ' + (hit ? hit.tagName + '.' + String(hit.className).slice(0, 30) : 'nothing') + ')'); break; }
+    }
+  }
+  window.scrollTo({ top: 0 });
+  return out;
+}, sel);
+// WCAG contrast ratio of an element's text against the first solid background behind it.
+const contrastOf = (page, sel) => page.evaluate(s => {
+  const el = document.querySelector(s);
+  const rgb = c => (c.match(/[\d.]+/g) || []).map(Number);
+  const lum = ([r, g, b]) => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+  let bg = null;
+  for (let n = el; n && !bg; n = n.parentElement) { const c = rgb(getComputedStyle(n).backgroundColor); if (c.length === 3 || (c.length === 4 && c[3] === 1)) bg = c.slice(0, 3); }
+  bg = bg || rgb(getComputedStyle(document.body).backgroundColor).slice(0, 3);
+  const fg = rgb(getComputedStyle(el).color).slice(0, 3);
+  const [l1, l2] = [lum(fg), lum(bg)].sort((x, y) => y - x);
+  return Math.round((l1 + 0.05) / (l2 + 0.05) * 100) / 100;
+}, sel);
 
 (async () => {
   await new Promise(r => server.listen(PORT, HOST, r));
@@ -84,19 +153,106 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     assert.ok(ok, 'a balance spills out of its tile');
   });
 
+  await step('money helpers: fmtSigned shows + for money in, a real minus for money out', async () => {
+    const out = await page.evaluate(() => [fmtSigned(5), fmtSigned(-5), fmtSigned(0), fmtSigned(1234.5)]);
+    assert.deepStrictEqual(out, ['+£5.00', '−£5.00', '£0.00', '+£1,234.50']);
+  });
+
+  await step('storage helpers: storage that refuses (a private window, or blocked) reads as empty instead of throwing', async () => {
+    const out = await page.evaluate(() => {
+      localStorage.setItem('pf_test_junk', '{not json');
+      const junk = lsJson('pf_test_junk');
+      localStorage.removeItem('pf_test_junk');
+      const P = Storage.prototype, real = [P.getItem, P.setItem, P.removeItem];
+      P.getItem = P.setItem = P.removeItem = () => { throw new DOMException('blocked', 'SecurityError'); };
+      try {
+        return [junk, lsGet(THEME_KEY), lsSet(THEME_KEY, 'dark'), lsDel(THEME_KEY) === undefined, lsJson(OUTBOX_KEY), loadOutbox().length, getSession(), hasValidGoogleToken()];
+      } finally { [P.getItem, P.setItem, P.removeItem] = real; }
+    });
+    assert.deepStrictEqual(out, [null, null, false, true, null, 0, null, false]);
+  });
+
+  await step('a Google sign-in token is read as UTF-8, and anything that is not one reads as nothing', async () => {
+    const out = await page.evaluate(() => {
+      const part = o => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(o)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const p = parseJwtPayload('x.' + part({ what: 'Café ✓ ~~~>>>???', exp: 5 }) + '.y');
+      return [p && p.what, p && p.exp, parseJwtPayload('nonsense'), parseJwtPayload('a.!!!.b'), parseJwtPayload(null)];
+    });
+    assert.deepStrictEqual(out, ['Café ✓ ~~~>>>???', 5, null, null, null]);
+  });
+
   await step('bottom bar reads Home, Bills, Owed, Activity', async () => {
     const labels = await page.$$eval('nav [data-nav]', bs => bs.map(b => b.textContent.trim()));
     assert.deepStrictEqual(labels, ['Home', 'Bills', 'Owed', 'Activity']);
   });
 
+  await step('bills: the paid fold-away is hidden while nothing is paid, and reads "Paid (n)" once something is', async () => {
+    assert.strictEqual(await page.evaluate(() => state.budgets.filter(b => Number(b.amount) === 0).length), 0, 'test set-up: a bill is already paid');
+    assert.ok(!(await visible(page, '#paidFold')), 'the fold-away shows with nothing in it');
+    await page.click('#upcomingBudgetsList button[aria-label^="Mark"]');
+    await page.waitForFunction(() => state.budgets.some(b => Number(b.amount) === 0 && !b.pending));
+    assert.ok(await visible(page, '#paidFold'));
+    assert.strictEqual((await page.textContent('#paidFold summary')).replace(/\s+/g, ' ').replace('▼', '').trim(), 'Paid (1)');
+    await page.evaluate(() => { document.getElementById('paidFold').open = true; });
+    await page.click('#clearedBudgetsList button:has-text("Restore")');
+    await page.waitForFunction(() => !state.budgets.some(b => Number(b.amount) === 0 || b.pending) && MOCK.calls.every(c => c.end));
+    assert.ok(!(await visible(page, '#paidFold')), 'the fold-away should go again at 0');
+  });
+
+  await step('bills: the header says "to pay" with no minus, and no "rolls to next month" legend', async () => {
+    const t = await page.textContent('#budLeftVal');
+    assert.ok(/^£[\d,]+\.\d\d to pay$/.test(t), t);
+    assert.ok(!/rolls to next month/.test(await page.textContent('#budgetsBody')), 'the legend is back');
+  });
+
+  await step('bills: the phone Bills tab lists every unpaid bill (no "Show all"); Home keeps the first 6', async () => {
+    const unpaid = await page.evaluate(() => state.budgets.filter(b => Number(b.amount) !== 0).length);
+    assert.ok(unpaid > 6, 'test set-up: needs more than 6 unpaid bills');
+    const rows = () => page.$$eval('#upcomingBudgetsList button[aria-label^="Mark "]', b => b.length);
+    const more = () => page.$('#upcomingBudgetsList button:has-text("Show all")');
+    assert.strictEqual(await rows(), 6);
+    assert.ok(await more(), 'Home should offer "Show all"');
+    await page.click('nav [data-nav="budgets"]');
+    assert.strictEqual(await rows(), unpaid, 'the Bills tab should list every unpaid bill');
+    assert.ok(!(await more()), 'the Bills tab should have no "Show all"');
+    await page.click('nav [data-nav="home"]');
+    assert.strictEqual(await rows(), 6);
+  });
+
+  await step('tabs: the section that is the whole screen has no ▾ and its header does not fold it; Home keeps them', async () => {
+    await page.evaluate(() => setView('home'));   // whatever an earlier failed step left
+    const chevs = ['#chevBudgets', '#chevPending', '#chevActivity'];
+    for (const c of chevs) assert.ok(await visible(page, c), c + ' should show on Home');
+    for (const [nav, chev, body] of [['budgets', '#chevBudgets', '#budgetsBody'], ['pending', '#chevPending', '#pendingBody'], ['activity', '#chevActivity', '#activityBody']]) {
+      await page.click(`nav [data-nav="${nav}"]`);
+      assert.ok(!(await visible(page, chev)), chev + ' still shows on its own tab');
+      await page.click(body.replace('Body', '').replace('#', '#sec_') + ' h2');
+      assert.ok(await visible(page, body), 'tapping the header folded the ' + nav + ' tab away');
+    }
+    await page.click('nav [data-nav="home"]');
+    await page.click('#chevActivity');
+    assert.ok(!(await visible(page, '#activityBody')), 'the ▾ on Home should still fold a section');
+    await page.click('#chevActivity');
+  });
+
+  await step('owed: with one person owing, the header has no "All paid back" (theirs does the same job)', async () => {
+    await page.evaluate(() => setView('home'));
+    await page.click('nav [data-nav="pending"]');
+    assert.strictEqual(await page.evaluate(() => owedGroupsShown.length), 1, 'test set-up: one person should owe');
+    assert.ok(!(await visible(page, '#btnSettleAll')), 'header "All paid back" shows with one person');
+    assert.ok(await visible(page, '.owed-groups button[data-person][onclick^="handleSettlePerson"]'), "that person's own button is missing");
+    await page.click('nav [data-nav="home"]');
+  });
+
   await step('bills: Paid saves the bill as paid, Restore brings it back', async () => {
+    await page.evaluate(() => setView('home'));
     const first = await page.$eval('#upcomingBudgetsList button[aria-label^="Mark"]', b => b.getAttribute('aria-label'));
     await page.click('#upcomingBudgetsList button[aria-label^="Mark"]');
     await page.waitForTimeout(250);
     const paid = (await calls(page, 'updateBudgetRow')).pop();
     assert.ok(paid && paid.newAmount === 0, 'expected updateBudgetRow with 0, got ' + JSON.stringify(paid));
     const name = first.replace(/^Mark | paid$/g, '');
-    assert.ok((await page.textContent('#clearedBudgetsList')).includes(name), 'bill should move to Already Paid');
+    assert.ok((await page.textContent('#clearedBudgetsList')).includes(name), 'bill should move to Paid');
     await page.evaluate(() => document.querySelector('#clearedBudgetsList').closest('details').open = true);
     await page.click('#clearedBudgetsList button:has-text("Restore")');
     await page.waitForTimeout(250);
@@ -121,12 +277,20 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     assert.ok(!(await visible(page, '.owed-groups')), 'full list should be hidden on Home');
     assert.ok(!(await visible(page, '#owedTabs')), 'Still owed / Paid back tabs should be hidden on Home');
     const people = await page.$$eval('.owed-summary > button[onclick="setView(\'pending\')"]', bs => bs.length);
-    assert.strictEqual(people, 5, 'four people plus the "See everything owed" button');
-    assert.strictEqual(await page.textContent('#cntPending'), '24');
+    assert.strictEqual(people, 4, 'one row per person, and no "See everything owed" button');
+    assert.ok(!/See everything/.test(await page.textContent('.owed-summary')), 'the "See everything owed" button is back');
+    assert.strictEqual(await owedCount(page), 24);
+  });
+
+  await step('owed header: just the total, no count; the tabs say "Still owed" / "Paid back" with no counts', async () => {
+    const total = await page.evaluate(() => fmtGBP(state.checking.filter(r => r.need).reduce((a, r) => a + r.amount, 0)));
+    assert.strictEqual((await page.textContent('#sec_pending h2 + span')).trim(), total);
+    assert.strictEqual((await page.textContent('#pill_pending')).trim(), 'Still owed');
+    assert.strictEqual((await page.textContent('#pill_settled')).trim(), 'Paid back');
   });
 
   await step('owed tab: grouped by person; one tick marks one item paid back', async () => {
-    await page.click('.owed-summary button:has-text("See everything owed")');
+    await page.click('.owed-summary > button:has-text("Kim")');
     assert.strictEqual(await page.evaluate(() => document.body.dataset.view), 'pending');
     assert.ok(await visible(page, '.owed-groups') && !(await visible(page, '.owed-summary')));
     assert.ok(await visible(page, '#heroSection') === false, 'Owed tab should show only the Owed section');
@@ -136,7 +300,11 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     await page.waitForTimeout(250);
     const t = (await calls(page, 'toggleNeedFlag')).pop();
     assert.ok(t && t.setNeed === false, JSON.stringify(t));
-    assert.strictEqual(await page.textContent('#cntPending'), '23');
+    assert.strictEqual(await owedCount(page), 23);
+  });
+
+  await step('owed tab: with several people owing, the header "All paid back" shows', async () => {
+    assert.ok(await visible(page, '#btnSettleAll'), 'should show while 4 people owe');
   });
 
   await step('owed tab: "All paid back" for one person saves only their items', async () => {
@@ -145,7 +313,7 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     await page.waitForTimeout(250);
     const s = (await calls(page, 'settleAllNeeds')).pop();
     assert.deepStrictEqual(s.rows.slice().sort(), before);
-    assert.strictEqual(await page.textContent('#cntPending'), String(23 - before.length), 'count after: ' + (await page.textContent('#cntPending')) + ' rows ' + JSON.stringify(before));
+    assert.strictEqual(await owedCount(page), 23 - before.length, 'rows ' + JSON.stringify(before));
     const left = await page.evaluate(() => state.checking.filter(r => r.need && /^robin/i.test(r.desc)).length);
     assert.strictEqual(left, 0);
   });
@@ -153,12 +321,12 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
   await step('owed tab: Paid back list has Undo, which puts an item back', async () => {
     await page.click('#pill_settled');
     assert.ok(await visible(page, '#panel_settled'));
-    const n = Number(await page.textContent('#cntPending'));
+    const n = await owedCount(page);
     await page.click('#panel_settled button:has-text("Undo")');
     await page.waitForTimeout(250);
     const t = (await calls(page, 'toggleNeedFlag')).pop();
     assert.ok(t && t.setNeed === true);
-    assert.strictEqual(Number(await page.textContent('#cntPending')), n + 1);
+    assert.strictEqual(await owedCount(page), n + 1);
     await page.click('#pill_pending');
   });
 
@@ -183,13 +351,29 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     assert.ok((await page.textContent('#actSpend')).includes('Spent on cards this month'));
   });
 
-  await step('leaving the Activity tab clears the filter; Home shows the latest few', async () => {
+  await step('leaving the Activity tab clears its filters; Home shows the latest 4, no filters, and "See all"', async () => {
     await page.click('#actSpend button[data-cat="Groceries"]');
+    await page.click('#txf_amex');
+    await page.fill('#txSearch', 'zzz');
     await page.click('nav [data-nav="home"]');
-    const rows = await page.$$eval('#txListContainer > .tx-row', d => d.length);
-    assert.strictEqual(rows, 8);
-    assert.ok(await page.$('#sec_activity button:has-text("Show all")'));
+    const rows = await page.$$eval('#txListContainer > .tx-row', d => d.map(r => r.getAttribute('aria-label')));
+    assert.strictEqual(rows.length, 4, 'Home should show the latest 4: ' + JSON.stringify(rows));
     assert.ok(!(await visible(page, '#actSpend')));
+    assert.ok(!(await visible(page, '#txFilters')) && !(await visible(page, '#txSearch')), 'the filters should not show on Home');
+    assert.ok(!(await page.$('#sec_activity button:has-text("Show all")')), 'Home has "See all", not "Show all"');
+    await page.click('#sec_activity button:has-text("See all")');
+    assert.strictEqual(await page.evaluate(() => document.body.dataset.view), 'activity', '"See all" should open the Activity tab');
+    const s = await page.evaluate(() => ({ filter: txFilter, search: document.getElementById('txSearch').value, cat: actCat }));
+    assert.deepStrictEqual(s, { filter: 'all', search: '', cat: null }, 'the old filters came back');
+    await page.click('nav [data-nav="home"]');
+  });
+
+  await step('Home on a phone shows the same latest 4 the Activity tab starts with', async () => {
+    const home = await page.$$eval('#txListContainer > .tx-row', d => d.map(r => r.getAttribute('aria-label')));
+    await page.click('nav [data-nav="activity"]');
+    const tab = await page.$$eval('#txListContainer > .tx-row', d => d.map(r => r.getAttribute('aria-label')));
+    await page.click('nav [data-nav="home"]');
+    assert.deepStrictEqual(home, tab.slice(0, 4));
   });
 
   await step('spending details: ring chart, open a category, change a shop\'s category, Escape closes', async () => {
@@ -252,6 +436,117 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     assert.ok(!(await visible(page, '#addModal')));
   });
   await ctx.close();
+
+  // ---------------- layout: widths, wrapping, hit areas, contrast ----------------
+  const VIEWS = ['home', 'budgets', 'pending', 'activity'];
+  for (const [w, scheme] of [[344, 'dark'], [400, 'light'], [768, 'light']]) {
+    ({ ctx, page } = await open({ viewport: { width: w, height: 860 }, isMobile: true, hasTouch: true, colorScheme: scheme }));
+    await page.evaluate(SEED_OWED);
+    await step(`${w}px: no sideways scroll and no balance spills out, on every tab`, async () => {
+      const found = [];
+      for (const v of VIEWS) {
+        await page.evaluate(x => setView(x), v);
+        const m = await noSideways(page);
+        if (m.sideways || m.kpi.length) found.push(v + ' ' + JSON.stringify(m));
+      }
+      await page.evaluate(() => setView('home'));
+      assert.deepStrictEqual(found, []);
+    });
+    await step(`${w}px: the changed labels each fit on one line`, async () => {
+      const sels = ['#budLeftVal', '#heroNote', '#sumPending', '#budClearedCount', '#txListContainer > button:not(.tx-row)', '.owed-summary .text-xs'];
+      await page.evaluate(() => { markBudgetPaid(state.budgets.find(b => Number(b.amount) < 0).row); });
+      await page.waitForFunction(() => !state.budgets.some(b => b.pending));
+      let lines = await lineCounts(page, sels.concat('#paidFold summary > span:first-child'));
+      await page.evaluate(() => setView('pending'));
+      lines = lines.concat(await lineCounts(page, ['#pill_pending', '#pill_settled', '#btnSettleAll', '.owed-groups span.block.text-xs']));
+      await page.evaluate(() => setView('home'));
+      assert.deepStrictEqual(lines.filter(x => !/:1$/.test(x)), [], lines.join(' '));
+    });
+    if (w === 344) {
+      await step('344px: Spending shows full amounts (pounds and pence); four big month figures each fit their own bar', async () => {
+        const out = await monthBars(page);
+        assert.strictEqual(out.length, 4, JSON.stringify(out));
+        assert.ok(out.every(o => o.text === '£1,234.56' && o.lines === 1 && o.fits), JSON.stringify(out));
+        await page.evaluate(() => setView('activity'));
+        const chips = await page.$$eval('#actSpend button[data-cat] .tabular-nums', els => els.map(e => e.textContent));
+        await page.evaluate(() => setView('home'));
+        assert.ok(chips.length && chips.every(t => /^£[\d,]+\.\d\d$/.test(t)), JSON.stringify(chips));
+      });
+      await step('344px: the Bills header wording for every sign, never with a minus, on one line', async () => {
+        const r = await page.evaluate(() => {
+          const saved = state.budgets;
+          const show = list => { state.budgets = list; renderAll(); return document.getElementById('budLeftVal').textContent; };
+          const out = {
+            out: show([{ row: 90, name: 'Rent', amount: -12345.67, isRecurring: true }]),
+            none: show([{ row: 90, name: 'Rent', amount: 0, originalBudget: -500, isRecurring: true }]),
+            evens: show([{ row: 90, name: 'Out', amount: -50, isRecurring: false }, { row: 91, name: 'In', amount: 50, isRecurring: false }]),
+            in: show([{ row: 90, name: 'Refund', amount: 12345.67, isRecurring: false }]),
+          };
+          const rg = document.createRange(); rg.selectNodeContents(document.getElementById('budLeftVal'));
+          out.lines = new Set([...rg.getClientRects()].map(x => Math.round(x.top))).size;
+          state.budgets = saved; renderAll();
+          return out;
+        });
+        assert.deepStrictEqual(r, { out: '£12,345.67 to pay', none: 'Nothing to pay', evens: 'Nothing to pay', in: '+£12,345.67 to come in', lines: 1 });
+      });
+    }
+    if (w === 400) {
+      await step('400px: small buttons have hit areas of at least 44x44px that reach them and do not overlap', async () => {
+        const report = [];
+        const check = async (sel, min) => {
+          const h = await hitAreas(page, sel);
+          assert.ok(h.count >= min, sel + ': expected at least ' + min + ', found ' + h.count);
+          report.push(sel + ' ' + [...new Set(h.sizes)].join(','));
+          return h.bad;
+        };
+        await page.waitForFunction(() => MOCK.calls.every(c => c.end) && !state.budgets.some(b => b.pending));
+        let bad = [];
+        bad = bad.concat(await check('#upcomingBudgetsList button[aria-label^="Mark "]', 6));
+        bad = bad.concat(await check('#bf_all, #bf_recurring, #bf_events', 3));
+        bad = bad.concat(await check('#sec_budgets button[onclick="openBudgetForm()"]', 1));
+        bad = bad.concat(await check('#chevBudgets, #chevPending, #chevActivity', 3));
+        await page.evaluate(() => setView('pending'));
+        bad = bad.concat(await check('.owed-groups button[aria-label$=" paid back"]', 10));
+        bad = bad.concat(await check('#pill_pending, #pill_settled, #btnSettleAll', 3));
+        bad = bad.concat(await check('.owed-groups button[onclick^="handleSettlePerson"]', 3));
+        await page.evaluate(() => setView('budgets'));
+        await page.evaluate(() => { document.getElementById('paidFold').open = true; });
+        bad = bad.concat(await check('#clearedBudgetsList button:not([aria-label])', 1));
+        await page.evaluate(() => setView('activity'));
+        bad = bad.concat(await check('#txFilters button', 5));
+        bad = bad.concat(await check('#actSpend button[data-cat]', 2));
+        await page.evaluate(() => setView('home'));
+        console.log('      hit areas: ' + report.join(' | '));
+        assert.deepStrictEqual(bad, []);
+      });
+    }
+    if (w !== 768) {
+      await step(`${w}px ${scheme}: the small captions read at a contrast of at least 4.5:1`, async () => {
+        const sels = ['#syncText', '#budClearedCount', '.owed-summary .text-xs'];
+        const r = [];
+        for (const s of sels) r.push([s, await contrastOf(page, s)]);
+        await page.evaluate(() => setView('pending'));
+        r.push(['.owed-groups span.block.text-xs', await contrastOf(page, '.owed-groups span.block.text-xs')]);
+        await page.evaluate(() => setView('home'));
+        console.log('      contrast ' + scheme + ': ' + r.map(x => x.join(' ')).join(', '));
+        assert.deepStrictEqual(r.filter(x => x[1] < 4.5), []);
+      });
+    }
+    if (w === 768) {
+      await step('768px (unfolded): 4 account cards across; Bills beside Owed + Activity; one column on a tab', async () => {
+        const tops = await page.$$eval('#tilesSection > div', d => d.map(x => Math.round(x.getBoundingClientRect().top)));
+        assert.strictEqual(new Set(tops).size, 1, 'cards not in one row: ' + tops);
+        const r = await page.evaluate(() => Object.fromEntries(['sec_budgets', 'sec_pending', 'sec_activity'].map(id => { const b = document.getElementById(id).getBoundingClientRect(); return [id, { l: Math.round(b.left), t: Math.round(b.top), b: Math.round(b.bottom), w: Math.round(b.width) }]; })));
+        assert.ok(r.sec_pending.l > r.sec_budgets.l + 100 && r.sec_pending.t === r.sec_budgets.t, JSON.stringify(r));
+        assert.ok(r.sec_activity.l === r.sec_pending.l && r.sec_activity.t > r.sec_pending.b && r.sec_activity.t - r.sec_pending.b <= 20, 'Activity should follow Owed: ' + JSON.stringify(r));
+        await page.evaluate(() => setView('budgets'));
+        const full = await page.evaluate(() => Math.round(document.getElementById('sec_budgets').getBoundingClientRect().width));
+        await page.evaluate(() => setView('home'));
+        assert.ok(full > r.sec_budgets.w * 1.8, 'the Bills tab should use the full width: ' + full);
+      });
+    }
+    await ctx.close();
+  }
 
   // ---------------- review fixes (desktop) ----------------
   ({ ctx, page } = await open(desk));
@@ -380,7 +675,7 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
 
   await step('bills: Undo after deleting a paid bill brings it back paid, with its amount kept', async () => {
     const b = await page.evaluate(() => { const x = state.budgets.find(y => !y.pending && Number(y.amount) !== 0); return { row: x.row, name: x.name, amount: Number(x.amount) }; });
-    await page.evaluate(row => markBudgetPaid(row, 0, state.budgets.find(y => y.row === row).amount), b.row);
+    await page.evaluate(row => markBudgetPaid(row), b.row);
     await page.waitForFunction(row => state.budgets.some(y => y.row === row && !y.pending && Number(y.amount) === 0), b.row);
     await page.evaluate(row => removeBudgetRow(row), b.row);
     await page.click('#toastAction');
@@ -559,6 +854,59 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     assert.ok(!(await visible(page, '#actSpend')));
     const rows = await page.$$eval('#txListContainer > .tx-row', d => d.length);
     assert.strictEqual(rows, 8);
+    assert.ok(await visible(page, '#txFilters') && await visible(page, '#txSearch'), 'desktop keeps the Activity filters');
+    assert.ok(await page.$('#sec_activity button:has-text("Show all")'), 'desktop keeps "Show all"');
+  });
+  await step('desktop: Owed sits under Bills, Activity on the right; no top-bar Add, the sidebar Add is always there', async () => {
+    const r = await page.evaluate(() => Object.fromEntries(['sec_budgets', 'sec_pending', 'sec_activity'].map(id => { const b = document.getElementById(id).getBoundingClientRect(); return [id, { l: Math.round(b.left), t: Math.round(b.top), b: Math.round(b.bottom) }]; })));
+    assert.strictEqual(r.sec_pending.l, r.sec_budgets.l, JSON.stringify(r));
+    assert.ok(r.sec_pending.t > r.sec_budgets.b && r.sec_pending.t - r.sec_budgets.b <= 20, 'Owed should follow Bills: ' + JSON.stringify(r));
+    assert.ok(r.sec_activity.l > r.sec_budgets.l && r.sec_activity.t === r.sec_budgets.t, JSON.stringify(r));
+    assert.strictEqual(await page.$$eval('header button', bs => bs.filter(b => /Add/.test(b.textContent)).length), 0, 'the top bar still has an Add button');
+    for (const w of [1024, 1280, 1600]) {
+      await page.setViewportSize({ width: w, height: 800 });
+      assert.ok(await visible(page, 'aside button[onclick="openAddModal()"]'), 'no Add Transaction in the sidebar at ' + w + 'px');
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+  });
+  await step('a section folded on the desktop opens again when the window narrows to its phone tab (which has no ▾)', async () => {
+    await page.evaluate(() => setView('activity'));
+    await page.click('#chevActivity');
+    assert.ok(!(await visible(page, '#activityBody')), 'the ▾ should fold Activity on the desktop');
+    await page.setViewportSize({ width: 400, height: 860 });
+    await page.waitForTimeout(200);
+    assert.ok(await visible(page, '#activityBody'), 'the Activity tab is stuck folded with no ▾ to open it');
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.evaluate(() => setView('home'));
+  });
+  await step('Spending left open while the phone folds or unfolds redraws to the bars that fit (6 wide, 4 narrow)', async () => {
+    const bars = () => page.$$eval('#spendBody .items-end > div', els => els.length);
+    await page.evaluate(() => {
+      window.__realMonths = spendMonthTotals;
+      spendMonthTotals = () => ['May', 'June', 'July', 'August', 'September', 'October'].map(m => ({ name: m + ' Payday 2026', total: 1234.56 }));
+      openSpendModal();
+    });
+    try {
+      assert.strictEqual(await bars(), 6);
+      await page.setViewportSize({ width: 400, height: 860 });
+      await page.waitForTimeout(200);
+      assert.strictEqual(await bars(), 4, 'still six bars after narrowing with Spending open');
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.waitForTimeout(200);
+      assert.strictEqual(await bars(), 6, 'still four bars after widening with Spending open');
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.evaluate(() => { spendMonthTotals = window.__realMonths; closeSpendModal(); });
+    }
+  });
+  await step('desktop: Spending shows six months, each full amount fitting its own bar', async () => {
+    const out = await monthBars(page);
+    assert.strictEqual(out.length, 6, JSON.stringify(out));
+    assert.ok(out.every(o => o.text === '£1,234.56' && o.lines === 1 && o.fits), JSON.stringify(out));
+  });
+  await step('desktop: the header "All paid back" shows with several people owing; Bills say "to pay"', async () => {
+    assert.ok(await visible(page, '#btnSettleAll'));
+    assert.ok(/^£[\d,]+\.\d\d to pay$/.test(await page.textContent('#budLeftVal')), await page.textContent('#budLeftVal'));
   });
   await step('desktop light mode: the sidebar is light too', async () => {
     const bg = await page.evaluate(() => getComputedStyle(document.querySelector('.sidebar')).backgroundColor);
@@ -764,6 +1112,16 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     p2.on('pageerror', e => errors.push(e.message));
     await p2.goto(`http://localhost:${PORT}/tests/harness.html?demo=1&token=none&latency=50`);
     await p2.waitForFunction(() => window.MOCK && typeof MOCK.gsiCallback === 'function');
+    await step('a browser that refuses to save the sign-in says so plainly and sends nothing', async () => {
+      const s = await p2.evaluate(() => {
+        const P = Storage.prototype, real = P.setItem;
+        P.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); };
+        try { MOCK.gsiCallback({ credential: MOCK.makeToken('owner@example.com') }); } finally { P.setItem = real; }
+        return { msg: document.getElementById('authLockMsg').textContent, calls: MOCK.calls.length };
+      });
+      assert.ok(s.msg.includes("won't let PaydayFlow save anything"), s.msg);
+      assert.strictEqual(s.calls, 0, 'sent a request without a saved sign-in');
+    });
     await step('Google sign-in the server turns down: says why and which account, keeps no token, does not loop', async () => {
       // Google would sign this account back in by itself (auto select) every time the lock screen asks.
       await p2.evaluate(() => { MOCK.authError = "FORBIDDEN: This Google account can't open PaydayFlow."; MOCK.gsiAccount = 'someone@example.com'; MOCK.gsiCallback({ credential: MOCK.makeToken('someone@example.com') }); });
@@ -816,9 +1174,21 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
       assert.strictEqual(await txt(p, '#dailyLeft'), want);
       assert.strictEqual(await txt(p, '#dailyPayday'), 'Payday Mon 30 Nov');
     });
-    await step('daily amount: "Left after cards & bills" now sits in Breakdown, and the card has nothing else extra', async () => {
-      assert.ok(!(await txt(p, '#heroSection > div:first-child')).includes('Left after cards'), 'the old line is still under the figure');
-      assert.ok((await txt(p, '#mathDrawer')).startsWith("Money Left is what's left after cards & bills"));
+    await step('Money Left: one quiet line says what it is; no Breakdown button or drawer', async () => {
+      assert.strictEqual(await txt(p, '#heroNote'), 'After cards and bills to pay');
+      assert.ok(!(await p.$('#mathDrawer')), 'the Breakdown drawer is still on the page');
+      assert.ok(!(await p.$('#heroSection button')), 'the Money Left card still has a button');
+    });
+    await step('What-If: skipping a bill shows the badge and takes it out of Money Left and the Bills total', async () => {
+      const before = await p.evaluate(() => ({ left: state.summary.eomSavingsJ, bills: document.getElementById('budLeftVal').textContent }));
+      const b = await p.evaluate(() => state.budgets.find(x => Number(x.amount) < 0));
+      await p.click(`#upcomingBudgetsList button[aria-label="Simulate skipping ${b.name}"]`);
+      const after = await p.evaluate(() => ({ left: state.summary.eomSavingsJ, bills: document.getElementById('budLeftVal').textContent, badge: !document.getElementById('simBadge').classList.contains('hidden') }));
+      await p.click(`#upcomingBudgetsList button[aria-label="Simulate skipping ${b.name}"]`);
+      assert.ok(after.badge, 'no What-If badge');
+      assert.strictEqual(Math.round((after.left - before.left) * 100), Math.round(-b.amount * 100));
+      assert.ok(/ to pay$/.test(after.bills) && after.bills !== before.bills, JSON.stringify([before, after]));
+      assert.strictEqual(await txt(p, '#heroNote'), 'After cards and bills to pay');
     });
     await step('daily amount: over budget says how much over; payday itself says so; older months show none', async () => {
       await p.evaluate(() => renderDailyStrip(-12.3));

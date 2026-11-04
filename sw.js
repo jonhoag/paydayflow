@@ -1,5 +1,5 @@
 const CACHE_NAME = 'paydayflow-v6';
-const ASSETS = ['/', '/index.html', '/manifest.json'];
+const ASSETS = ['/', '/manifest.json'];   // the page is saved under its plain address (see below)
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
