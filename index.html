@@ -2227,14 +2227,15 @@ async function postToServer(bodyObj) {
       budFormExpect = null;
     }
 
-    // Shows a new bill straight away (marked pending until the server confirms it and gives it a real row).
-    function addBudgetOptimistic(name, signedAmt, isRecurring) {
+    // Shows a new bill straight away (marked pending until the server confirms it and gives it a real row). A `paid`
+    // bill shows as paid, with signedAmt as the amount to restore.
+    function addBudgetOptimistic(name, signedAmt, isRecurring, paid = false) {
       const usedRows = new Set(state.budgets.map(b => Number(b.row)));
       let tempRow = 4;
       while (usedRows.has(tempRow) || (tempRow >= 32 && tempRow <= 39)) {
         tempRow++;
       }
-      state.budgets.push({ row: tempRow, name, amount: signedAmt, originalBudget: signedAmt, isRecurring, pending: true });
+      state.budgets.push({ row: tempRow, name, amount: paid ? 0 : signedAmt, originalBudget: signedAmt, isRecurring, pending: true });
     }
 
     function submitBudgetForm() {
@@ -2296,15 +2297,17 @@ async function postToServer(bodyObj) {
       if (item) showToast('Deleted "' + item.name + '"', { kind: 'info', actionLabel: 'Undo', duration: 9000, onAction: () => undoDeleteBudget(item, month) });
     }
 
-    // Undo re-adds the bill. If it was deleted from a month you've since left, only the sheet is updated.
+    // Undo re-adds the bill, paid again if it was paid. If it was deleted from a month you've since left, only the
+    // sheet is updated.
     function undoDeleteBudget(item, month) {
-      const amount = Number(item.amount) !== 0 ? item.amount : (item.originalBudget || item.amount);
+      const paid = Number(item.amount) === 0 && Number(item.originalBudget || 0) !== 0;
+      const amount = paid ? item.originalBudget : item.amount;
       if (month === activeMonth) {
-        addBudgetOptimistic(item.name, amount, item.isRecurring);
+        addBudgetOptimistic(item.name, amount, item.isRecurring, paid);
         savePhoneCache(activeMonth, state);
         renderAll();
       }
-      apiCall('saveBudgetItem', { sheetName: month, row: null, name: item.name, amount, isRecurring: item.isRecurring })
+      apiCall('saveBudgetItem', { sheetName: month, row: null, name: item.name, amount, isRecurring: item.isRecurring, paid })
         .then(applyStateIfViewing(month))
         .catch(err => handleSaveError('the restored bill', err));
     }
