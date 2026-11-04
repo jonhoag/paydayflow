@@ -122,7 +122,7 @@
     updateBudgetRow: (p, d, n) => { const it = d.budgets.find(b => b.row === Number(p.row)); checkExpect(it, p, 'name'); if (it) it.amount = Number(p.newAmount); return snapshot(d, n); },
     saveBudgetItem: (p, d, n) => {
       if (p.row) { const it = d.budgets.find(b => b.row === Number(p.row)); checkExpect(it, p, 'name'); if (it) Object.assign(it, { name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring }); }
-      else d.budgets.push({ row: nextRow(d.budgets), name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring });
+      else d.budgets.push({ row: nextRow(d.budgets), name: p.name, amount: p.paid === true ? 0 : p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring });
       return snapshot(d, n);
     },
     deleteBudgetItem: (p, d, n) => { const i = d.budgets.findIndex(b => b.row === Number(p.row)); checkExpect(d.budgets[i], p, 'name'); if (i > -1) d.budgets.splice(i, 1); return snapshot(d, n); },

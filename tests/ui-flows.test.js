@@ -378,6 +378,18 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     await page.evaluate(() => closePasskeyModal());
   });
 
+  await step('bills: Undo after deleting a paid bill brings it back paid, with its amount kept', async () => {
+    const b = await page.evaluate(() => { const x = state.budgets.find(y => !y.pending && Number(y.amount) !== 0); return { row: x.row, name: x.name, amount: Number(x.amount) }; });
+    await page.evaluate(row => markBudgetPaid(row, 0, state.budgets.find(y => y.row === row).amount), b.row);
+    await page.waitForFunction(row => state.budgets.some(y => y.row === row && !y.pending && Number(y.amount) === 0), b.row);
+    await page.evaluate(row => removeBudgetRow(row), b.row);
+    await page.click('#toastAction');
+    await page.waitForFunction(name => MOCK.calls.some(c => c.action === 'saveBudgetItem' && c.payload.name === name && c.end), b.name);
+    const sv = (await calls(page, 'saveBudgetItem')).pop();
+    assert.ok(sv.paid === true && sv.amount === b.amount && sv.row === null, JSON.stringify(sv));
+    const back = await page.evaluate(name => state.budgets.find(y => y.name === name), b.name);
+    assert.ok(back && Number(back.amount) === 0 && Number(back.originalBudget) === b.amount, JSON.stringify(back));
+  });
   await step('bills: Restore on a paid bill with no remembered amount asks for the amount instead of guessing', async () => {
     await page.evaluate(() => { MOCK.db.budgets.push({ row: 30, name: 'No amount bill', amount: 0, originalBudget: 0, isRecurring: false }); forceSyncSheet(); });
     await page.waitForTimeout(400);
