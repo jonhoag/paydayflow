@@ -16,9 +16,10 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Only a good reply is worth keeping: a 404 or an error page must never replace a working copy.
+// Only a good reply is worth keeping: a 404, an error page or a redirect must never replace a working copy (Chrome
+// refuses to open a page from a saved redirect).
 function isGood(res) {
-  return res && res.ok && res.type === 'basic';
+  return res && res.ok && res.type === 'basic' && !res.redirected;
 }
 
 self.addEventListener('fetch', (event) => {

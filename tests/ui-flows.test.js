@@ -299,6 +299,85 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     assert.ok(dl && dl.expect && dl.expect.name === 'Groceries wk 3' && dl.expect.amount === -45, JSON.stringify(dl));
   });
 
+  // These tests make the server refuse a save on purpose: the refusal must have happened, and is not a page error.
+  const dropExpectedStale = () => {
+    const i = errors.findIndex(e => /STALE: This entry was changed on another device/.test(e));
+    assert.ok(i > -1, 'the server did not refuse the stale save');
+    errors.splice(i, 1);
+  };
+  // The figures can refresh while a form is open (another save's reply, coming back to the app). If the row now holds
+  // something else, the save must still be checked against what the form showed, so the server refuses it.
+  await step('edit form left open while the row changes underneath: checked against what the form showed', async () => {
+    const before = await page.evaluate(() => { const r = state.amex.find(x => !x.pending); openEditTxForRow('amex', r.row); return { row: r.row, desc: r.desc, amount: r.amount }; });
+    await page.evaluate(row => { MOCK.db.amex.find(r => r.row === row).desc = 'Someone else spend'; forceSyncSheet(); }, before.row);
+    await page.waitForFunction(row => state.amex.some(r => r.row === row && r.desc === 'Someone else spend'), before.row);
+    await page.fill('#editTxDesc', 'Mine edited');
+    await page.click('#editTxModal button:has-text("Save")');
+    await page.waitForTimeout(400);
+    const e = (await calls(page, 'editOrMoveTransaction')).pop();
+    assert.deepStrictEqual(e.expect, { desc: before.desc, amount: before.amount }, JSON.stringify(e));
+    assert.strictEqual(await page.evaluate(row => MOCK.db.amex.find(r => r.row === row).desc, before.row), 'Someone else spend', 'the other entry was overwritten');
+    await page.waitForFunction(row => state.amex.some(r => r.row === row && r.desc === 'Someone else spend'), before.row);
+    dropExpectedStale();
+  });
+  await step('bill form left open while the bill changes underneath: checked against what the form showed', async () => {
+    const b = await page.evaluate(() => { const x = state.budgets.find(y => !y.pending && Number(y.amount) !== 0); openBudgetFormForRow(x.row); return { row: x.row, name: x.name, amount: Number(x.amount) }; });
+    await page.evaluate(row => { MOCK.db.budgets.find(r => r.row === row).name = 'Changed elsewhere'; forceSyncSheet(); }, b.row);
+    await page.waitForFunction(row => state.budgets.some(r => r.row === row && r.name === 'Changed elsewhere'), b.row);
+    await page.click('#budDeleteBtn');
+    await page.waitForTimeout(300);
+    const dl = (await calls(page, 'deleteBudgetItem')).pop();
+    assert.deepStrictEqual(dl.expect, { name: b.name, amount: b.amount }, JSON.stringify(dl));
+    assert.ok(await page.evaluate(row => state.budgets.some(r => r.row === row && r.name === 'Changed elsewhere'), b.row), 'the other bill was taken off the screen');
+    assert.ok(await page.evaluate(row => MOCK.db.budgets.some(r => r.row === row && r.name === 'Changed elsewhere'), b.row), 'the other bill was deleted on the server');
+    dropExpectedStale();
+  });
+  await step('delete from an edit form whose row has since changed: refused, and no Undo that would add a copy', async () => {
+    const before = await page.evaluate(() => { const r = state.amex.find(x => !x.pending); openEditTxForRow('amex', r.row); return { row: r.row, desc: r.desc }; });
+    await page.evaluate(row => { MOCK.db.amex.find(r => r.row === row).desc = 'Changed again'; forceSyncSheet(); }, before.row);
+    await page.waitForFunction(row => state.amex.some(r => r.row === row && r.desc === 'Changed again'), before.row);
+    await page.evaluate(() => { MOCK.nextLatencies = [800]; });   // the refusal arrives later, so the first toast is seen
+    await page.click('#editTxModal button:has-text("Delete")');
+    assert.ok(!/Deleted/.test(await page.textContent('#toast')), 'offered Undo for a delete the server refuses');
+    await page.waitForFunction(() => MOCK.calls.some(c => c.action === 'deleteTransactionRow' && c.end));
+    assert.ok(await page.evaluate(row => MOCK.db.amex.some(r => r.row === row && r.desc === 'Changed again'), before.row), 'the other entry was deleted');
+    dropExpectedStale();
+  });
+  await step('a saved copy of one month stored under another month name is never shown', async () => {
+    await page.evaluate(() => { localStorage.setItem('pf_cache_' + MOCK.MONTH2, JSON.stringify(state)); MOCK.nextLatencies = [1200]; switchMonth(MOCK.MONTH2); });
+    assert.strictEqual(await page.evaluate(() => state.amex.length), 0, "the other month's rows were shown");
+    await page.waitForFunction(() => state.activeMonth === MOCK.MONTH2 && state.amex.length > 0, null, { timeout: 5000 });
+    await page.evaluate(() => switchMonth(MOCK.MONTH));
+    await page.waitForFunction(() => state.activeMonth === MOCK.MONTH, null, { timeout: 5000 });
+  });
+  await step('switching to a month with nothing saved shows it empty until it arrives, never the old rows', async () => {
+    await page.evaluate(() => { localStorage.removeItem('pf_cache_' + MOCK.MONTH2); MOCK.nextLatencies = [1200]; switchMonth(MOCK.MONTH2); });
+    const s = await page.evaluate(() => ({ rows: document.querySelectorAll('#txListContainer > .tx-row').length, amex: state.amex.length, bills: state.budgets.length }));
+    assert.deepStrictEqual(s, { rows: 0, amex: 0, bills: 0 }, JSON.stringify(s));
+    await page.waitForFunction(() => activeMonth === MOCK.MONTH2 && state.activeMonth === MOCK.MONTH2 && state.amex.length > 0, null, { timeout: 5000 });
+    await page.evaluate(() => switchMonth(MOCK.MONTH));
+    await page.waitForFunction(() => state.activeMonth === MOCK.MONTH, null, { timeout: 5000 });
+  });
+  await step('a saved copy is only ever kept under its own month', async () => {
+    const ok = await page.evaluate(() => {
+      savePhoneCache('Some Other Month', state, false);
+      return !localStorage.getItem('pf_cache_Some Other Month');
+    });
+    assert.ok(ok, "this month's figures were saved under another month's name");
+  });
+  await step('Fingerprint dialog: "Remove" arms at once without reloading the list, and sends the device id as data', async () => {
+    await page.evaluate(() => openPasskeyModal());
+    await page.waitForFunction(() => /Test phone/.test(document.getElementById('pkDevices').textContent));
+    const before = (await calls(page, 'passkeyList')).length;
+    await page.click('#pkDevices button:has-text("Remove")');
+    assert.ok(await page.isVisible('#pkDevices button:has-text("Tap again")'), 'not armed straight away');
+    assert.strictEqual((await calls(page, 'passkeyList')).length, before, 'arming fetched the list again');
+    await page.click('#pkDevices button:has-text("Tap again")');
+    await page.waitForTimeout(300);
+    assert.strictEqual(await page.evaluate(() => sessionStorage.getItem('mock_passkey_removed')), "dev'1");
+    await page.evaluate(() => closePasskeyModal());
+  });
+
   await step('bills: Restore on a paid bill with no remembered amount asks for the amount instead of guessing', async () => {
     await page.evaluate(() => { MOCK.db.budgets.push({ row: 30, name: 'No amount bill', amount: 0, originalBudget: 0, isRecurring: false }); forceSyncSheet(); });
     await page.waitForTimeout(400);
@@ -432,6 +511,18 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
     await awayAndBack(page, 2 * 60 * 1000);
     await page.waitForFunction(() => getComputedStyle(document.getElementById('authLockScreen')).display !== 'none', null, { timeout: 3000 });
   });
+  await step('while locked, a spend saved offline waits: no request, and the lock screen message stays as it is', async () => {
+    const s = await page.evaluate(async () => {
+      showLockScreen('Access Denied: test message', { noAuto: true });
+      const payload = { sheetName: activeMonth, account: 'amex', merchant: 'Waiting shop', grossAmount: 2, isRefund: false, splits: [], clientId: 'lock1' };
+      localStorage.setItem('pf_outbox', JSON.stringify([{ id: 'lock1', payload }]));
+      const n = MOCK.calls.length;
+      await flushOutbox();
+      await new Promise(r => setTimeout(r, 300));
+      return { asked: MOCK.calls.length - n, msg: document.getElementById('authLockMsg').textContent, auto: lockAllowsAuto };
+    });
+    assert.deepStrictEqual(s, { asked: 0, msg: 'Access Denied: test message', auto: false }, JSON.stringify(s));
+  });
   await ctx.close();
 
   // ---------------- awkward text ----------------
@@ -470,7 +561,9 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
   });
   await step('the page carries its security policy: only this site, the backend and Google sign-in', async () => {
     const csp = await page.evaluate(() => (document.querySelector('meta[http-equiv="Content-Security-Policy"]') || {}).content || '');
-    ['default-src \'self\'', 'connect-src \'self\' https://script.google.com https://script.googleusercontent.com https://accounts.google.com/gsi/',
+    // Requests may go only to the backend's own address, not to any Apps Script project.
+    const exec = fs.readFileSync(path.join(root, 'index.html'), 'utf8').match(/const APPS_SCRIPT_EXEC_URL = '([^']+)'/)[1];
+    ['default-src \'self\'', 'connect-src \'self\' ' + exec + ' https://script.googleusercontent.com https://accounts.google.com/gsi/;',
       'object-src \'none\'', 'form-action \'none\'', 'font-src \'self\''].forEach(d => assert.ok(csp.includes(d), 'missing: ' + d));
   });
   await ctx.close();
@@ -547,6 +640,12 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
       await p3.waitForTimeout(400);
       assert.deepStrictEqual(await p3.evaluate(() => MOCK.calls.map(c => c.action)), []);
       assert.strictEqual(await p3.textContent('#authLockMsg'), 'Signed out. Nothing is saved on this device any more.');
+    });
+    await step('sign out: figures a late reply saved just before the reload are cleared when the page opens', async () => {
+      await p3.evaluate(() => { localStorage.setItem('pf_cache_' + MOCK.MONTH, '{"late":true}'); localStorage.setItem('pf_last_month', MOCK.MONTH); });
+      await p3.reload();
+      await afterReload(p3);
+      assert.deepStrictEqual(await keys(p3), ['pf_passkey_cid', 'pf_passkey_offer_dismissed', 'pf_theme_mode']);
     });
     await step('sign out: then choosing the account on the Google button gets straight back in', async () => {
       await p3.evaluate(() => MOCK.gsiCallback({ credential: MOCK.makeToken('owner@example.com') }));
@@ -667,9 +766,15 @@ const visible = (page, sel) => page.evaluate(s => { const el = document.querySel
       assert.strictEqual(s.calls, 1, 'signed itself in again: ' + s.calls + ' requests');
       assert.strictEqual(await p2.evaluate(() => MOCK.gsi.initialize), 1, "Google's sign-in should be set up once per page load");
     });
-    await step('then picking the right account on the button gets straight in', async () => {
-      await p2.evaluate(() => { MOCK.authError = null; MOCK.gsiCallback({ credential: MOCK.makeToken('owner@example.com') }); });
+    await step('then picking the right account on the button gets straight in, and sends a spend saved offline', async () => {
+      await p2.evaluate(() => {
+        const payload = { sheetName: MOCK.MONTH, account: 'amex', merchant: 'Sent after sign-in', grossAmount: 3, isRefund: false, splits: [], clientId: 'signin1' };
+        localStorage.setItem('pf_outbox', JSON.stringify([{ id: 'signin1', payload }]));
+        MOCK.authError = null;
+        MOCK.gsiCallback({ credential: MOCK.makeToken('owner@example.com') });
+      });
       await p2.waitForFunction(() => getComputedStyle(document.getElementById('authLockScreen')).display === 'none' && /£\d/.test(document.getElementById('kpiNCA').textContent));
+      await p2.waitForFunction(() => MOCK.calls.some(c => c.action === 'addTransactionBundle' && c.payload.clientId === 'signin1'), null, { timeout: 3000 });
     });
     await c2.close();
   }
