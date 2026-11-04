@@ -211,8 +211,8 @@
   const STATES = [
     ['overview-light', () => { localStorage.setItem('pf_theme_mode', 'light'); applyThemeMode(); }],
     ['overview-dark', () => { localStorage.setItem('pf_theme_mode', 'dark'); applyThemeMode(); }],
-    ['breakdown-open', () => { document.getElementById('mathDrawer').classList.remove('hidden'); }],
-    ['add-modal-custom-split', () => { document.getElementById('mathDrawer').classList.add('hidden'); openAddModal(); selectSplit('custom'); }],
+    ['bills-tab', () => { setView('budgets'); }],
+    ['add-modal-custom-split', () => { setView('home'); openAddModal(); selectSplit('custom'); }],
     ['edit-modal', () => { closeAddModal(); openEditTxForRow('amex', 5); }],
     ['budget-form', () => { closeEditTxModal(); openBudgetForm('', '', '', false); }],
     ['new-month-modal', () => { closeBudgetForm(); openNewMonthModal(); }],

@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Styles are pre-built into tailwind.css (see build-css.js); the service worker keeps a copy for offline use. -->
-  <link rel="stylesheet" href="tailwind.css?v=13fa7549ce">
+  <link rel="stylesheet" href="tailwind.css?v=d41f134048">
   <style>
     /* Inter, served from this site (SIL Open Font License: fonts/OFL.txt): one variable file per set of characters,
        fetched only when the page uses them. Text shows in the fallback font until it arrives. */
@@ -37,8 +37,13 @@
     .dark .sidebar { background: #1E2631; color: #F8FAFC; }
     /* Big balances shrink a little on narrow phones instead of running into each other. */
     .kpi-figure { font-size: clamp(16px, 4.6vw, 20px); }
-    .chip-row { scrollbar-width: none; }
+    /* A scrolling row of chips: the extra room above and below (taken back by the negative margin) keeps each chip's
+       44px hit area from being cut off by the scrolling box. */
+    .chip-row { scrollbar-width: none; padding: 10px; margin: -10px; }
     .chip-row::-webkit-scrollbar { display: none; }
+    /* Small buttons get a 44x44px hit area (at least their own size) without changing how they look. */
+    .hit { position: relative; }
+    .hit::after { content: ''; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
     /* "Owed": Home on a phone shows a short summary per person; the Owed tab (and desktop) shows every item. */
     .owed-summary, .act-title-tab, #actSpend { display: none; }
     @media (max-width: 1023px) {
@@ -58,10 +63,27 @@
       body[data-view="budgets"] #heroSection, body[data-view="budgets"] #tilesSection, body[data-view="budgets"] #sec_pending, body[data-view="budgets"] #sec_activity,
       body[data-view="pending"] #heroSection, body[data-view="pending"] #tilesSection, body[data-view="pending"] #sec_budgets, body[data-view="pending"] #sec_activity,
       body[data-view="activity"] #heroSection, body[data-view="activity"] #tilesSection, body[data-view="activity"] #sec_budgets, body[data-view="activity"] #sec_pending { display: none; }
+      /* A tab that is the whole screen can't be folded away, so it has no ▾. */
+      body[data-view="budgets"] #chevBudgets, body[data-view="pending"] #chevPending, body[data-view="activity"] #chevActivity { display: none; }
+      /* Home shows the latest few spends with no filters; the Activity tab has the filters (see renderTransactions). */
+      body:not([data-view="activity"]) #txFilters, body:not([data-view="activity"]) #txSearch { display: none; }
+    }
+    /* Main sections: one column on a phone. Unfolded (Home): Bills beside Owed + Activity. Desktop: Bills + Owed beside
+       Activity. The second row takes up the slack, so the shorter column never leaves a gap between its two sections. */
+    @media (min-width: 768px) and (max-width: 1023px) {
+      body[data-view="home"] #mainGrid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto 1fr; align-items: start; }
+      body[data-view="home"] #sec_budgets { grid-row: 1 / span 2; }
+      body[data-view="home"] .sec-head { flex-direction: column; align-items: flex-start; gap: 0.25rem; }
+    }
+    @media (min-width: 1024px) {
+      #mainGrid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto 1fr; align-items: start; }
+      #sec_budgets { grid-column: 1; grid-row: 1; }
+      #sec_pending { grid-column: 1; grid-row: 2; }
+      #sec_activity { grid-column: 2; grid-row: 1 / span 2; }
     }
   </style>
 </head>
-<body class="bg-[#F4F7FA] dark:bg-[#0B0F19] text-slate-800 dark:text-slate-100 min-h-screen flex flex-col lg:flex-row pb-20 lg:pb-0">
+<body data-view="home" class="bg-[#F4F7FA] dark:bg-[#0B0F19] text-slate-800 dark:text-slate-100 min-h-screen flex flex-col lg:flex-row pb-20 lg:pb-0">
 
   <div id="authLockScreen" style="display:flex; position:fixed; inset:0; z-index:99999; background:#0B0F19; color:#F8FAFC; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center; font-family:inherit;">
     <div style="background:#111827; border:1px solid #1E293B; border-radius:20px; padding:32px 24px; max-width:360px; width:100%; box-shadow:0 20px 50px rgba(0,0,0,0.5);">
@@ -148,9 +170,6 @@
                 class="w-10 h-10 lg:w-8 lg:h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
           <span data-icon="refresh" data-class="w-4 h-4"></span>
         </button>
-        <button onclick="openAddModal()" class="hidden lg:inline-flex text-xs font-semibold px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 whitespace-nowrap">
-          ＋ Add
-        </button>
         <!-- Overflow menu (phone): theme, start new month, open sheet. Desktop has these in the sidebar. -->
         <div class="relative lg:hidden">
           <button onclick="toggleMenu(event)" id="menuBtn" aria-label="More options" aria-haspopup="true" aria-expanded="false"
@@ -193,7 +212,7 @@
     <main class="max-w-5xl mx-auto p-3.5 lg:p-6 space-y-3.5">
 
       <!-- Sync status: shows when the figures were last confirmed against your sheet (tap to refresh) -->
-      <button id="syncStatus" onclick="forceSyncSheet()" class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 -mb-1 px-1">
+      <button id="syncStatus" onclick="forceSyncSheet()" class="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 -mb-1 px-1">
         <span id="syncDot" class="w-1.5 h-1.5 rounded-full bg-slate-400"></span><span id="syncText">Showing saved data</span>
       </button>
 
@@ -217,11 +236,8 @@
               <span id="simBadge" class="hidden text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 font-semibold">What-If</span>
             </div>
             <div id="kpiSurplus" class="text-4xl font-semibold tracking-tight mt-1.5 tabular-nums whitespace-nowrap">£—</div>
+            <div id="heroNote" class="text-xs text-emerald-700 dark:text-emerald-300 mt-1 whitespace-nowrap">After cards and bills to pay</div>
           </div>
-          <button onclick="document.getElementById('mathDrawer').classList.toggle('hidden')"
-                  class="text-xs font-medium px-3 py-1.5 rounded-lg border border-emerald-300 hover:bg-emerald-100 text-emerald-700 dark:border-emerald-900 dark:hover:bg-emerald-950 dark:text-emerald-300 whitespace-nowrap shrink-0">
-            Breakdown ▾
-          </button>
         </div>
 
         <!-- What's left per day until the next payday (current month only; see renderDailyStrip). -->
@@ -230,17 +246,10 @@
           <span id="dailyPayday" class="text-slate-500 dark:text-slate-400 whitespace-nowrap"></span>
         </div>
 
-        <div id="mathDrawer" class="hidden mt-4 pt-3 border-t border-emerald-200 dark:border-emerald-900 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-          <div class="col-span-2 sm:col-span-4 text-xs text-slate-500 dark:text-slate-400">Money Left is what's left after cards &amp; bills:</div>
-          <div><span class="text-slate-500 dark:text-slate-400 block text-xs">Nationwide</span><strong id="mathNCA" class="tabular-nums font-semibold">£—</strong></div>
-          <div><span class="text-slate-500 dark:text-slate-400 block text-xs">Bills Left</span><strong id="mathBud" class="tabular-nums font-semibold">£—</strong></div>
-          <div><span class="text-slate-500 dark:text-slate-400 block text-xs">Amex</span><strong id="mathAmex" class="tabular-nums font-semibold">£—</strong></div>
-          <div><span class="text-slate-500 dark:text-slate-400 block text-xs">Barclays</span><strong id="mathBarclays" class="tabular-nums font-semibold">£—</strong></div>
-        </div>
       </section>
 
       <!-- 2. ACCOUNT BALANCES: each account's card mark sits beside its name, the balance gets the full width -->
-      <section id="tilesSection" class="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+      <section id="tilesSection" class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
         <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-4 py-3 min-w-0">
           <div class="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400"><span id="logoCardAmex" class="shrink-0 inline-flex"></span>Amex</div>
           <div id="kpiAmex" class="kpi-figure mt-1.5 font-semibold tracking-tight tabular-nums text-slate-900 dark:text-white whitespace-nowrap">£—</div>
@@ -263,21 +272,21 @@
       </section>
 
       <!-- MAIN SECTIONS GRID -->
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <div id="mainGrid" class="grid grid-cols-1 gap-4">
 
         <!-- SECTION A: BILLS & BUDGETS -->
-        <div id="sec_budgets" class="lg:col-span-6">
+        <div id="sec_budgets">
           <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
             <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('budgetsBody', 'chevBudgets')">
-              <div class="min-w-0 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
+              <div class="sec-head min-w-0 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
                 <h2 class="text-base font-semibold text-slate-900 dark:text-white whitespace-nowrap">Bills &amp; Budgets</h2>
-                <span id="budLeftVal" class="text-sm tabular-nums text-slate-500 dark:text-slate-400">£— left</span>
+                <span id="budLeftVal" class="text-sm tabular-nums text-slate-500 dark:text-slate-400 whitespace-nowrap">£—</span>
               </div>
               <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation()">
-                <button onclick="openBudgetForm()" class="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 rounded-lg whitespace-nowrap">
+                <button onclick="openBudgetForm()" class="hit text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 rounded-lg whitespace-nowrap">
                   ＋ Add
                 </button>
-                <button onclick="toggleSection('budgetsBody', 'chevBudgets')" id="chevBudgets" class="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
+                <button onclick="toggleSection('budgetsBody', 'chevBudgets')" id="chevBudgets" class="hit w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
                   ▾
                 </button>
               </div>
@@ -285,9 +294,8 @@
 
             <div id="budgetsBody" class="px-4 pb-4 space-y-3 border-t border-slate-100 dark:border-slate-800/80 pt-3">
               <div class="space-y-1">
-                <div class="flex justify-between text-xs text-slate-500 dark:text-slate-400">
+                <div class="text-xs text-slate-600 dark:text-slate-300">
                   <span id="budClearedCount">0 of 0 paid</span>
-                  <span class="inline-flex items-center gap-1"><span data-icon="repeat" data-class="w-3 h-3 text-indigo-400"></span> rolls to next month <span class="mx-0.5">·</span> <span data-icon="sparkle" data-class="w-3 h-3 text-amber-400"></span> one-off</span>
                 </div>
                 <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                   <div id="budProgressBar" class="bg-emerald-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
@@ -341,19 +349,19 @@
               </div>
 
               <!-- Filter Chips -->
-              <div class="chip-row flex gap-1.5 text-xs font-semibold overflow-x-auto">
-                <button onclick="setBudFilter('all')" id="bf_all" class="shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900">All</button>
-                <button onclick="setBudFilter('recurring')" id="bf_recurring" class="shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><span class="inline-flex items-center gap-1"><span data-icon="repeat" data-class="w-3 h-3"></span>Monthly</span></button>
-                <button onclick="setBudFilter('events')" id="bf_events" class="shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><span class="inline-flex items-center gap-1"><span data-icon="sparkle" data-class="w-3 h-3"></span>One-off</span></button>
-              </div>
+              <div><div class="chip-row flex gap-1.5 text-xs font-semibold overflow-x-auto">
+                <button onclick="setBudFilter('all')" id="bf_all" class="hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900">All</button>
+                <button onclick="setBudFilter('recurring')" id="bf_recurring" class="hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><span class="inline-flex items-center gap-1"><span data-icon="repeat" data-class="w-3 h-3"></span>Monthly</span></button>
+                <button onclick="setBudFilter('events')" id="bf_events" class="hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><span class="inline-flex items-center gap-1"><span data-icon="sparkle" data-class="w-3 h-3"></span>One-off</span></button>
+              </div></div>
 
               <!-- Active Unpaid Budgets -->
               <div id="upcomingBudgetsList" class="divide-y divide-slate-100 dark:divide-slate-800/70"></div>
 
-              <!-- Internal Expansion: Already Paid / Zeroed Out -->
-              <details class="pt-2 border-t border-slate-100 dark:border-slate-800 group">
+              <!-- Paid bills fold away here (hidden while there are none) -->
+              <details id="paidFold" class="hidden pt-2 border-t border-slate-100 dark:border-slate-800 group">
                 <summary class="text-xs font-semibold text-slate-500 dark:text-slate-400 cursor-pointer flex items-center justify-between py-1 select-none">
-                  <span>Already Paid / Zeroed (<span id="clearedBudCount">0</span>)</span>
+                  <span>Paid (<span id="clearedBudCount">0</span>)</span>
                   <span class="text-slate-500 dark:text-slate-400 group-open:rotate-180 transition text-xs">▼</span>
                 </summary>
                 <div id="clearedBudgetsList" class="divide-y divide-slate-100 dark:divide-slate-800/60 mt-1.5"></div>
@@ -362,71 +370,64 @@
           </div>
         </div>
 
-        <!-- RIGHT COLUMN: TO SETTLE (PENDING) + RECENT ACTIVITY -->
-        <div class="lg:col-span-6 space-y-4">
-
-          <!-- SECTION B: TO SETTLE -->
-          <div id="sec_pending" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-            <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('pendingBody', 'chevPending')">
-              <div class="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2 min-w-0">
-                <h2 class="text-base font-semibold text-slate-900 dark:text-white whitespace-nowrap">Owed to you</h2>
-                <span class="text-sm tabular-nums text-slate-500 dark:text-slate-400">
-                  <span id="cntPending">0</span> • <span id="sumPending">£—</span>
-                </span>
-              </div>
-              <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation()">
-                <button id="btnSettleAll" onclick="handleSettleAll()" class="h-8 text-xs font-semibold px-3 rounded-full border border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300 whitespace-nowrap">
-                  <span class="inline-flex items-center gap-1">
-                    <span data-icon="check" data-class="w-3.5 h-3.5"></span>All paid back</span>
-                </button>
-                <button onclick="toggleSection('pendingBody', 'chevPending')" id="chevPending" class="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
-                  ▾
-                </button>
-              </div>
+        <!-- SECTION B: TO SETTLE -->
+        <div id="sec_pending" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+          <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('pendingBody', 'chevPending')">
+            <div class="sec-head flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2 min-w-0">
+              <h2 class="text-base font-semibold text-slate-900 dark:text-white whitespace-nowrap">Owed to you</h2>
+              <span id="sumPending" class="text-sm tabular-nums text-slate-500 dark:text-slate-400 whitespace-nowrap">£—</span>
             </div>
-
-            <div id="pendingBody" class="px-4 pb-4 space-y-3 border-t border-slate-100 dark:border-slate-800/80 pt-3">
-              <div id="owedTabs" class="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit text-xs font-semibold">
-                <button onclick="setSplitPanel('pending')" id="pill_pending" class="px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">
-                  Still owed (<span id="cntPendingTab">0</span>)
-                </button>
-                <button onclick="setSplitPanel('settled')" id="pill_settled" class="px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400">
-                  Paid back (<span id="cntSettled">0</span>)
-                </button>
-              </div>
-
-              <div id="panel_pending"></div>
-              <div id="panel_settled" class="hidden divide-y divide-slate-100 dark:divide-slate-800/70"></div>
-            </div>
-          </div>
-
-          <!-- SECTION C: RECENT ACTIVITY -->
-          <div id="sec_activity" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-            <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('activityBody', 'chevActivity')">
-              <h2 class="text-base font-semibold text-slate-900 dark:text-white"><span class="act-title-home">Recent Activity</span><span class="act-title-tab">Activity</span></h2>
-              <button onclick="event.stopPropagation(); toggleSection('activityBody', 'chevActivity')" id="chevActivity" class="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
+            <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation()">
+              <button id="btnSettleAll" onclick="handleSettleAll()" class="hit h-8 text-xs font-semibold px-3 rounded-full border border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300 whitespace-nowrap">
+                <span class="inline-flex items-center gap-1">
+                  <span data-icon="check" data-class="w-3.5 h-3.5"></span>All paid back</span>
+              </button>
+              <button onclick="toggleSection('pendingBody', 'chevPending')" id="chevPending" class="hit w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
                 ▾
               </button>
             </div>
-
-            <div id="activityBody" class="px-4 pb-4 space-y-3 border-t border-slate-100 dark:border-slate-800/80 pt-3">
-              <!-- Phone Activity tab only: this month's card spending; tap a category to filter the list below -->
-              <div id="actSpend"></div>
-              <div class="flex items-center justify-between gap-2">
-                <div class="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto">
-                  <button onclick="setTxFilter('all')" id="txf_all" class="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">All</button>
-                  <button onclick="setTxFilter('amex')" id="txf_amex" class="px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Amex</button>
-                  <button onclick="setTxFilter('barclays')" id="txf_barclays" class="px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Barclays</button>
-                  <button onclick="setTxFilter('checking')" id="txf_checking" class="px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Nationwide</button>
-                  <button onclick="setTxFilter('marcus')" id="txf_marcus" class="px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Marcus</button>
-                </div>
-              </div>
-              <input id="txSearch" type="text" placeholder="Filter merchant..." oninput="renderTransactions()"
-                     class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none" />
-              <div id="txListContainer" class="divide-y divide-slate-100 dark:divide-slate-800/70"></div>
-            </div>
           </div>
 
+          <div id="pendingBody" class="px-4 pb-4 space-y-3 border-t border-slate-100 dark:border-slate-800/80 pt-3">
+            <div id="owedTabs" class="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit text-xs font-semibold">
+              <button onclick="setSplitPanel('pending')" id="pill_pending" class="hit px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">
+                Still owed
+              </button>
+              <button onclick="setSplitPanel('settled')" id="pill_settled" class="hit px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400">
+                Paid back
+              </button>
+            </div>
+
+            <div id="panel_pending"></div>
+            <div id="panel_settled" class="hidden divide-y divide-slate-100 dark:divide-slate-800/70"></div>
+          </div>
+        </div>
+
+        <!-- SECTION C: RECENT ACTIVITY -->
+        <div id="sec_activity" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+          <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('activityBody', 'chevActivity')">
+            <h2 class="text-base font-semibold text-slate-900 dark:text-white"><span class="act-title-home">Recent Activity</span><span class="act-title-tab">Activity</span></h2>
+            <button onclick="event.stopPropagation(); toggleSection('activityBody', 'chevActivity')" id="chevActivity" class="hit w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
+              ▾
+            </button>
+          </div>
+
+          <div id="activityBody" class="px-4 pb-4 space-y-3 border-t border-slate-100 dark:border-slate-800/80 pt-3">
+            <!-- Phone Activity tab only: this month's card spending; tap a category to filter the list below -->
+            <div id="actSpend"></div>
+            <div id="txFilters"><div class="chip-row overflow-x-auto">
+              <div class="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold w-max">
+                <button onclick="setTxFilter('all')" id="txf_all" class="hit px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs">All</button>
+                <button onclick="setTxFilter('amex')" id="txf_amex" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Amex</button>
+                <button onclick="setTxFilter('barclays')" id="txf_barclays" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Barclays</button>
+                <button onclick="setTxFilter('checking')" id="txf_checking" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Nationwide</button>
+                <button onclick="setTxFilter('marcus')" id="txf_marcus" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Marcus</button>
+              </div>
+            </div></div>
+            <input id="txSearch" type="text" placeholder="Filter merchant..." oninput="renderTransactions()"
+                   class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none" />
+            <div id="txListContainer" class="divide-y divide-slate-100 dark:divide-slate-800/70"></div>
+          </div>
         </div>
       </div>
     </main>
@@ -1915,6 +1916,11 @@ async function postToServer(bodyObj, opts = {}) {
     }
 
     // ---- Phone views: the bottom bar switches between Home (everything) and one focused section ----
+    const PHONE_MQ = window.matchMedia('(max-width: 1023px)');
+    // The section each phone tab shows on its own: its body and its ▾ button.
+    const VIEW_SECTIONS = { budgets: ['budgetsBody', 'chevBudgets'], pending: ['pendingBody', 'chevPending'], activity: ['activityBody', 'chevActivity'] };
+    // On a phone, showing tab v (budgets, pending or activity). On a desktop there are no tabs: everything shows.
+    function onPhoneTab(v) { return document.body.dataset.view === v && PHONE_MQ.matches; }
     function setView(v) {
       document.body.dataset.view = v;
       document.querySelectorAll('[data-nav]').forEach(b => {
@@ -1922,14 +1928,16 @@ async function postToServer(bodyObj, opts = {}) {
         b.classList.toggle('text-emerald-500', on);
         b.classList.toggle('font-semibold', on);
       });
-      const bodies = { budgets: ['budgetsBody', 'chevBudgets'], pending: ['pendingBody', 'chevPending'], activity: ['activityBody', 'chevActivity'] };
-      if (bodies[v] && document.getElementById(bodies[v][0]).classList.contains('hidden')) toggleSection(bodies[v][0], bodies[v][1]);
-      renderTransactions();   // the Activity tab shows the full list and spending; Home shows the latest few
+      if (VIEW_SECTIONS[v]) setSectionOpen(...VIEW_SECTIONS[v], true);
+      renderAll();   // the Bills and Activity tabs list everything; Home shows the first few
       window.scrollTo({ top: 0 });
     }
+    // Folding or unfolding the phone (or resizing a window) across the phone/desktop line changes what the lists show.
+    if (PHONE_MQ.addEventListener) PHONE_MQ.addEventListener('change', () => renderAll());
 
     // ---- Long lists show a few rows with a "Show all" toggle instead of scrolling inside the page ----
-    const BILLS_PREVIEW = 6, TX_PREVIEW = 8, SETTLED_PREVIEW = 5;
+    // (Home on a phone shows HOME_TX_PREVIEW spends and "See all", which opens the Activity tab.)
+    const BILLS_PREVIEW = 6, TX_PREVIEW = 8, HOME_TX_PREVIEW = 4, SETTLED_PREVIEW = 5;
     const showAll = { bills: false, tx: false, settled: false };
     function toggleShowAll(key) { showAll[key] = !showAll[key]; renderAll(); }
     function showMoreBtn(key, total, limit) {
@@ -1937,6 +1945,11 @@ async function postToServer(bodyObj, opts = {}) {
       return `<button onclick="toggleShowAll('${key}')" class="w-full h-11 text-xs font-semibold text-emerald-600 dark:text-emerald-400 inline-flex items-center justify-center gap-1">
         ${showAll[key] ? 'Show fewer ' + icon('chevron_up', 'w-3.5 h-3.5') : 'Show all ' + total + ' ' + icon('chevron_down', 'w-3.5 h-3.5')}
       </button>`;
+    }
+
+    function seeAllActivityBtn(total) {
+      if (total <= HOME_TX_PREVIEW) return '';
+      return `<button onclick="setView('activity')" class="w-full h-11 text-xs font-semibold text-emerald-600 dark:text-emerald-400 inline-flex items-center justify-center">See all</button>`;
     }
 
     function cycleTheme() {
@@ -1952,11 +1965,16 @@ async function postToServer(bodyObj, opts = {}) {
       });
     }
 
-    function toggleSection(bodyId, chevId) {
-      const body = document.getElementById(bodyId);
+    function setSectionOpen(bodyId, chevId, open) {
+      document.getElementById(bodyId).classList.toggle('hidden', !open);
       const chev = document.getElementById(chevId);
-      const isHidden = body.classList.toggle('hidden');
-      if (chev) chev.textContent = isHidden ? '▸' : '▾';
+      if (chev) chev.textContent = open ? '▾' : '▸';
+    }
+    function toggleSection(bodyId, chevId) {
+      // A phone tab that is this one section can't fold it away (its ▾ is hidden there too).
+      const tab = VIEW_SECTIONS[document.body.dataset.view];
+      if (tab && tab[0] === bodyId && PHONE_MQ.matches) return;
+      setSectionOpen(bodyId, chevId, document.getElementById(bodyId).classList.contains('hidden'));
     }
 
     function jumpToSection(target) {
@@ -1967,9 +1985,7 @@ async function postToServer(bodyObj, opts = {}) {
         activity: ['sec_activity', 'activityBody', 'chevActivity']
       };
       const [secId, bodyId, chevId] = map[target] || [];
-      if (bodyId && document.getElementById(bodyId).classList.contains('hidden')) {
-        toggleSection(bodyId, chevId);
-      }
+      if (bodyId) setSectionOpen(bodyId, chevId, true);
       if (secId) document.getElementById(secId).scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
@@ -2164,12 +2180,6 @@ async function postToServer(bodyObj, opts = {}) {
       document.getElementById('kpiMarcus').textContent = fmtGBP(s.mSAV);
       document.getElementById('kpiSurplus').textContent = fmtGBP(s.eomSavingsJ);
       renderDailyStrip(s.eomSavingsJ);
-
-      document.getElementById('mathNCA').textContent = fmtGBP(s.nCA);
-      document.getElementById('mathBud').textContent = fmtGBP(s.budgetRem);
-      document.getElementById('mathAmex').textContent = fmtGBP(s.amex);
-      document.getElementById('mathBarclays').textContent = fmtGBP(s.barclays);
-
       document.getElementById('simBadge').classList.toggle('hidden', skippedBudgetRows.size === 0);
 
       renderBudgets();
@@ -2181,8 +2191,8 @@ async function postToServer(bodyObj, opts = {}) {
     function setBudFilter(f) {
       budFilter = f;
       markChoice('bf_', ['all', 'recurring', 'events'], f,
-        'shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900',
-        'shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400');
+        'hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900',
+        'hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400');
       renderBudgets();
     }
 
@@ -2204,6 +2214,14 @@ async function postToServer(bodyObj, opts = {}) {
       renderAll();
     }
 
+    // The Bills header: what the unpaid bills still come to. Bills can be money in as well as out, so the total can be
+    // either way round; it never shows a minus sign.
+    function billsLeftText(rem) {
+      const n = Number(rem || 0);
+      if (Math.abs(n) < 0.005) return 'Nothing to pay';
+      return n < 0 ? fmtGBP(-n) + ' to pay' : '+' + fmtGBP(n) + ' to come in';
+    }
+
     function renderBudgets() {
       const allUpcoming = state.budgets.filter(b => Number(b.amount) !== 0);
       const upcoming = allUpcoming.filter(b => {
@@ -2215,10 +2233,11 @@ async function postToServer(bodyObj, opts = {}) {
       const totalCount = state.budgets.length;
       const pct = totalCount ? Math.round((cleared.length / totalCount) * 100) : 0;
 
-      document.getElementById('budLeftVal').textContent = `${fmtGBP(state.summary.budgetRem)} left`;
+      document.getElementById('budLeftVal').textContent = billsLeftText(state.summary.budgetRem);
       document.getElementById('budClearedCount').textContent = `${cleared.length} of ${totalCount} paid`;
       document.getElementById('budProgressBar').style.width = `${pct}%`;
       document.getElementById('clearedBudCount').textContent = cleared.length;
+      document.getElementById('paidFold').classList.toggle('hidden', cleared.length === 0);
 
       // Tap a bill's name to edit it (Delete lives inside the edit form, with Undo, so it can't be hit by accident).
       // The icon on the left is the "what if I skip this" toggle; Paid is the only button on the right.
@@ -2226,7 +2245,8 @@ async function postToServer(bodyObj, opts = {}) {
         ? `<span class="min-w-0 truncate ${cls}">${esc(b.name)}</span>`
         : `<button onclick="openBudgetFormForRow(${b.row})" aria-label="Edit ${esc(b.name)}" class="min-w-0 flex-1 truncate text-left py-2 ${cls}">${esc(b.name)}</button>`;
       const pill = 'h-9 px-3 rounded-full border text-xs font-semibold whitespace-nowrap inline-flex items-center gap-1';
-      const shown = showAll.bills ? upcoming : upcoming.slice(0, BILLS_PREVIEW);
+      const billsTab = onPhoneTab('budgets');   // the phone's Bills tab lists every unpaid bill; Home the first few
+      const shown = showAll.bills || billsTab ? upcoming : upcoming.slice(0, BILLS_PREVIEW);
       document.getElementById('upcomingBudgetsList').innerHTML = upcoming.length ? shown.map(b => {
         const isSkipped = skippedBudgetRows.has(b.row);
         return `
@@ -2242,13 +2262,13 @@ async function postToServer(bodyObj, opts = {}) {
               <span class="tabular-nums font-semibold whitespace-nowrap ${b.amount < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'}">${b.amount > 0 ? '+' : ''}${fmtGBP(b.amount)}</span>
               ${b.pending ? '<span class="text-xs text-slate-500 dark:text-slate-400">saving…</span>' : `
               <button onclick="markBudgetPaid(${b.row}, 0, ${b.amount}, ${b.isRecurring})" aria-label="Mark ${esc(b.name)} paid"
-                      class="${pill} border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950">
+                      class="hit ${pill} border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950">
                 ${icon('check', 'w-3.5 h-3.5')} Paid
               </button>`}
             </div>
           </div>
         `;
-      }).join('') + showMoreBtn('bills', upcoming.length, BILLS_PREVIEW)
+      }).join('') + (billsTab ? '' : showMoreBtn('bills', upcoming.length, BILLS_PREVIEW))
         : `<div class="py-3 text-xs text-slate-500 dark:text-slate-400 text-center inline-flex items-center justify-center gap-1.5 w-full">${icon('check', 'w-4 h-4 text-emerald-500')} All clear</div>`;
 
       document.getElementById('clearedBudgetsList').innerHTML = cleared.map(b => `
@@ -2259,7 +2279,7 @@ async function postToServer(bodyObj, opts = {}) {
             ${b.originalBudget ? `<span class="tabular-nums text-xs shrink-0">(${fmtGBP(b.originalBudget)})</span>` : ''}
           </div>
           <button onclick="${b.originalBudget ? `markBudgetPaid(${b.row}, ${b.originalBudget}, ${b.originalBudget}, ${b.isRecurring})` : `openBudgetFormForRow(${b.row})`}" ${b.pending ? 'disabled' : ''}
-                  class="${pill} shrink-0 border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Restore</button>
+                  class="hit ${pill} shrink-0 border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Restore</button>
         </div>
       `).join('');
     }
@@ -2398,7 +2418,7 @@ async function postToServer(bodyObj, opts = {}) {
       document.getElementById('panel_pending').classList.toggle('hidden', mode !== 'pending');
       document.getElementById('panel_settled').classList.toggle('hidden', mode !== 'settled');
       markChoice('pill_', ['pending', 'settled'], mode,
-        'px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs', 'px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400');
+        'hit px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs', 'hit px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400');
     }
 
     // Friends you split with: their quick-tap chips, the split rows and the "Paid back" list all use this list. The
@@ -2500,28 +2520,25 @@ async function postToServer(bodyObj, opts = {}) {
       const settled = reimb.filter(r => !r.need && (r.amount > 0 || SETTLED_PREFIX.test(r.desc.trim())));
       const pendingSum = pending.reduce((a, b) => a + b.amount, 0);
 
-      document.getElementById('cntPending').textContent = pending.length;
-      document.getElementById('cntPendingTab').textContent = pending.length;
       document.getElementById('sumPending').textContent = fmtGBP(pendingSum);
-      document.getElementById('cntSettled').textContent = settled.length;
-      document.getElementById('btnSettleAll').classList.toggle('hidden', pending.length === 0);
 
       const groups = groupOwed(pending);
       owedGroupsShown = groups;
+      // With one person, their own "All paid back" (or the item's tick) does the same job, so the header has none.
+      document.getElementById('btnSettleAll').classList.toggle('hidden', groups.length < 2);
       const avatar = g => `<span class="w-8 h-8 rounded-full shrink-0 inline-flex items-center justify-center text-sm font-bold" style="background:${personColour(g.key)}26;color:${personColour(g.key)}">${esc(g.name.charAt(0) || '?')}</span>`;
       const count = g => g.items.length + (g.items.length === 1 ? ' item' : ' items');
       const pill = 'h-8 px-3 rounded-full border text-xs font-semibold whitespace-nowrap border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950';
 
-      // Phone Home: one line per person, and a way into the Owed tab.
+      // Phone Home: one line per person; each one opens the Owed tab.
       const summary = `<div class="owed-summary">${groups.map(g => `
           <button onclick="setView('pending')" class="w-full py-2 flex items-center gap-3 text-left">
             ${avatar(g)}
             <span class="min-w-0 flex-1"><span class="block text-sm font-semibold text-slate-900 dark:text-white truncate">${esc(g.name)}</span>
-              <span class="block text-xs text-slate-500 dark:text-slate-400">${count(g)}</span></span>
+              <span class="block text-xs text-slate-600 dark:text-slate-300">${count(g)}</span></span>
             <span class="tabular-nums text-sm font-semibold ${amtTone(g.total)}">${signedAmt(g.total)}</span>
             <span class="text-slate-400">${icon('chevron_right', 'w-4 h-4')}</span>
           </button>`).join('')}
-          <button onclick="setView('pending')" class="mt-2 w-full h-10 rounded-full border text-sm font-semibold border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300">See everything owed (${pending.length})</button>
         </div>`;
 
       // Owed tab (and desktop): every item, grouped by person.
@@ -2530,17 +2547,17 @@ async function postToServer(bodyObj, opts = {}) {
             <div class="flex items-center gap-3 py-1">
               ${avatar(g)}
               <span class="min-w-0 flex-1"><span class="block text-sm font-semibold text-slate-900 dark:text-white truncate">${esc(g.name)}</span>
-                <span class="block text-xs text-slate-500 dark:text-slate-400 tabular-nums">${count(g)} · ${signedAmt(g.total)}</span></span>
-              ${g.items.length > 1 ? `<button data-person="${esc(g.key)}" onclick="handleSettlePerson(this.dataset.person)" class="${pill}">All paid back</button>` : ''}
+                <span class="block text-xs text-slate-600 dark:text-slate-300 tabular-nums">${count(g)} · ${signedAmt(g.total)}</span></span>
+              ${g.items.length > 1 ? `<button data-person="${esc(g.key)}" onclick="handleSettlePerson(this.dataset.person)" class="hit ${pill}">All paid back</button>` : ''}
             </div>
             ${g.items.map(r => `
-              <div class="pl-11 py-1 flex items-center gap-2 text-sm">
+              <div class="pl-11 py-1.5 flex items-center gap-2 text-sm">
                 <span class="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200">${esc(r.what)}</span>
                 <span class="tabular-nums ${amtTone(r.amount)}">${signedAmt(r.amount)}</span>
                 ${r.pending
                   ? '<span class="text-xs text-slate-500 dark:text-slate-400">saving…</span>'
                   : `<button onclick="toggleSplitNeed(${r.row}, false)" aria-label="Mark ${esc(g.name)} ${esc(r.what)} paid back"
-                            class="w-8 h-8 shrink-0 rounded-full border inline-flex items-center justify-center border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950">${icon('check', 'w-3.5 h-3.5')}</button>`}
+                            class="hit w-8 h-8 shrink-0 rounded-full border inline-flex items-center justify-center border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950">${icon('check', 'w-3.5 h-3.5')}</button>`}
               </div>`).join('')}
             ${g.total > 0 ? `<div class="pl-11"><button data-person="${esc(g.key)}" onclick="shareOwed(this.dataset.person)" aria-label="Send ${esc(g.name)} what they owe"
                       class="h-9 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:underline dark:text-emerald-300">${icon('share', 'w-3.5 h-3.5')}Send ${esc(g.name)} what they owe</button></div>` : ''}
@@ -2600,19 +2617,20 @@ async function postToServer(bodyObj, opts = {}) {
     }
 
     // ================= TRANSACTIONS & INTERLEAVED FEED =================
-    function setTxFilter(flt) {
+    function markTxFilter(flt) {
       txFilter = flt;
       markChoice('txf_', ['all', 'amex', 'barclays', 'marcus', 'checking'], flt,
-        'px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs', 'px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400');
+        'hit px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs', 'hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400');
+    }
+    function setTxFilter(flt) {
+      markTxFilter(flt);
       renderTransactions();
     }
 
     // The phone's Activity tab shows the whole list, with this month's card spending on top. Tapping a category
-    // there filters the list to that category's card spends (cleared when you leave the tab).
+    // there filters the list to that category's card spends. That, the account filter and the search belong to the
+    // tab: they are cleared when you leave it, and phone Home (which has none of them) shows the latest few spends.
     let actCat = null;
-    function onActivityTab() {
-      return document.body.dataset.view === 'activity' && window.matchMedia('(max-width: 1023px)').matches;
-    }
     function setActCat(cat) {
       actCat = actCat === cat ? null : cat;
       renderTransactions();
@@ -2650,10 +2668,10 @@ async function postToServer(bodyObj, opts = {}) {
           </div>
           <button onclick="openSpendModal()" class="h-8 px-3 rounded-full border text-xs font-semibold border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300">Details</button>
         </div>
-        ${cats.length ? `<div class="chip-row flex gap-2 overflow-x-auto pb-1">${cats.map(c => {
+        ${cats.length ? `<div class="chip-row flex gap-2 overflow-x-auto" style="margin-bottom:-6px">${cats.map(c => {
           const on = actCat === c.cat, col = SPEND_COLOURS[c.cat] || '#94a3b8';
           return `<button data-cat="${esc(c.cat)}" onclick="setActCat(this.dataset.cat)" aria-pressed="${on}"
-                    class="shrink-0 h-9 px-3 rounded-full border text-sm font-semibold inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-200 ${on ? '' : 'border-slate-200 dark:border-slate-700'}"
+                    class="hit shrink-0 h-9 px-3 rounded-full border text-sm font-semibold inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-200 ${on ? '' : 'border-slate-200 dark:border-slate-700'}"
                     style="${on ? `border-color:${col};background:${col}26` : ''}">
                     <span class="w-2 h-2 rounded-full" style="background:${col}"></span>${esc(c.cat)}
                     <span class="tabular-nums font-medium text-slate-500 dark:text-slate-400">${fmtGBP(c.total).replace(/\.\d\d$/, '')}</span></button>`;
@@ -2661,11 +2679,14 @@ async function postToServer(bodyObj, opts = {}) {
     }
 
     function renderTransactions() {
-      const q = (document.getElementById('txSearch').value || '').toLowerCase();
-      const tsMap = getLocalTimestamps();
-      const onTab = onActivityTab();
+      const search = document.getElementById('txSearch');
+      const onTab = onPhoneTab('activity');
+      const phoneHome = PHONE_MQ.matches && !onTab;
       if (!onTab) actCat = null;
+      if (phoneHome && (txFilter !== 'all' || search.value)) { markTxFilter('all'); search.value = ''; }
       if (onTab) renderActSpend();
+      const q = (search.value || '').toLowerCase();
+      const tsMap = getLocalTimestamps();
 
       const tagRows = (arr, acct) => {
         const valid = (arr || []).filter(r => r.desc.toLowerCase() !== 'start');
@@ -2700,8 +2721,8 @@ async function postToServer(bodyObj, opts = {}) {
         filtered = filtered.filter(r => (r.acct === 'amex' || r.acct === 'barclays') && !SPEND_SKIP.test(spendKey(r.desc)) && categoryFor(r.desc, overrides) === actCat);
       }
       // While searching, filtering by category or on the Activity tab, show every match; otherwise the latest few.
-      const showEvery = q || actCat || onTab || showAll.tx;
-      const visible = showEvery ? filtered : filtered.slice(0, TX_PREVIEW);
+      const showEvery = q || actCat || onTab || (showAll.tx && !phoneHome);
+      const visible = showEvery ? filtered : filtered.slice(0, phoneHome ? HOME_TX_PREVIEW : TX_PREVIEW);
       // Like Bills: tap a row to edit it (no pencil). A row that is still saving can't be edited yet.
       document.getElementById('txListContainer').innerHTML = visible.map(r => `
         <${r.pending ? 'div' : 'button'} ${r.pending ? '' : `type="button" onclick="openEditTxForRow('${r.acct}', ${r.row})" aria-label="Edit ${esc(displayName(r.desc))}"`}
@@ -2716,7 +2737,7 @@ async function postToServer(bodyObj, opts = {}) {
           </span>
         </${r.pending ? 'div' : 'button'}>
       `).join('') + (actCat && !visible.length ? '<p class="py-3 text-sm text-slate-500 dark:text-slate-400 text-center">Nothing in this category matches.</p>' : '')
-        + (q || actCat || onTab ? '' : showMoreBtn('tx', filtered.length, TX_PREVIEW));
+        + (q || actCat || onTab ? '' : phoneHome ? seeAllActivityBtn(filtered.length) : showMoreBtn('tx', filtered.length, TX_PREVIEW));
     }
 
     // ================= ADD TRANSACTION & DYNAMIC GROUP SPLIT =================
