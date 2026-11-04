@@ -1055,6 +1055,7 @@ function describePasskeyError(err, auto) {
   const code = String((err && err.serverCode) || '');
   if (code.indexOf('AUTH_PASSKEY_UNKNOWN') === 0) return { text: 'Fingerprint sign-in was turned off for this device. Sign in with Google to set it up again.', error: true, forget: true };
   if (code.indexOf('AUTH_THROTTLED') === 0) return { text: 'Fingerprint sign-in is paused for a few minutes after too many tries. You can still sign in with Google.', error: true };
+  // (The lock screen words this itself, since its button reloads; this is for the fingerprint dialog's "Test it now".)
   if (err && err.promptBusy) return { text: 'The fingerprint prompt is stuck. Reload the page and try again.', error: false };
   // AbortError: a prompt that never answered was dropped (a try cancelled on purpose shows no message at all).
   if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) return auto ? { text: 'Tap "Unlock with fingerprint", or sign in with Google.', error: false } : { text: 'Fingerprint was cancelled or timed out. Try again, or sign in with Google.', error: true };
@@ -1141,17 +1142,19 @@ async function passkeyLoginRoundTrip(signal, onAccepted) {
   return fin.data;
 }
 
-// A stuck fingerprint request belongs to the page, so only reloading it clears it. The lock screen reloads by itself
-// once (not again within PASSKEY_RELOAD_GAP_MS, so it can never loop); after that a tap on the button reloads.
+// A stuck fingerprint request belongs to the page, so only reloading it clears it. By itself the lock screen reloads
+// only while the app is on screen and hasn't opened in this page yet (nothing typed can be lost), and not again within
+// PASSKEY_RELOAD_GAP_MS, so it can never loop; otherwise a tap on the button (`byTap`) reloads.
 const PASSKEY_RELOAD_KEY = 'pf_pk_reloaded';   // sessionStorage: when this tab last reloaded for a stuck request
 const PASSKEY_RELOAD_GAP_MS = 60 * 1000;
 let passkeyNeedsReload = false;
-function reloadForStuckPrompt() {
-  if (apiInflight > 0) return false;   // a save on its way finishes first (a tap can reload once it has)
+function reloadForStuckPrompt(byTap) {
+  if (apiInflight > 0) return false;   // a save on its way finishes first
+  if (!byTap && (appUiReady || document.visibilityState !== 'visible')) return false;
   try {
-    if (Date.now() - (Number(sessionStorage.getItem(PASSKEY_RELOAD_KEY)) || 0) < PASSKEY_RELOAD_GAP_MS) return false;
+    if (!byTap && Date.now() - (Number(sessionStorage.getItem(PASSKEY_RELOAD_KEY)) || 0) < PASSKEY_RELOAD_GAP_MS) return false;
     sessionStorage.setItem(PASSKEY_RELOAD_KEY, String(Date.now()));
-  } catch (e) { return false; }
+  } catch (e) { if (!byTap) return false; }   // no record means no guard against a loop: only a tap may reload then
   location.reload();
   return true;
 }
@@ -1163,8 +1166,11 @@ function cancelPasskeyAttempt() {
 }
 async function unlockWithPasskey(auto) {
   if (!passkeyEnrolledHere()) return;
-  // Asking again in this page can't work: reload instead (a tap at once, by itself only past the gap).
-  if (passkeyNeedsReload) { if (auto) reloadForStuckPrompt(); else if (!apiInflight) location.reload(); return; }
+  // Asking again in this page can't work: reload instead.
+  if (passkeyNeedsReload) {
+    if (!reloadForStuckPrompt(!auto) && !auto) setLockMsg('Finishing a save first. Try again in a moment.', false);
+    return;
+  }
   if (passkeyAttempt) {
     // An automatic try never asks over one already running, and a tap mustn't throw away a fingerprint that was
     // already accepted. Otherwise a tap means no prompt is on screen (it would cover the button), so the running try
@@ -1188,7 +1194,7 @@ async function unlockWithPasskey(auto) {
     if (attempt.signal.aborted) return;
     if (err && err.promptBusy) {
       passkeyNeedsReload = true;
-      if (!reloadForStuckPrompt()) setLockMsg('The fingerprint prompt is stuck. Tap "Unlock with fingerprint" to reload and try again, or sign in with Google.', false);
+      if (!reloadForStuckPrompt(false)) setLockMsg('The fingerprint prompt is stuck. Tap "Unlock with fingerprint" to reload and try again, or sign in with Google.', false);
       return;
     }
     const d = describePasskeyError(err, auto);
