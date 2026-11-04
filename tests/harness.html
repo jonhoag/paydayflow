@@ -74,8 +74,10 @@
   }
   const nextRow = arr => Math.max(3, ...arr.map(r => r.row)) + 1;
   // Like the real server: an edit or delete that says what it expects in the row is refused if the row changed.
-  const checkExpect = (it, p) => {
-    if (p.expect && (!it || it.desc !== p.expect.desc || Math.abs(it.amount - p.expect.amount) >= 0.005)) {
+  // Like the real server: refuse a change to a row that no longer holds what the page expected. Bills are named by
+  // `name`, everything else by `desc`.
+  const checkExpect = (it, p, key = 'desc') => {
+    if (p.expect && (!it || it[key] !== p.expect[key] || Math.abs(it.amount - p.expect.amount) >= 0.005)) {
       throw new Error('STALE: This entry was changed on another device.');
     }
   };
@@ -117,13 +119,13 @@
     },
     toggleNeedFlag: (p, d, n) => { const it = d.checking.find(r => r.row === Number(p.row)); if (it) it.need = !!p.setNeed; return snapshot(d, n); },
     settleAllNeeds: (p, d, n) => { d.checking.forEach(r => { if ((p.rows || []).includes(r.row)) r.need = false; }); return snapshot(d, n); },
-    updateBudgetRow: (p, d, n) => { const it = d.budgets.find(b => b.row === Number(p.row)); if (it) it.amount = Number(p.newAmount); return snapshot(d, n); },
+    updateBudgetRow: (p, d, n) => { const it = d.budgets.find(b => b.row === Number(p.row)); checkExpect(it, p, 'name'); if (it) it.amount = Number(p.newAmount); return snapshot(d, n); },
     saveBudgetItem: (p, d, n) => {
-      if (p.row) { const it = d.budgets.find(b => b.row === Number(p.row)); if (it) Object.assign(it, { name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring }); }
+      if (p.row) { const it = d.budgets.find(b => b.row === Number(p.row)); checkExpect(it, p, 'name'); if (it) Object.assign(it, { name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring }); }
       else d.budgets.push({ row: nextRow(d.budgets), name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring });
       return snapshot(d, n);
     },
-    deleteBudgetItem: (p, d, n) => { const i = d.budgets.findIndex(b => b.row === Number(p.row)); if (i > -1) d.budgets.splice(i, 1); return snapshot(d, n); },
+    deleteBudgetItem: (p, d, n) => { const i = d.budgets.findIndex(b => b.row === Number(p.row)); checkExpect(d.budgets[i], p, 'name'); if (i > -1) d.budgets.splice(i, 1); return snapshot(d, n); },
     // Like the real server: an existing month is only replaced when the page says so (nothing else is modelled).
     startNewMonth: (p, d, n) => {
       if (dbs[p.newMonthName] && p.replaceExisting !== true) throw new Error('EXISTS: There is already a month called "' + p.newMonthName + '". Nothing was changed.');
@@ -131,6 +133,8 @@
     },
     // Remembered for this tab, because Sign out reloads the page (and with it this pretend server).
     passkeyRemove: p => { try { sessionStorage.setItem('mock_passkey_removed', String(p.credentialId)); } catch (e) {} return { passkeys: [] }; },
+    // One pretend device. Its id holds a quote, as a check that ids reach the click handler as data, not as script.
+    passkeyList: () => ({ passkeys: [{ id: "dev'1", label: 'Test phone', created: '2026-11-01T10:00:00Z', lastUsed: null }] }),
     getCategoryChoices: () => ({ choices: JSON.parse(JSON.stringify(MOCK.categoryChoices)) }),
     setCategoryChoice: p => {
       const k = String(p.merchant || '').trim().toLowerCase();

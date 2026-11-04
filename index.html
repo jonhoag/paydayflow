@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <!-- Where this page may load from and send to: itself, the Apps Script backend (which answers from
-       script.googleusercontent.com) and Google's sign-in. A backstop in case a bug ever let a script in. The copy of
-       the page Apps Script serves leaves this out (deploy-backend.ps1), as Google serves that one from its own sandbox. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; font-src 'self'; img-src 'self' data:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <!-- Where this page may load from and send to: itself, this app's own Apps Script backend (only its exact address,
+       also in APPS_SCRIPT_EXEC_URL; it answers from script.googleusercontent.com) and Google's sign-in. A backstop in
+       case a bug ever let a script in. The copy of the page Apps Script serves leaves this out (deploy-backend.ps1),
+       as Google serves that one from its own sandbox. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; font-src 'self'; img-src 'self' data:; connect-src 'self' https://script.google.com/macros/s/AKfycbwiuLsruSCA-k2EeMn8bH6AZygi0ISA2WDTB_UJmetDOJdU6S4qLE21WmjyJK1ktCMrUA/exec https://script.googleusercontent.com https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
   <!-- No other website may show this page inside its own (where hidden buttons could be clicked for you). GitHub
        Pages can't send the header that says so, and the policy above can't say it from inside the page, so the page
        checks for itself: in someone else's frame it stays blank and never starts. The Apps Script copy is always
@@ -722,6 +723,7 @@
   <div id="toast" class="hidden fixed left-1/2 -translate-x-1/2 bottom-24 lg:bottom-6 z-[100000] max-w-sm w-[90%] px-4 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-medium shadow-lg text-center"></div>
 
   <script>
+    // Also written in the Content-Security-Policy at the top of the page (the screen tests check they match).
     const APPS_SCRIPT_EXEC_URL = 'https://script.google.com/macros/s/AKfycbwiuLsruSCA-k2EeMn8bH6AZygi0ISA2WDTB_UJmetDOJdU6S4qLE21WmjyJK1ktCMrUA/exec';
     const GOOGLE_CLIENT_ID = '1074590107449-b3clq41r6un84qma18lomq7ip2f833pk.apps.googleusercontent.com';
 const IS_GAS_ENV = (typeof google !== 'undefined' && google.script && google.script.run);
@@ -903,9 +905,7 @@ function afterSignIn(viaGoogle, email) {
   passkeyAutoTried = false;   // if the session later expires while the app is open, prompt for the fingerprint again
   lockAllowsAuto = false;     // and a fingerprint prompt still waiting for focus must not pop up over this sign-in
   try { sessionStorage.removeItem(SIGNED_OUT_FLAG); } catch (e) {}
-  initAppUi();
-  if (loadPhoneCache(activeMonth)) renderAll();
-  applyLaunchShortcut();
+  openApp();
   signInInFlight = true;
   apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
     .then(s => {
@@ -913,6 +913,7 @@ function afterSignIn(viaGoogle, email) {
       hideLockScreen();
       applyServerState(s);
       if (viaGoogle) onGoogleSignedIn();
+      flushOutbox();
     })
     .catch(err => {
       signInInFlight = false;
@@ -942,8 +943,9 @@ function hideLockScreen() {
   if (lockEl) lockEl.style.display = 'none';
 }
 
-// Google's sign-in script is only needed on the lock screen, so it is fetched the first time that shows
-// (a fingerprint sign-in never downloads it). If it can't load (no signal), it is tried again a little later.
+// Google's sign-in script is only needed on the lock screen, so it is fetched the first time that shows (an app that
+// opens already signed in never downloads it). If it can't load (no signal), it is tried again while the lock screen
+// is still up.
 function loadGoogleSignInScript() {
   if (document.getElementById('gsiScript')) return;
   const s = document.createElement('script');
@@ -964,7 +966,7 @@ function initGoogleAuthButton() {
     loadGoogleSignInScript();
     if (!gsiWaiting) {   // one wait at a time, however often the lock screen is shown meanwhile
       gsiWaiting = true;
-      setTimeout(() => { gsiWaiting = false; initGoogleAuthButton(); }, 150);
+      setTimeout(() => { gsiWaiting = false; if (lockScreenShowing()) initGoogleAuthButton(); }, 150);
     }
     return;
   }
@@ -1181,21 +1183,28 @@ function renderPasskeyModal() {
   document.getElementById('pkOffBtn').classList.toggle('hidden', !here);
   document.getElementById('pkOffBtn').textContent = pkConfirmId && pkConfirmId === localStorage.getItem(PASSKEY_ID_KEY) ? 'Tap again to turn off' : 'Turn off';
 }
-async function refreshPasskeyDevices() {
-  const list = document.getElementById('pkDevices');
-  list.innerHTML = '<div class="py-3 text-xs text-slate-500 dark:text-slate-400">Loading…</div>';
-  try {
-    const r = await apiCall('passkeyList', {});
-    const mine = localStorage.getItem(PASSKEY_ID_KEY);
-    list.innerHTML = r.passkeys.length ? r.passkeys.map(d => `
+// The last device list from the server, so arming "Remove" redraws at once instead of waiting for a round trip.
+let pkDevices = null;
+function renderPasskeyDevices() {
+  if (!pkDevices) return;
+  const mine = localStorage.getItem(PASSKEY_ID_KEY);
+  document.getElementById('pkDevices').innerHTML = pkDevices.length ? pkDevices.map(d => `
       <div class="py-2 flex items-center justify-between gap-2 text-xs">
         <div class="min-w-0">
           <div class="font-medium text-slate-800 dark:text-slate-100 truncate">${esc(d.label)}${d.id === mine ? ' <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">this device</span>' : ''}</div>
           <div class="text-xs text-slate-500 dark:text-slate-400">Added ${esc(new Date(d.created).toLocaleDateString('en-GB'))}${d.lastUsed ? ' · last used ' + esc(relTime(new Date(d.lastUsed).getTime())) : ''}</div>
         </div>
-        <button onclick="removePasskeyDevice('${esc(d.id)}')" class="h-10 px-3 rounded-lg text-xs font-semibold ${pkConfirmId === d.id ? 'bg-rose-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}">${pkConfirmId === d.id ? 'Tap again' : 'Remove'}</button>
+        <button data-id="${esc(d.id)}" onclick="removePasskeyDevice(this.dataset.id)" class="h-10 px-3 rounded-lg text-xs font-semibold ${pkConfirmId === d.id ? 'bg-rose-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}">${pkConfirmId === d.id ? 'Tap again' : 'Remove'}</button>
       </div>`).join('') : '<div class="py-3 text-xs text-slate-500 dark:text-slate-400">No devices yet.</div>';
+}
+async function refreshPasskeyDevices() {
+  const list = document.getElementById('pkDevices');
+  list.innerHTML = '<div class="py-3 text-xs text-slate-500 dark:text-slate-400">Loading…</div>';
+  try {
+    pkDevices = (await apiCall('passkeyList', {})).passkeys;
+    renderPasskeyDevices();
   } catch (err) {
+    pkDevices = null;
     list.innerHTML = '<div class="py-3 text-xs text-slate-500 dark:text-slate-400">Couldn\'t load the device list. Sign in again to see it.</div>';
   }
 }
@@ -1229,6 +1238,9 @@ async function runPasskeySetup() {
   }
 }
 async function testPasskey() {
+  const btn = document.getElementById('pkTestBtn');
+  if (btn.disabled) return;
+  btn.disabled = true;
   setPkMessage('Follow your phone\'s prompt…', 'info');
   try {
     const s = await passkeyLoginRoundTrip();
@@ -1239,17 +1251,19 @@ async function testPasskey() {
     const d = describePasskeyError(err, false);
     if (d.forget) { localStorage.removeItem(PASSKEY_ID_KEY); renderPasskeyModal(); }
     setPkMessage(d.text, 'error');
+  } finally {
+    btn.disabled = false;
   }
 }
 // Two taps to remove: the first arms the button for a few seconds.
-async function removePasskeyDevice(id, fromTurnOff) {
+async function removePasskeyDevice(id) {
   if (!id) return;
   if (pkConfirmId !== id) {
     pkConfirmId = id;
     clearTimeout(pkConfirmTimer);
-    pkConfirmTimer = setTimeout(() => { pkConfirmId = null; renderPasskeyModal(); refreshPasskeyDevices(); }, 4000);
+    pkConfirmTimer = setTimeout(() => { pkConfirmId = null; renderPasskeyModal(); renderPasskeyDevices(); }, 4000);
     renderPasskeyModal();
-    refreshPasskeyDevices();
+    renderPasskeyDevices();
     return;
   }
   clearTimeout(pkConfirmTimer);
@@ -1466,7 +1480,8 @@ async function postToServer(bodyObj) {
   try {
     return JSON.parse(rawText);
   } catch (e) {
-    throw Object.assign(new Error('Server returned non-JSON (' + rawText.slice(0, 60) + '). Check that APPS_SCRIPT_EXEC_URL matches your "Anyone" deployment.'), { badReply: true });
+    console.warn('Unreadable reply from the server:', rawText.slice(0, 200));
+    throw Object.assign(new Error('The server sent back something unexpected. Try again in a moment.'), { badReply: true });
   }
 }
 
@@ -1530,12 +1545,15 @@ async function postToServer(bodyObj) {
     function loadPhoneCache(monthName) {
       try {
         const raw = localStorage.getItem('pf_cache_' + monthName);
-        if (raw) { state = JSON.parse(raw); return true; }
+        const saved = raw && JSON.parse(raw);
+        if (saved && (!saved.activeMonth || saved.activeMonth === monthName)) { state = { ...emptyState(), ...saved }; return true; }
       } catch (e) {}
       return false;
     }
 
+    // A month's figures are only ever saved under that month's own name.
     function savePhoneCache(monthName, dataObj, remember = true) {
+      if (!dataObj || (dataObj.activeMonth && dataObj.activeMonth !== monthName)) return;
       try {
         if (remember) localStorage.setItem('pf_last_month', monthName);
         localStorage.setItem('pf_cache_' + monthName, JSON.stringify(dataObj));
@@ -1925,11 +1943,20 @@ async function postToServer(bodyObj) {
       activeMonth = monthName;
       pendingSwitchTarget = monthName;
       skippedBudgetRows.clear();
-      if (loadPhoneCache(monthName)) renderAll();
+      closeBudgetForm();   // it belongs to the month you were on
+      // Nothing saved for that month yet: show it empty until it arrives, never the old month's rows (a tap on one of
+      // those would be sent to the new month).
+      if (!loadPhoneCache(monthName)) state = { ...emptyState(), availableMonths: state.availableMonths || [] };
+      renderAll();
 
+      const done = () => { if (pendingSwitchTarget === monthName) pendingSwitchTarget = null; };   // not a later switch's
       apiCall('getCachedSheetState', { sheetName: monthName, forceRefresh: false })
-        .then(s => { pendingSwitchTarget = null; applyServerState(s); })
-        .catch(err => { pendingSwitchTarget = null; console.error(err); });
+        .then(s => { done(); applyServerState(s); })
+        .catch(err => {
+          done();
+          console.error(err);
+          if (err && !err.auth && err.message !== 'Authentication required' && activeMonth === monthName) showToast("Couldn't load " + monthName + '. Try again in a moment.');
+        });
     }
 
     function forceSyncSheet() {
@@ -2171,7 +2198,11 @@ async function postToServer(bodyObj) {
       `).join('');
     }
 
+    // What the bill form showed when it opened: a save or delete from it is checked against this, not against whatever
+    // the screen holds by the time you tap (the figures can refresh while the form is open).
+    let budFormExpect = null;
     function openBudgetForm(row = '', name = '', amount = '', isRecurring = false) {
+      budFormExpect = row ? { name, amount: Number(amount) } : null;
       document.getElementById('editBudRow').value = row;
       document.getElementById('inpBudName').value = name;
       const numAmt = Number(amount || 0);
@@ -2185,13 +2216,15 @@ async function postToServer(bodyObj) {
 
     function deleteBudgetFromForm() {
       const row = Number(document.getElementById('editBudRow').value);
-      if (!row) return;
+      const expect = budFormExpect;
+      if (!row || !expect) return;
       closeBudgetForm();
-      removeBudgetRow(row);
+      removeBudgetRow(row, expect);
     }
 
     function closeBudgetForm() {
       document.getElementById('budgetFormBox').classList.add('hidden');
+      budFormExpect = null;
     }
 
     // Shows a new bill straight away (marked pending until the server confirms it and gives it a real row).
@@ -2212,11 +2245,11 @@ async function postToServer(bodyObj) {
 
       const signedAmt = +(rawAbs * budFormSign).toFixed(2);
 
-      let expect = null;
+      const expect = row ? budFormExpect : null;
+      if (row && !expect) return;
       if (row) {
-        const existing = state.budgets.find(b => b.row === Number(row));
+        const existing = findBudget(Number(row), expect);
         if (existing) {
-          expect = { name: existing.name, amount: existing.amount };
           existing.name = name;
           existing.amount = signedAmt;
           existing.originalBudget = signedAmt;
@@ -2241,15 +2274,23 @@ async function postToServer(bodyObj) {
       }
     }
 
-    function removeBudgetRow(row) {
-      const item = state.budgets.find(b => b.row === row);
+    // The saved (not still-saving) bill in a row, and only if it is still the one expected.
+    function findBudget(row, expect) {
+      return state.budgets.find(b => b.row === row && !b.pending && (!expect || (b.name === expect.name && Number(b.amount) === Number(expect.amount))));
+    }
+
+    // `expect` is what the bill form showed; without it, the bill on screen now (a tap on its own button).
+    function removeBudgetRow(row, expect) {
+      const item = findBudget(row, expect);
+      if (!item && !expect) return;
+      const sent = expect || { name: item.name, amount: item.amount };
       const month = activeMonth;
-      state.budgets = state.budgets.filter(b => b.row !== row);
+      if (item) state.budgets = state.budgets.filter(b => b !== item);
       skippedBudgetRows.delete(row);
       savePhoneCache(activeMonth, state);
       renderAll();
 
-      apiCall('deleteBudgetItem', { sheetName: month, row, expect: item ? { name: item.name, amount: item.amount } : null })
+      apiCall('deleteBudgetItem', { sheetName: month, row, expect: sent })
         .then(applyServerState)
         .catch(err => handleSaveError('the bill deletion', err));
       if (item) showToast('Deleted "' + item.name + '"', { kind: 'info', actionLabel: 'Undo', duration: 9000, onAction: () => undoDeleteBudget(item, month) });
@@ -2269,12 +2310,11 @@ async function postToServer(bodyObj) {
     }
 
     function markBudgetPaid(row, newAmt, origAmt, isRec) {
-      const item = state.budgets.find(b => b.row === row);
-      const expect = item ? { name: item.name, amount: item.amount } : null;
-      if (item) {
-        if (newAmt === 0 && item.amount !== 0) item.originalBudget = item.amount;
-        item.amount = Number(newAmt);
-      }
+      const item = findBudget(row);
+      if (!item) return;
+      const expect = { name: item.name, amount: item.amount };
+      if (newAmt === 0 && item.amount !== 0) item.originalBudget = item.amount;
+      item.amount = Number(newAmt);
       savePhoneCache(activeMonth, state);
       renderAll();
 
@@ -2887,6 +2927,8 @@ async function postToServer(bodyObj) {
     }
     async function flushOutbox() {
       if (outboxFlushing || IS_GAS_ENV || !loadOutbox().length || navigator.onLine === false) return;
+      // Signed out or locked: wait. Asking now would redraw the lock screen and overwrite what it says.
+      if (!hasValidToken() || lockScreenShowing()) return;
       outboxFlushing = true;
       try {
         let list = loadOutbox();
@@ -2920,7 +2962,10 @@ async function postToServer(bodyObj) {
         'py-1.5 rounded-lg text-slate-500 dark:text-slate-400');
     }
 
+    // What the edit form showed when it opened (see budFormExpect).
+    let editTxExpect = null;
     function openEditTxModal(acct, row, desc, amount) {
+      editTxExpect = { desc, amount: Number(amount) };
       document.getElementById('editTxOldAcct').value = acct;
       document.getElementById('editTxRow').value = row;
       document.getElementById('editTxDesc').value = desc;
@@ -2933,6 +2978,7 @@ async function postToServer(bodyObj) {
 
     function closeEditTxModal() {
       document.getElementById('editTxModal').classList.add('hidden');
+      editTxExpect = null;
     }
 
     function selectEditTxAcct(a) {
@@ -2947,7 +2993,14 @@ async function postToServer(bodyObj) {
       if (acct === 'marcus') state.summary.mSAV = +(state.summary.mSAV + delta).toFixed(2);
     }
 
+    // The saved (not still-saving) entry in a row, and only if it is still the one the form showed.
+    function findEditedTx(acct, row, expect) {
+      return (state[acct] || []).find(r => r.row === row && !r.pending && r.desc === expect.desc && Number(r.amount) === expect.amount);
+    }
+
     function saveEditedTx() {
+      const expect = editTxExpect;
+      if (!expect) return;
       const oldAcct = document.getElementById('editTxOldAcct').value;
       const newAcct = editTxNewAcct;
       const row = Number(document.getElementById('editTxRow').value);
@@ -2960,17 +3013,15 @@ async function postToServer(bodyObj) {
       recordLocalTimestamp(newAcct, newDesc, newAmount);
 
       const oldArr = state[oldAcct] || [];
-      const idx = oldArr.findIndex(r => r.row === row);
-      const expect = idx > -1 ? { desc: oldArr[idx].desc, amount: oldArr[idx].amount } : null;
-      if (idx > -1) {
-        const oldItem = oldArr[idx];
+      const oldItem = findEditedTx(oldAcct, row, expect);
+      if (oldItem) {
         updateSummaryBalance(oldAcct, -oldItem.amount);
         if (oldAcct === newAcct) {
           oldItem.desc = newDesc;
           oldItem.amount = newAmount;
           oldItem.clientTs = now;
         } else {
-          oldArr.splice(idx, 1);
+          oldArr.splice(oldArr.indexOf(oldItem), 1);
           state[newAcct].unshift({ row: 98, acct: newAcct, desc: newDesc, amount: newAmount, need: false, clientTs: now, relOrder: 0, pending: true });
         }
         updateSummaryBalance(newAcct, newAmount);
@@ -2992,26 +3043,31 @@ async function postToServer(bodyObj) {
     }
 
     function deleteCurrentTx() {
+      const expect = editTxExpect;
+      if (!expect) return;
       const oldAcct = document.getElementById('editTxOldAcct').value;
       const row = Number(document.getElementById('editTxRow').value);
 
       const oldArr = state[oldAcct] || [];
-      const idx = oldArr.findIndex(r => r.row === row);
-      const gone = idx > -1 ? { acct: oldAcct, desc: oldArr[idx].desc, amount: oldArr[idx].amount, need: !!oldArr[idx].need } : null;
+      const item = findEditedTx(oldAcct, row, expect);
       const month = activeMonth;
-      if (idx > -1) {
-        updateSummaryBalance(oldAcct, -oldArr[idx].amount);
-        oldArr.splice(idx, 1);
+      if (item) {
+        updateSummaryBalance(oldAcct, -item.amount);
+        oldArr.splice(oldArr.indexOf(item), 1);
       }
 
       closeEditTxModal();
       savePhoneCache(activeMonth, state);
       renderAll();
 
-      apiCall('deleteTransactionRow', { sheetName: month, acct: oldAcct, row, expect: gone && { desc: gone.desc, amount: gone.amount } })
+      apiCall('deleteTransactionRow', { sheetName: month, acct: oldAcct, row, expect })
         .then(applyServerState)
         .catch(err => handleSaveError('the deletion', err));
-      if (gone) showToast('Deleted "' + gone.desc + '"', { kind: 'info', actionLabel: 'Undo', duration: 9000, onAction: () => undoDeleteTx(gone, month) });
+      // Undo only for an entry that is really going (if the row changed meanwhile, the server refuses the delete, and
+      // an Undo would add a second copy).
+      if (!item) return;
+      const gone = { acct: oldAcct, desc: item.desc, amount: item.amount, need: !!item.need };
+      showToast('Deleted "' + gone.desc + '"', { kind: 'info', actionLabel: 'Undo', duration: 9000, onAction: () => undoDeleteTx(gone, month) });
     }
 
     // Undo re-adds the entry (it lands in the first empty row of its account, so it may sit in a different
@@ -3082,9 +3138,10 @@ async function postToServer(bodyObj) {
           : 'None';
       }
 
-      // Render interactive checklist of bills/events to pull into the new month
+      // Render interactive checklist of bills/events to pull into the new month (not ones still saving: their row
+      // number is only a guess until the server answers)
       const listEl = document.getElementById('roBudgetChecklist');
-      listEl.innerHTML = state.budgets.map(b => {
+      listEl.innerHTML = state.budgets.filter(b => !b.pending).map(b => {
         const resetAmt = b.originalBudget !== 0 ? b.originalBudget : b.amount;
         return `
           <label class="py-2.5 flex items-center justify-between gap-2 cursor-pointer">
@@ -3220,6 +3277,15 @@ async function postToServer(bodyObj) {
       else if (go === 'spending') openSpendModal();
     }
 
+    // Shows the app from the figures saved on this device (the latest are asked for straight after). Used both when the
+    // app opens already signed in and after a sign-in.
+    function openApp() {
+      initAppUi();
+      loadPhoneCache(activeMonth);
+      renderAll();
+      applyLaunchShortcut();
+    }
+
     function startApp() {
       if (window.PF_FRAMED) return;   // inside another website's frame (see the check at the top of the page)
       hydrateIcons();
@@ -3235,16 +3301,14 @@ async function postToServer(bodyObj) {
       // If on jonhoag.co.uk without a valid token, stop here and show Lock Screen. Straight after signing out, say
       // so, and don't ask for the fingerprint by itself.
       if (!IS_GAS_ENV && !hasValidToken()) {
-        if (justSignedOut()) showLockScreen('Signed out. Nothing is saved on this device any more.', { noAuto: true });
-        else showLockScreen();
+        if (justSignedOut()) {
+          clearThisDevice(false);   // a reply that landed between Sign out and the reload may have saved figures again
+          showLockScreen('Signed out. Nothing is saved on this device any more.', { noAuto: true });
+        } else showLockScreen();
         return;
       }
       hideLockScreen();
-
-      initAppUi();
-      loadPhoneCache(activeMonth);
-      renderAll();
-      applyLaunchShortcut();
+      openApp();
 
       apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: false })
         .then(applyServerState)
