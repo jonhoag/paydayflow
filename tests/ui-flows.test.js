@@ -15,6 +15,26 @@ const { root, HOST, sendSiteFile } = require('./lib/site-files');
 const server = http.createServer(sendSiteFile);
 
 const results = [];
+// Spending's month bars with six big months: the bars it shows, each label's text, line count and whether it fits
+// its own bar; or a message if the row spills out of the box.
+async function monthBars(page) {
+  return page.evaluate(() => {
+    const real = spendMonthTotals;
+    spendMonthTotals = () => ['May', 'June', 'July', 'August', 'September', 'October'].map(m => ({ name: m + ' Payday 2026', total: 1234.56 }));
+    try {
+      openSpendModal();
+      const labels = [...document.querySelectorAll('#spendBody .items-end > div > span:first-child')];
+      const row = document.querySelector('#spendBody .items-end'), box = document.getElementById('spendBody').getBoundingClientRect();
+      if (row.scrollWidth > row.clientWidth || row.getBoundingClientRect().right > box.right + 0.5 || box.right > innerWidth) return 'the month bars spill out of the box';
+      return labels.map(l => {
+        const r = document.createRange(); r.selectNodeContents(l);
+        const col = l.parentElement.getBoundingClientRect(), txt = r.getBoundingClientRect();
+        return { text: l.textContent, lines: r.getClientRects().length, fits: txt.left >= col.left - 0.5 && txt.right <= col.right + 0.5 };
+      });
+    } finally { spendMonthTotals = real; closeSpendModal(); }
+  });
+}
+
 async function step(name, fn) {
   try { await fn(); results.push([true, name]); }
   catch (e) { results.push([false, name + '\n      ' + String(e.message).split('\n')[0]]); }
@@ -133,10 +153,9 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(ok, 'a balance spills out of its tile');
   });
 
-  await step('money helpers: fmtGBPWhole rounds to the nearest pound; fmtSigned shows + for money in', async () => {
-    const out = await page.evaluate(() => [fmtGBPWhole(12.5), fmtGBPWhole(12.49), fmtGBPWhole(-3.6), fmtGBPWhole(1234.5), fmtGBPWhole(-0.4),
-      fmtSigned(5), fmtSigned(-5), fmtSigned(0)]);
-    assert.deepStrictEqual(out, ['£13', '£12', '−£4', '£1,235', '£0', '+£5.00', '−£5.00', '£0.00']);
+  await step('money helpers: fmtSigned shows + for money in, a real minus for money out', async () => {
+    const out = await page.evaluate(() => [fmtSigned(5), fmtSigned(-5), fmtSigned(0), fmtSigned(1234.5)]);
+    assert.deepStrictEqual(out, ['+£5.00', '−£5.00', '£0.00', '+£1,234.50']);
   });
 
   await step('storage helpers: storage that refuses (a private window, or blocked) reads as empty instead of throwing', async () => {
@@ -444,6 +463,15 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.deepStrictEqual(lines.filter(x => !/:1$/.test(x)), [], lines.join(' '));
     });
     if (w === 344) {
+      await step('344px: Spending shows full amounts (pounds and pence); four big month figures each fit their own bar', async () => {
+        const out = await monthBars(page);
+        assert.strictEqual(out.length, 4, JSON.stringify(out));
+        assert.ok(out.every(o => o.text === '£1,234.56' && o.lines === 1 && o.fits), JSON.stringify(out));
+        await page.evaluate(() => setView('activity'));
+        const chips = await page.$$eval('#actSpend button[data-cat] .tabular-nums', els => els.map(e => e.textContent));
+        await page.evaluate(() => setView('home'));
+        assert.ok(chips.length && chips.every(t => /^£[\d,]+\.\d\d$/.test(t)), JSON.stringify(chips));
+      });
       await step('344px: the Bills header wording for every sign, never with a minus, on one line', async () => {
         const r = await page.evaluate(() => {
           const saved = state.budgets;
@@ -850,6 +878,11 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(await visible(page, '#activityBody'), 'the Activity tab is stuck folded with no ▾ to open it');
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.evaluate(() => setView('home'));
+  });
+  await step('desktop: Spending shows six months, each full amount fitting its own bar', async () => {
+    const out = await monthBars(page);
+    assert.strictEqual(out.length, 6, JSON.stringify(out));
+    assert.ok(out.every(o => o.text === '£1,234.56' && o.lines === 1 && o.fits), JSON.stringify(out));
   });
   await step('desktop: the header "All paid back" shows with several people owing; Bills say "to pay"', async () => {
     assert.ok(await visible(page, '#btnSettleAll'));

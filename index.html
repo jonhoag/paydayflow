@@ -1849,7 +1849,7 @@ async function postToServer(bodyObj, opts = {}) {
       if (c.kind === 'new') return ' · New';
       if (c.kind === 'same') return ' · Same as ' + esc(monthLabel);
       const tone = c.kind === 'up' ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400';
-      return ' · <span class="' + tone + '">' + (c.kind === 'up' ? '▲ ' : '▼ ') + fmtGBPWhole(c.diff) + ' vs ' + esc(monthLabel) + '</span>';
+      return ' · <span class="' + tone + '">' + (c.kind === 'up' ? '▲ ' : '▼ ') + fmtGBP(c.diff) + ' vs ' + esc(monthLabel) + '</span>';
     }
 
     function renderSpend() {
@@ -1894,15 +1894,16 @@ async function postToServer(bodyObj, opts = {}) {
       });
       html += '</div>';
       // Month by month: the months this device has loaded, oldest on the left, this month highlighted.
-      const months = spendMonthTotals(overrides).slice(0, 6).reverse();
+      // Full amounts ("£1,234.56") fit four bars across on a folded phone, six in the wider box.
+      const months = spendMonthTotals(overrides).slice(0, window.matchMedia('(min-width: 640px)').matches ? 6 : 4).reverse();
       if (months.length > 1) {
         const mtop = Math.max(1, ...months.map(m => m.total));
         const label = name => monthSortValue(name) ? String(name).slice(0, 3) : String(name).split(' ')[0];
-        html += '<div><div class="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-2">Month by month</div><div class="flex items-end gap-3 h-28">';
+        html += '<div><div class="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-2">Month by month</div><div class="flex items-end gap-2 h-28">';
         months.forEach(m => {
           const on = m.name === activeMonth;
           html += '<div class="flex-1 h-full flex flex-col items-center justify-end gap-1.5">'
-            + '<span class="text-xs tabular-nums text-slate-500 dark:text-slate-400">' + fmtGBPWhole(m.total) + '</span>'
+            + '<span class="text-xs tabular-nums text-slate-500 dark:text-slate-400">' + fmtGBP(m.total) + '</span>'
             + '<div class="w-full max-w-[44px] rounded-md ' + (on ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-700') + '" style="height:' + Math.max(4, Math.round(Math.max(0, m.total) / mtop * 70)) + 'px"></div>'
             + '<span class="text-xs ' + (on ? 'font-semibold text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400') + '">' + esc(label(m.name)) + '</span></div>';
         });
@@ -2012,7 +2013,6 @@ async function postToServer(bodyObj, opts = {}) {
     // Colour of a bill or spend amount: plain when money goes out, green when it comes in (Owed uses amtTone instead).
     function moneyTone(val) { return val < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'; }
     // To the nearest pound, for short labels: "£13".
-    function fmtGBPWhole(val) { return fmtGBP(Math.round(Number(val || 0))).replace(/\.00$/, ''); }
 
     // Shown in place of a row's buttons until the server has saved it.
     const SAVING_TAG = '<span class="text-xs text-slate-500 dark:text-slate-400">saving…</span>';
@@ -2687,7 +2687,7 @@ async function postToServer(bodyObj, opts = {}) {
                     class="hit shrink-0 h-9 px-3 rounded-full border text-sm font-semibold inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-200 ${on ? '' : 'border-slate-200 dark:border-slate-700'}"
                     style="${on ? `border-color:${col};background:${col}26` : ''}">
                     <span class="w-2 h-2 rounded-full" style="background:${col}"></span>${esc(c.cat)}
-                    <span class="tabular-nums font-medium text-slate-500 dark:text-slate-400">${fmtGBPWhole(c.total)}</span></button>`;
+                    <span class="tabular-nums font-medium text-slate-500 dark:text-slate-400">${fmtGBP(c.total)}</span></button>`;
         }).join('')}</div>` : '<p class="text-sm text-slate-500 dark:text-slate-400">No card spending recorded in this month yet.</p>'}`;
     }
 
