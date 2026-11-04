@@ -15,6 +15,26 @@ const { root, HOST, sendSiteFile } = require('./lib/site-files');
 const server = http.createServer(sendSiteFile);
 
 const results = [];
+// Spending's month bars with six big months: the bars it shows, each label's text, line count and whether it fits
+// its own bar; or a message if the row spills out of the box.
+async function monthBars(page) {
+  return page.evaluate(() => {
+    const real = spendMonthTotals;
+    spendMonthTotals = () => ['May', 'June', 'July', 'August', 'September', 'October'].map(m => ({ name: m + ' Payday 2026', total: 1234.56 }));
+    try {
+      openSpendModal();
+      const labels = [...document.querySelectorAll('#spendBody .items-end > div > span:first-child')];
+      const row = document.querySelector('#spendBody .items-end'), box = document.getElementById('spendBody').getBoundingClientRect();
+      if (row.scrollWidth > row.clientWidth || row.getBoundingClientRect().right > box.right + 0.5 || box.right > innerWidth) return 'the month bars spill out of the box';
+      return labels.map(l => {
+        const r = document.createRange(); r.selectNodeContents(l);
+        const col = l.parentElement.getBoundingClientRect(), txt = r.getBoundingClientRect();
+        return { text: l.textContent, lines: r.getClientRects().length, fits: txt.left >= col.left - 0.5 && txt.right <= col.right + 0.5 };
+      });
+    } finally { spendMonthTotals = real; closeSpendModal(); }
+  });
+}
+
 async function step(name, fn) {
   try { await fn(); results.push([true, name]); }
   catch (e) { results.push([false, name + '\n      ' + String(e.message).split('\n')[0]]); }
@@ -131,6 +151,34 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     }));
     await page.setViewportSize({ width: 400, height: 860 });
     assert.ok(ok, 'a balance spills out of its tile');
+  });
+
+  await step('money helpers: fmtSigned shows + for money in, a real minus for money out', async () => {
+    const out = await page.evaluate(() => [fmtSigned(5), fmtSigned(-5), fmtSigned(0), fmtSigned(1234.5)]);
+    assert.deepStrictEqual(out, ['+£5.00', '−£5.00', '£0.00', '+£1,234.50']);
+  });
+
+  await step('storage helpers: storage that refuses (a private window, or blocked) reads as empty instead of throwing', async () => {
+    const out = await page.evaluate(() => {
+      localStorage.setItem('pf_test_junk', '{not json');
+      const junk = lsJson('pf_test_junk');
+      localStorage.removeItem('pf_test_junk');
+      const P = Storage.prototype, real = [P.getItem, P.setItem, P.removeItem];
+      P.getItem = P.setItem = P.removeItem = () => { throw new DOMException('blocked', 'SecurityError'); };
+      try {
+        return [junk, lsGet(THEME_KEY), lsSet(THEME_KEY, 'dark'), lsDel(THEME_KEY) === undefined, lsJson(OUTBOX_KEY), loadOutbox().length, getSession(), hasValidGoogleToken()];
+      } finally { [P.getItem, P.setItem, P.removeItem] = real; }
+    });
+    assert.deepStrictEqual(out, [null, null, false, true, null, 0, null, false]);
+  });
+
+  await step('a Google sign-in token is read as UTF-8, and anything that is not one reads as nothing', async () => {
+    const out = await page.evaluate(() => {
+      const part = o => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(o)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const p = parseJwtPayload('x.' + part({ what: 'Café ✓ ~~~>>>???', exp: 5 }) + '.y');
+      return [p && p.what, p && p.exp, parseJwtPayload('nonsense'), parseJwtPayload('a.!!!.b'), parseJwtPayload(null)];
+    });
+    assert.deepStrictEqual(out, ['Café ✓ ~~~>>>???', 5, null, null, null]);
   });
 
   await step('bottom bar reads Home, Bills, Owed, Activity', async () => {
@@ -406,7 +454,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     });
     await step(`${w}px: the changed labels each fit on one line`, async () => {
       const sels = ['#budLeftVal', '#heroNote', '#sumPending', '#budClearedCount', '#txListContainer > button:not(.tx-row)', '.owed-summary .text-xs'];
-      await page.evaluate(() => { markBudgetPaid(state.budgets.find(b => Number(b.amount) < 0).row, 0, state.budgets.find(b => Number(b.amount) < 0).amount); });
+      await page.evaluate(() => { markBudgetPaid(state.budgets.find(b => Number(b.amount) < 0).row); });
       await page.waitForFunction(() => !state.budgets.some(b => b.pending));
       let lines = await lineCounts(page, sels.concat('#paidFold summary > span:first-child'));
       await page.evaluate(() => setView('pending'));
@@ -415,6 +463,15 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.deepStrictEqual(lines.filter(x => !/:1$/.test(x)), [], lines.join(' '));
     });
     if (w === 344) {
+      await step('344px: Spending shows full amounts (pounds and pence); four big month figures each fit their own bar', async () => {
+        const out = await monthBars(page);
+        assert.strictEqual(out.length, 4, JSON.stringify(out));
+        assert.ok(out.every(o => o.text === '£1,234.56' && o.lines === 1 && o.fits), JSON.stringify(out));
+        await page.evaluate(() => setView('activity'));
+        const chips = await page.$$eval('#actSpend button[data-cat] .tabular-nums', els => els.map(e => e.textContent));
+        await page.evaluate(() => setView('home'));
+        assert.ok(chips.length && chips.every(t => /^£[\d,]+\.\d\d$/.test(t)), JSON.stringify(chips));
+      });
       await step('344px: the Bills header wording for every sign, never with a minus, on one line', async () => {
         const r = await page.evaluate(() => {
           const saved = state.budgets;
@@ -618,7 +675,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
 
   await step('bills: Undo after deleting a paid bill brings it back paid, with its amount kept', async () => {
     const b = await page.evaluate(() => { const x = state.budgets.find(y => !y.pending && Number(y.amount) !== 0); return { row: x.row, name: x.name, amount: Number(x.amount) }; });
-    await page.evaluate(row => markBudgetPaid(row, 0, state.budgets.find(y => y.row === row).amount), b.row);
+    await page.evaluate(row => markBudgetPaid(row), b.row);
     await page.waitForFunction(row => state.budgets.some(y => y.row === row && !y.pending && Number(y.amount) === 0), b.row);
     await page.evaluate(row => removeBudgetRow(row), b.row);
     await page.click('#toastAction');
@@ -821,6 +878,31 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(await visible(page, '#activityBody'), 'the Activity tab is stuck folded with no ▾ to open it');
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.evaluate(() => setView('home'));
+  });
+  await step('Spending left open while the phone folds or unfolds redraws to the bars that fit (6 wide, 4 narrow)', async () => {
+    const bars = () => page.$$eval('#spendBody .items-end > div', els => els.length);
+    await page.evaluate(() => {
+      window.__realMonths = spendMonthTotals;
+      spendMonthTotals = () => ['May', 'June', 'July', 'August', 'September', 'October'].map(m => ({ name: m + ' Payday 2026', total: 1234.56 }));
+      openSpendModal();
+    });
+    try {
+      assert.strictEqual(await bars(), 6);
+      await page.setViewportSize({ width: 400, height: 860 });
+      await page.waitForTimeout(200);
+      assert.strictEqual(await bars(), 4, 'still six bars after narrowing with Spending open');
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.waitForTimeout(200);
+      assert.strictEqual(await bars(), 6, 'still four bars after widening with Spending open');
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.evaluate(() => { spendMonthTotals = window.__realMonths; closeSpendModal(); });
+    }
+  });
+  await step('desktop: Spending shows six months, each full amount fitting its own bar', async () => {
+    const out = await monthBars(page);
+    assert.strictEqual(out.length, 6, JSON.stringify(out));
+    assert.ok(out.every(o => o.text === '£1,234.56' && o.lines === 1 && o.fits), JSON.stringify(out));
   });
   await step('desktop: the header "All paid back" shows with several people owing; Bills say "to pay"', async () => {
     assert.ok(await visible(page, '#btnSettleAll'));
@@ -1030,6 +1112,16 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     p2.on('pageerror', e => errors.push(e.message));
     await p2.goto(`http://localhost:${PORT}/tests/harness.html?demo=1&token=none&latency=50`);
     await p2.waitForFunction(() => window.MOCK && typeof MOCK.gsiCallback === 'function');
+    await step('a browser that refuses to save the sign-in says so plainly and sends nothing', async () => {
+      const s = await p2.evaluate(() => {
+        const P = Storage.prototype, real = P.setItem;
+        P.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); };
+        try { MOCK.gsiCallback({ credential: MOCK.makeToken('owner@example.com') }); } finally { P.setItem = real; }
+        return { msg: document.getElementById('authLockMsg').textContent, calls: MOCK.calls.length };
+      });
+      assert.ok(s.msg.includes("won't let PaydayFlow save anything"), s.msg);
+      assert.strictEqual(s.calls, 0, 'sent a request without a saved sign-in');
+    });
     await step('Google sign-in the server turns down: says why and which account, keeps no token, does not loop', async () => {
       // Google would sign this account back in by itself (auto select) every time the lock screen asks.
       await p2.evaluate(() => { MOCK.authError = "FORBIDDEN: This Google account can't open PaydayFlow."; MOCK.gsiAccount = 'someone@example.com'; MOCK.gsiCallback({ credential: MOCK.makeToken('someone@example.com') }); });
