@@ -133,6 +133,35 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(ok, 'a balance spills out of its tile');
   });
 
+  await step('money labels: whole pounds round to the nearest pound; signed amounts show + for money in', async () => {
+    const out = await page.evaluate(() => [fmtGBPWhole(12.5), fmtGBPWhole(12.49), fmtGBPWhole(-3.6), fmtGBPWhole(1234.5), fmtGBPWhole(-0.4),
+      fmtSigned(5), fmtSigned(-5), fmtSigned(0)]);
+    assert.deepStrictEqual(out, ['£13', '£12', '−£4', '£1,235', '£0', '+£5.00', '−£5.00', '£0.00']);
+  });
+
+  await step('storage that refuses (a private window, or blocked) reads as empty instead of stopping the page', async () => {
+    const out = await page.evaluate(() => {
+      localStorage.setItem('pf_test_junk', '{not json');
+      const junk = lsJson('pf_test_junk');
+      localStorage.removeItem('pf_test_junk');
+      const P = Storage.prototype, real = [P.getItem, P.setItem, P.removeItem];
+      P.getItem = P.setItem = P.removeItem = () => { throw new DOMException('blocked', 'SecurityError'); };
+      try {
+        return [junk, lsGet(THEME_KEY), lsSet(THEME_KEY, 'dark'), lsDel(THEME_KEY) === undefined, lsJson(OUTBOX_KEY), loadOutbox().length, getSession(), hasValidGoogleToken()];
+      } finally { [P.getItem, P.setItem, P.removeItem] = real; }
+    });
+    assert.deepStrictEqual(out, [null, null, false, true, null, 0, null, false]);
+  });
+
+  await step('a Google sign-in token is read as UTF-8, and anything that is not one reads as nothing', async () => {
+    const out = await page.evaluate(() => {
+      const part = o => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(o)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const p = parseJwtPayload('x.' + part({ what: 'Café ✓ ~~~>>>???', exp: 5 }) + '.y');
+      return [p && p.what, p && p.exp, parseJwtPayload('nonsense'), parseJwtPayload('a.!!!.b'), parseJwtPayload(null)];
+    });
+    assert.deepStrictEqual(out, ['Café ✓ ~~~>>>???', 5, null, null, null]);
+  });
+
   await step('bottom bar reads Home, Bills, Owed, Activity', async () => {
     const labels = await page.$$eval('nav [data-nav]', bs => bs.map(b => b.textContent.trim()));
     assert.deepStrictEqual(labels, ['Home', 'Bills', 'Owed', 'Activity']);
