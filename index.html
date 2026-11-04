@@ -853,6 +853,8 @@ const RETURN_REFRESH_MS = 60 * 1000;
 let hiddenAt = 0;
 const PASSKEY_FOCUS_WAIT_MS = 3000;   // how long the automatic fingerprint prompt waits for focus to be reported
 const PASSKEY_RETRY_MS = 1500;        // gap before trying the fingerprint's first request again
+const PASSKEY_BEGIN_TIMEOUT_MS = 20000;   // the fingerprint's first request is small: give up on it sooner than 45 s
+const PASSKEY_PROMPT_GRACE_MS = 5000;     // how long past its own time limit a fingerprint prompt may run before it is dropped
 const OFFLINE_RESYNC_MS = 5000;       // signed in without the figures: when to try fetching them again
 function showLockScreen(msg, opts) {
   if (IS_GAS_ENV) return;
@@ -904,6 +906,7 @@ let signInInFlight = false;   // a sign-in is waiting for its first figures (a s
 function afterSignIn(viaGoogle, email) {
   passkeyAutoTried = false;   // if the session later expires while the app is open, prompt for the fingerprint again
   lockAllowsAuto = false;     // and a fingerprint prompt still waiting for focus must not pop up over this sign-in
+  if (viaGoogle) cancelPasskeyAttempt();   // nor one still on its way (its first request may answer late)
   try { sessionStorage.removeItem(SIGNED_OUT_FLAG); } catch (e) {}
   openApp();
   signInInFlight = true;
@@ -1044,7 +1047,7 @@ function describePasskeyError(err, auto) {
   const code = String((err && err.serverCode) || '');
   if (code.indexOf('AUTH_PASSKEY_UNKNOWN') === 0) return { text: 'Fingerprint sign-in was turned off for this device. Sign in with Google to set it up again.', error: true, forget: true };
   if (code.indexOf('AUTH_THROTTLED') === 0) return { text: 'Fingerprint sign-in is paused for a few minutes after too many tries. You can still sign in with Google.', error: true };
-  if (err && err.name === 'NotAllowedError') return auto ? { text: 'Tap "Unlock with fingerprint", or sign in with Google.', error: false } : { text: 'Fingerprint was cancelled or timed out. Try again, or sign in with Google.', error: true };
+  if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) return auto ? { text: 'Tap "Unlock with fingerprint", or sign in with Google.', error: false } : { text: 'Fingerprint was cancelled or timed out. Try again, or sign in with Google.', error: true };
   if (err && err.name === 'InvalidStateError') return { text: 'This device already has a fingerprint sign-in for PaydayFlow. Remove it in your password manager (or turn it off below) and try again.', error: true };
   if (err && err.name === 'SecurityError') return { text: 'This page address does not match the fingerprint sign-in, so the browser blocked it.', error: true };
   if (err && err.network) return { text: 'No connection yet. Try again in a moment.', error: false };
@@ -1060,56 +1063,98 @@ function updateLockPasskeyUi() {
   if (or) or.style.display = show ? 'block' : 'none';
 }
 
-// Begin -> the browser's fingerprint prompt -> finish. Resolves with { session, expiresAt }.
-async function passkeyLoginRoundTrip() {
+// Settles like `promise`, except that it fails (AbortError) as soon as `signal` is aborted, even if `promise` never
+// settles at all.
+function unlessAborted(promise, signal) {
+  return new Promise((resolve, reject) => {
+    const stop = () => reject(new DOMException('Cancelled', 'AbortError'));
+    if (signal.aborted) return stop();
+    signal.addEventListener('abort', stop);
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', stop));
+  });
+}
+
+// Begin -> the browser's fingerprint prompt -> finish. Resolves with { session, expiresAt }. `signal` (optional)
+// cancels it at any step.
+async function passkeyLoginRoundTrip(signal) {
   const cid = localStorage.getItem(PASSKEY_ID_KEY);
   const beginReq = { action: 'passkeyLoginBegin', payload: { credentialId: cid } };
+  const beginOpts = { signal, timeoutMs: PASSKEY_BEGIN_TIMEOUT_MS };
   // Just after the phone wakes up, the first request often fails before the connection is back: try once more.
-  const begin = await postToServer(beginReq).catch(err => {
-    if (!err || !err.network || err.timedOut) throw err;   // not after a 45 s wait: that is long enough
-    return new Promise(r => setTimeout(r, PASSKEY_RETRY_MS)).then(() => postToServer(beginReq));
+  const begin = await postToServer(beginReq, beginOpts).catch(err => {
+    if (!err || !err.network || err.timedOut) throw err;   // not after a long wait: that is long enough
+    return new Promise(r => setTimeout(r, PASSKEY_RETRY_MS)).then(() => postToServer(beginReq, beginOpts));
   });
   if (!begin.ok) throw Object.assign(new Error(begin.error || 'Sign-in failed'), { serverCode: begin.error });
-  const cred = await navigator.credentials.get({ publicKey: {
-    challenge: b64uToBytes(begin.data.challenge),
-    rpId: begin.data.rpId,
-    userVerification: 'required',
-    timeout: begin.data.timeoutMs,
-    allowCredentials: [{ type: 'public-key', id: b64uToBytes(cid) }]
-  } });
+  // The prompt should end by itself after its time limit, but on a phone one that never appeared can leave the
+  // request waiting for good, so it is dropped a little after that (or as soon as the caller cancels).
+  const prompt = new AbortController();
+  const drop = () => prompt.abort();
+  if (signal) { if (signal.aborted) drop(); else signal.addEventListener('abort', drop); }
+  const timer = setTimeout(drop, (begin.data.timeoutMs || 60000) + PASSKEY_PROMPT_GRACE_MS);
+  let cred;
+  try {
+    cred = await unlessAborted(navigator.credentials.get({ signal: prompt.signal, publicKey: {
+      challenge: b64uToBytes(begin.data.challenge),
+      rpId: begin.data.rpId,
+      userVerification: 'required',
+      timeout: begin.data.timeoutMs,
+      allowCredentials: [{ type: 'public-key', id: b64uToBytes(cid) }]
+    } }), prompt.signal);
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', drop);
+  }
   const r = cred.response;
   const fin = await postToServer({ action: 'passkeyLoginFinish', payload: {
     credentialId: bytesToB64u(cred.rawId),
     clientDataJSON: bytesToB64u(r.clientDataJSON),
     authenticatorData: bytesToB64u(r.authenticatorData),
     signature: bytesToB64u(r.signature)
-  } });
+  } }, { signal });
   if (!fin.ok) throw Object.assign(new Error(fin.error || 'Sign-in failed'), { serverCode: fin.error });
   return fin.data;
 }
 
-let passkeyBusy = false;
+// The fingerprint sign-in running now (its AbortController), or null.
+let passkeyAttempt = null;
+function cancelPasskeyAttempt() {
+  if (passkeyAttempt) { passkeyAttempt.abort(); passkeyAttempt = null; }
+}
 async function unlockWithPasskey(auto) {
-  if (passkeyBusy || !passkeyEnrolledHere()) return;
+  if (!passkeyEnrolledHere()) return;
+  if (passkeyAttempt) {
+    // An automatic try never asks over one already running. A tap means no prompt is on screen (it would cover the
+    // button), so the running try has stalled (a phone can drop the prompt while the app is still opening): cancel it
+    // and ask again.
+    if (auto) return;
+    cancelPasskeyAttempt();
+  }
   stopPasskeyWait();   // asked now, so a wait for focus must not ask a second time
-  passkeyBusy = true;
+  const attempt = passkeyAttempt = new AbortController();
   const label = document.getElementById('passkeyUnlockLabel');
   const msgEl = document.getElementById('authLockMsg');
   if (label) label.textContent = 'Waiting for fingerprint…';
   try {
-    const s = await passkeyLoginRoundTrip();
+    const s = await unlessAborted(passkeyLoginRoundTrip(attempt.signal), attempt.signal);
     saveSession(s.session, s.expiresAt);
     afterSignIn(false);
   } catch (err) {
-    const d = describePasskeyError(err, auto);
-    if (d.forget) { localStorage.removeItem(PASSKEY_ID_KEY); updateLockPasskeyUi(); }
-    if (msgEl) { msgEl.textContent = d.text; msgEl.style.color = d.error ? '#F87171' : '#94A3B8'; }
+    // Cancelled (by a tap that asks again, or a Google sign-in): no message, whatever cancelled it has the screen.
+    if (!attempt.signal.aborted) {
+      const d = describePasskeyError(err, auto);
+      if (d.forget) { localStorage.removeItem(PASSKEY_ID_KEY); updateLockPasskeyUi(); }
+      if (msgEl) { msgEl.textContent = d.text; msgEl.style.color = d.error ? '#F87171' : '#94A3B8'; }
+    }
   } finally {
-    if (label) label.textContent = 'Unlock with fingerprint';
-    passkeyBusy = false;
-    // Time spent in the fingerprint prompt doesn't count as being away (Android may show it over the app): if the app
-    // is still out of sight when the prompt ends, being away starts now.
-    if (document.visibilityState === 'hidden') hiddenAt = Date.now();
+    if (passkeyAttempt === attempt) passkeyAttempt = null;
+    // The button and the timing belong to a newer try, if one has started meanwhile.
+    if (!passkeyAttempt) {
+      if (label) label.textContent = 'Unlock with fingerprint';
+      // Time spent in the fingerprint prompt doesn't count as being away (Android may show it over the app): if the
+      // app is still out of sight when the prompt ends, being away starts now.
+      if (document.visibilityState === 'hidden') hiddenAt = Date.now();
+    }
   }
 }
 
@@ -1455,10 +1500,13 @@ async function signOut(forget) {
 const isConnectionError = err => !!(err && (err.network || err.badReply));
 
 // One POST to the Apps Script web app; resolves with the parsed { ok, data | error, authError } reply.
-async function postToServer(bodyObj) {
+// `opts.timeoutMs` shortens the wait; `opts.signal` lets the caller cancel it.
+async function postToServer(bodyObj, opts = {}) {
   // Give up after 45s so one stuck request can't block every request queued behind it.
   const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), 45000);
+  const timer = setTimeout(() => abort.abort(), opts.timeoutMs || 45000);
+  const cancel = () => abort.abort();
+  if (opts.signal) { if (opts.signal.aborted) cancel(); else opts.signal.addEventListener('abort', cancel); }
   let rawText;
   try {
     const res = await fetch(APPS_SCRIPT_EXEC_URL, {
@@ -1476,6 +1524,7 @@ async function postToServer(bodyObj) {
     throw netErr;
   } finally {
     clearTimeout(timer);
+    if (opts.signal) opts.signal.removeEventListener('abort', cancel);
   }
   try {
     return JSON.parse(rawText);
@@ -3232,7 +3281,7 @@ async function postToServer(bodyObj) {
       // Left on the lock screen: ask for the fingerprint again now you're back, in place of any old message (but not
       // after Sign out or a refused account, where the lock screen never asks by itself).
       if (lockScreenShowing()) {
-        if (lockAllowsAuto && !passkeyBusy && passkeyEnrolledHere()) { passkeyAutoTried = false; showLockScreen('Unlock to continue.'); }
+        if (lockAllowsAuto && !passkeyAttempt && passkeyEnrolledHere()) { passkeyAutoTried = false; showLockScreen('Unlock to continue.'); }
         return;
       }
       if (!appUiReady) return;
