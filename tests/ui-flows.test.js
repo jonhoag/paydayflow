@@ -879,6 +879,26 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.evaluate(() => setView('home'));
   });
+  await step('Spending left open while the phone folds or unfolds redraws to the bars that fit (6 wide, 4 narrow)', async () => {
+    const bars = () => page.$$eval('#spendBody .items-end > div', els => els.length);
+    await page.evaluate(() => {
+      window.__realMonths = spendMonthTotals;
+      spendMonthTotals = () => ['May', 'June', 'July', 'August', 'September', 'October'].map(m => ({ name: m + ' Payday 2026', total: 1234.56 }));
+      openSpendModal();
+    });
+    try {
+      assert.strictEqual(await bars(), 6);
+      await page.setViewportSize({ width: 400, height: 860 });
+      await page.waitForTimeout(200);
+      assert.strictEqual(await bars(), 4, 'still six bars after narrowing with Spending open');
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.waitForTimeout(200);
+      assert.strictEqual(await bars(), 6, 'still four bars after widening with Spending open');
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.evaluate(() => { spendMonthTotals = window.__realMonths; closeSpendModal(); });
+    }
+  });
   await step('desktop: Spending shows six months, each full amount fitting its own bar', async () => {
     const out = await monthBars(page);
     assert.strictEqual(out.length, 6, JSON.stringify(out));

@@ -751,7 +751,7 @@ function lsSet(key, value) { try { localStorage.setItem(key, value); return true
 function lsDel(key) { try { localStorage.removeItem(key); } catch (e) {} }
 function lsJson(key) { try { return JSON.parse(lsGet(key) || 'null'); } catch (e) { return null; } }   // null if unreadable
 function lsKeys() { try { return Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter(Boolean); } catch (e) { return []; } }
-const STORAGE_REFUSED_MSG = "This browser won't let PaydayFlow save anything (a private window?), so it can't keep you signed in here.";
+const STORAGE_REFUSED_MSG = "This browser won't let PaydayFlow save anything (a private window, or storage full?), so it can't keep you signed in here.";
 
 // ---- Line icons (replace emoji, which look different on every device) ----
 const ICON_PATHS = {
@@ -1779,6 +1779,12 @@ async function postToServer(bodyObj, opts = {}) {
         });
     }
     function toggleSpendCat(cat) { spendOpenCat = spendOpenCat === cat ? null : cat; renderSpend(); }
+    // Wide enough for six month bars with full amounts (the same 640px line as Tailwind's sm:, where the box stops
+    // being a bottom sheet). Folding or unfolding with Spending open redraws it.
+    const SPEND_WIDE_MQ = window.matchMedia('(min-width: 640px)');
+    if (SPEND_WIDE_MQ.addEventListener) SPEND_WIDE_MQ.addEventListener('change', () => {
+      if (!document.getElementById('spendModal').classList.contains('hidden')) renderSpend();
+    });
     function openSpendModal() {
       closeMenu();
       spendOpenCat = null;
@@ -1895,7 +1901,7 @@ async function postToServer(bodyObj, opts = {}) {
       html += '</div>';
       // Month by month: the months this device has loaded, oldest on the left, this month highlighted.
       // Full amounts ("£1,234.56") fit four bars across on a folded phone, six in the wider box.
-      const months = spendMonthTotals(overrides).slice(0, window.matchMedia('(min-width: 640px)').matches ? 6 : 4).reverse();
+      const months = spendMonthTotals(overrides).slice(0, SPEND_WIDE_MQ.matches ? 6 : 4).reverse();
       if (months.length > 1) {
         const mtop = Math.max(1, ...months.map(m => m.total));
         const label = name => monthSortValue(name) ? String(name).slice(0, 3) : String(name).split(' ')[0];
@@ -2012,7 +2018,6 @@ async function postToServer(bodyObj, opts = {}) {
     function fmtSigned(val) { return (val > 0 ? '+' : '') + fmtGBP(val); }
     // Colour of a bill or spend amount: plain when money goes out, green when it comes in (Owed uses amtTone instead).
     function moneyTone(val) { return val < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'; }
-    // To the nearest pound, for short labels: "£13".
 
     // Shown in place of a row's buttons until the server has saved it.
     const SAVING_TAG = '<span class="text-xs text-slate-500 dark:text-slate-400">saving…</span>';
