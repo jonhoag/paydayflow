@@ -133,13 +133,13 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(ok, 'a balance spills out of its tile');
   });
 
-  await step('money labels: whole pounds round to the nearest pound; signed amounts show + for money in', async () => {
+  await step('money helpers: fmtGBPWhole rounds to the nearest pound; fmtSigned shows + for money in', async () => {
     const out = await page.evaluate(() => [fmtGBPWhole(12.5), fmtGBPWhole(12.49), fmtGBPWhole(-3.6), fmtGBPWhole(1234.5), fmtGBPWhole(-0.4),
       fmtSigned(5), fmtSigned(-5), fmtSigned(0)]);
     assert.deepStrictEqual(out, ['£13', '£12', '−£4', '£1,235', '£0', '+£5.00', '−£5.00', '£0.00']);
   });
 
-  await step('storage that refuses (a private window, or blocked) reads as empty instead of stopping the page', async () => {
+  await step('storage helpers: storage that refuses (a private window, or blocked) reads as empty instead of throwing', async () => {
     const out = await page.evaluate(() => {
       localStorage.setItem('pf_test_junk', '{not json');
       const junk = lsJson('pf_test_junk');
@@ -1059,6 +1059,16 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     p2.on('pageerror', e => errors.push(e.message));
     await p2.goto(`http://localhost:${PORT}/tests/harness.html?demo=1&token=none&latency=50`);
     await p2.waitForFunction(() => window.MOCK && typeof MOCK.gsiCallback === 'function');
+    await step('a browser that refuses to save the sign-in says so plainly and sends nothing', async () => {
+      const s = await p2.evaluate(() => {
+        const P = Storage.prototype, real = P.setItem;
+        P.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); };
+        try { MOCK.gsiCallback({ credential: MOCK.makeToken('owner@example.com') }); } finally { P.setItem = real; }
+        return { msg: document.getElementById('authLockMsg').textContent, calls: MOCK.calls.length };
+      });
+      assert.ok(s.msg.includes("won't let PaydayFlow save anything"), s.msg);
+      assert.strictEqual(s.calls, 0, 'sent a request without a saved sign-in');
+    });
     await step('Google sign-in the server turns down: says why and which account, keeps no token, does not loop', async () => {
       // Google would sign this account back in by itself (auto select) every time the lock screen asks.
       await p2.evaluate(() => { MOCK.authError = "FORBIDDEN: This Google account can't open PaydayFlow."; MOCK.gsiAccount = 'someone@example.com'; MOCK.gsiCallback({ credential: MOCK.makeToken('someone@example.com') }); });

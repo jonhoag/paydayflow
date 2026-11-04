@@ -750,6 +750,8 @@ function lsGet(key) { try { return localStorage.getItem(key); } catch (e) { retu
 function lsSet(key, value) { try { localStorage.setItem(key, value); return true; } catch (e) { return false; } }
 function lsDel(key) { try { localStorage.removeItem(key); } catch (e) {} }
 function lsJson(key) { try { return JSON.parse(lsGet(key) || 'null'); } catch (e) { return null; } }   // null if unreadable
+function lsKeys() { try { return Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter(Boolean); } catch (e) { return []; } }
+const STORAGE_REFUSED_MSG = "This browser won't let PaydayFlow save anything (a private window?), so it can't keep you signed in here.";
 
 // ---- Line icons (replace emoji, which look different on every device) ----
 const ICON_PATHS = {
@@ -988,7 +990,8 @@ function initGoogleAuthButton() {
         if (response && response.credential) {
           // The server checks that this is the owner's account; a refusal comes back as an auth error (apiCallNow).
           const payload = parseJwtPayload(response.credential);
-          lsSet(TOKEN_STORAGE_KEY, response.credential);
+          // Nothing can be sent without the saved token, so say why plainly instead of "Authentication required".
+          if (!lsSet(TOKEN_STORAGE_KEY, response.credential)) { setLockMsg(STORAGE_REFUSED_MSG, true); return; }
           clearSession();   // a fresh Google sign-in replaces any older fingerprint session
           afterSignIn(true, String((payload && payload.email) || ''));
         }
@@ -1208,7 +1211,7 @@ async function setUpPasskey() {
     attestationObject: bytesToB64u(cred.response.attestationObject),
     label: deviceLabel()
   }, { needGoogle: true });
-  lsSet(PASSKEY_ID_KEY, out.credentialId);
+  if (!lsSet(PASSKEY_ID_KEY, out.credentialId)) throw new Error(STORAGE_REFUSED_MSG);
   return true;
 }
 
@@ -1414,12 +1417,7 @@ async function sendWaitingBeforeSignOut() {
 // Every saved key of this app goes, except the preferences above and, for a plain sign-out, the fingerprint link.
 function clearThisDevice(forget) {
   const keep = SIGN_OUT_KEEP.concat(forget ? [] : [PASSKEY_ID_KEY]);
-  try {
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const k = localStorage.key(i);
-      if (k && k.indexOf('pf_') === 0 && keep.indexOf(k) === -1) localStorage.removeItem(k);
-    }
-  } catch (e) {}
+  lsKeys().filter(k => k.indexOf('pf_') === 0 && keep.indexOf(k) === -1).forEach(lsDel);
 }
 // With spends still waiting to send, the first tap only warns; a second tap within a few seconds signs out anyway.
 async function signOut(forget) {
@@ -2011,6 +2009,8 @@ async function postToServer(bodyObj, opts = {}) {
     }
     // With a + for money in: "+£12.00", "−£12.00".
     function fmtSigned(val) { return (val > 0 ? '+' : '') + fmtGBP(val); }
+    // Colour of a bill or spend amount: plain when money goes out, green when it comes in (Owed uses amtTone instead).
+    function moneyTone(val) { return val < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'; }
     // To the nearest pound, for short labels: "£13".
     function fmtGBPWhole(val) { return fmtGBP(Math.round(Number(val || 0))).replace(/\.00$/, ''); }
 
@@ -2083,13 +2083,11 @@ async function postToServer(bodyObj, opts = {}) {
     // Saved copies of months that are no longer in the sheet are deleted from this device.
     function pruneLocalMonths(available) {
       if (!Array.isArray(available) || !available.length) return;
-      try {
-        const keep = new Set(available);
-        for (let i = localStorage.length - 1; i >= 0; i--) {
-          const m = /^pf_(?:cache|tx_ts)_(.*)$/.exec(localStorage.key(i) || '');
-          if (m && !keep.has(m[1])) localStorage.removeItem(m[0]);
-        }
-      } catch (e) {}
+      const keep = new Set(available);
+      lsKeys().forEach(k => {
+        const prefix = [CACHE_PREFIX, TX_TS_PREFIX].find(p => k.indexOf(p) === 0);
+        if (prefix && !keep.has(k.slice(prefix.length))) lsDel(k);
+      });
     }
 
     // For a save that targets a specific month: if you've since moved to another month, keep the reply in the
@@ -2268,7 +2266,7 @@ async function postToServer(bodyObj, opts = {}) {
               ${nameBtn(b, 'font-medium text-slate-800 dark:text-slate-100')}
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <span class="tabular-nums font-semibold whitespace-nowrap ${b.amount < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'}">${fmtSigned(b.amount)}</span>
+              <span class="tabular-nums font-semibold whitespace-nowrap ${moneyTone(b.amount)}">${fmtSigned(b.amount)}</span>
               ${b.pending ? SAVING_TAG : `
               <button onclick="markBudgetPaid(${b.row})" aria-label="Mark ${esc(b.name)} paid"
                       class="hit ${pill} border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950">
@@ -2744,7 +2742,7 @@ async function postToServer(bodyObj, opts = {}) {
             <span class="font-medium text-slate-800 dark:text-slate-100 truncate">${esc(displayName(r.desc))}</span>
           </span>
           <span class="flex items-center gap-2 shrink-0">
-            <span class="tabular-nums font-semibold whitespace-nowrap ${r.amount < 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400'}">${fmtSigned(r.amount)}</span>
+            <span class="tabular-nums font-semibold whitespace-nowrap ${moneyTone(r.amount)}">${fmtSigned(r.amount)}</span>
             ${r.pending ? SAVING_TAG : ''}
           </span>
         </${r.pending ? 'div' : 'button'}>
@@ -3225,11 +3223,10 @@ async function postToServer(bodyObj, opts = {}) {
       // What is still owed carries over to the new month
       const pendingItems = (state.checking || []).filter(r => r.need);
       const pendingSum = +pendingItems.reduce((acc, r) => acc + Number(r.amount || 0), 0).toFixed(2);
-      const signPrefix = pendingSum > 0 ? '+' : (pendingSum < 0 ? '−' : '');
       const settleEl = document.getElementById('roSettle');
       if (settleEl) {
         settleEl.textContent = pendingItems.length
-          ? `${pendingItems.length} item${pendingItems.length === 1 ? '' : 's'} (${signPrefix}${fmtGBP(Math.abs(pendingSum))})`
+          ? `${pendingItems.length} item${pendingItems.length === 1 ? '' : 's'} (${fmtSigned(pendingSum)})`
           : 'None';
       }
 
