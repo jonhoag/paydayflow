@@ -365,13 +365,16 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(!(await visible(page, '#txFilters')) && !(await visible(page, '#txSearch')), 'the filters should start folded away');
     assert.strictEqual(await page.getAttribute('#txFilterBtn', 'aria-expanded'), 'false');
     const all = await rowCount();
+    const look = () => page.$eval('#txFilterBtn', b => getComputedStyle(b).color + ' ' + getComputedStyle(b).backgroundColor);
+    const closedLook = await look();
     await page.click('#txFilterBtn');
+    assert.notStrictEqual(await look(), closedLook, 'the button should look different while its filters are open');
     assert.ok(await visible(page, '#txFilters') && await visible(page, '#txSearch'), 'the button should show the filters');
     assert.strictEqual(await page.getAttribute('#txFilterBtn', 'aria-expanded'), 'true');
     assert.ok(!(await visible(page, '#txActive')), 'no chips while the filters themselves show');
     const word = await page.evaluate(() => state.amex.find(r => r.desc.toLowerCase() !== 'start').desc.slice(0, 4));
     await page.click('#txf_amex');
-    await page.fill('#txSearch', word);
+    await page.fill('#txSearch', word + ' ');   // phone keyboards add a space after a suggestion
     await page.click('#txFilterBtn');
     assert.ok(!(await visible(page, '#txFilters')) && !(await visible(page, '#txSearch')));
     const chips = await page.$$eval('#txActive button', b => b.map(x => x.getAttribute('aria-label')));
@@ -380,7 +383,15 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(shown.length >= 1 && shown.length < all, 'the list should still be filtered: ' + JSON.stringify(shown));
     await page.click('#txActive button[aria-label="Clear filter: Amex only"]');
     assert.strictEqual(await page.evaluate(() => txFilter), 'all');
-    await page.click('#txActive button');   // the search one is left
+    await page.click('#txFilterBtn');
+    await page.fill('#txSearch', '   ');   // only spaces: no filter, so every row and no chip
+    await page.click('#txFilterBtn');
+    assert.strictEqual(await rowCount(), all, 'a search of only spaces hid rows');
+    assert.deepStrictEqual(await page.$$eval('#txActive button', b => b.map(x => x.getAttribute('aria-label'))), [], 'no chip for spaces');
+    await page.click('#txFilterBtn');
+    await page.fill('#txSearch', word);
+    await page.click('#txFilterBtn');
+    await page.click('#txActive button');   // the search one
     assert.strictEqual(await page.inputValue('#txSearch'), '');
     assert.ok(!(await visible(page, '#txActive')), 'no chips once nothing is left on');
     assert.strictEqual(await rowCount(), all);
@@ -936,6 +947,9 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     const rows = await page.$$eval('#txListContainer > .tx-row', d => d.length);
     assert.strictEqual(rows, 8);
     assert.ok(await visible(page, '#txFilters') && await visible(page, '#txSearch'), 'desktop keeps the Activity filters');
+    await page.click('#txf_amex');
+    assert.ok(!(await visible(page, '#txFilterBtn')) && !(await visible(page, '#txActive')), 'desktop needs no filter button or chips');
+    await page.click('#txf_all');
     assert.ok(await page.$('#sec_activity button:has-text("Show all")'), 'desktop keeps "Show all"');
   });
   await step('desktop: Owed sits under Bills, Activity on the right; no top-bar Add, the sidebar Add is always there', async () => {

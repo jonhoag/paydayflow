@@ -43,6 +43,9 @@
     .chip-row::-webkit-scrollbar { display: none; }
     /* Small buttons get a 44x44px hit area (at least their own size) without changing how they look. */
     .hit { position: relative; }
+    /* The Activity filter button shows when its filters are open (its look follows aria-expanded, see renderTxFilterUi). */
+    #txFilterBtn[aria-expanded="true"] { color: #059669; background: rgba(16, 185, 129, 0.12); }
+    .dark #txFilterBtn[aria-expanded="true"] { color: #34D399; background: rgba(16, 185, 129, 0.16); }
     .hit::after { content: ''; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
     /* "Owed": Home on a phone shows a short summary per person; the Owed tab (and desktop) shows every item. */
     .owed-summary, .act-title-tab, #actSpend { display: none; }
@@ -66,7 +69,7 @@
       /* A tab that is the whole screen can't be folded away, so it has no ▾. */
       body[data-view="budgets"] #chevBudgets, body[data-view="pending"] #chevPending, body[data-view="activity"] #chevActivity { display: none; }
       /* Home shows the latest few spends with no filters; the Activity tab has the filters (see renderTransactions). */
-      body:not([data-view="activity"]) #txFilters, body:not([data-view="activity"]) #txSearch, body:not([data-view="activity"]) #txFilterBtn { display: none; }
+      body:not([data-view="activity"]) #txFilterPanel, body:not([data-view="activity"]) #txFilterBtn { display: none; }
       /* space-y-3 still spaces the list from those hidden filters, so take that gap away. */
       body:not([data-view="activity"]) #txListContainer { margin-top: 0; }
     }
@@ -2699,6 +2702,7 @@ async function postToServer(bodyObj, opts = {}) {
     // still on shows as a chip (tap to clear). They start folded away each time you open the tab.
     let txFiltersOpen = false;
     function toggleTxFilters() {
+      closeMenu();   // the header's buttons stop the page click that would close it
       txFiltersOpen = !txFiltersOpen;
       renderTransactions();
     }
@@ -2709,12 +2713,10 @@ async function postToServer(bodyObj, opts = {}) {
     function renderTxFilterUi(q) {
       const btn = document.getElementById('txFilterBtn');
       btn.setAttribute('aria-expanded', String(txFiltersOpen));
-      btn.classList.toggle('text-emerald-600', txFiltersOpen);
-      btn.classList.toggle('dark:text-emerald-400', txFiltersOpen);
       document.getElementById('txFilterPanel').classList.toggle('hidden', !txFiltersOpen);
       const chip = (label, onclick) => `<button type="button" onclick="${onclick}" aria-label="Clear filter: ${esc(label)}" class="hit h-8 px-3 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">${esc(label)}<span aria-hidden="true">✕</span></button>`;
       const chips = txFiltersOpen ? [] : [
-        txFilter !== 'all' ? chip(document.getElementById('txf_' + txFilter).textContent + ' only', "setTxFilter('all')") : '',
+        txFilter !== 'all' ? chip(ACCOUNT_CARDS[txFilter].name + ' only', "setTxFilter('all')") : '',
         q ? chip('“' + q + '”', 'clearTxSearch()') : ''
       ].filter(Boolean);
       const box = document.getElementById('txActive');
@@ -2777,13 +2779,13 @@ async function postToServer(bodyObj, opts = {}) {
       const search = document.getElementById('txSearch');
       const onTab = onPhoneTab('activity');
       const phoneHome = PHONE_MQ.matches && !onTab;
-      if (!onTab) actCat = null;
+      if (!onTab) { actCat = null; txFiltersOpen = false; }
       // Home on a phone has no filters, so none may be left on (this also clears them when a window narrows to phone size).
       if (phoneHome && (txFilter !== 'all' || search.value)) { markTxFilter('all'); search.value = ''; }
-      if (!onTab) txFiltersOpen = false;
       if (onTab) renderActSpend();
+      // Trimmed, so a phone keyboard's trailing space (or a search of only spaces) can't hide rows with no chip to say so.
+      const q = search.value.trim().toLowerCase();
       renderTxFilterUi(search.value.trim());
-      const q = (search.value || '').toLowerCase();
       const tsMap = getLocalTimestamps();
 
       const tagRows = (arr, acct) => {
