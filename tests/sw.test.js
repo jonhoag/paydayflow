@@ -59,6 +59,11 @@ async function step(name, fn) {
     return Date.now() - t0;
   };
 
+  // A device that ran an older version can still hold the page saved as /index.html, in the same cache.
+  const CACHE_NAME = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8').match(/CACHE_NAME = '([^']+)'/)[1];
+  await page.goto(origin + '/manifest.json');   // somewhere on the site that doesn't start the service worker
+  await page.evaluate(async n => (await caches.open(n)).put('/index.html', new Response('old page')), CACHE_NAME);
+
   await step('first visit: the service worker installs and saves the app', async () => {
     await reload();
     await page.evaluate(() => navigator.serviceWorker.ready);
@@ -66,6 +71,11 @@ async function step(name, fn) {
     assert.ok(await page.evaluate(() => !!navigator.serviceWorker.controller), 'page is not controlled by the service worker');
     const c = await cachedPage();
     assert.ok(c && c.status === 200 && /PaydayFlow/.test(c.text), 'app not saved');
+  });
+
+  await step('the old copy saved as /index.html is removed (the one under the plain address stays)', async () => {
+    const r = await page.evaluate(async () => ({ old: !!(await caches.match('/index.html')), page: !!(await caches.match('/')) }));
+    assert.deepStrictEqual(r, { old: false, page: true });
   });
 
   await step('the font is fetched once, then always served from the saved copy', async () => {

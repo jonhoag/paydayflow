@@ -230,9 +230,13 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.ok(await visible(page, body), 'tapping the header folded the ' + nav + ' tab away');
     }
     await page.click('nav [data-nav="home"]');
+    const expanded = () => page.$$eval('#chevBudgets, #chevPending, #chevActivity', els => els.map(e => [e.getAttribute('aria-label'), e.getAttribute('aria-controls'), e.getAttribute('aria-expanded')].join('|')));
+    assert.deepStrictEqual(await expanded(), ['Show or hide Bills & Budgets|budgetsBody|true', 'Show or hide Owed to you|pendingBody|true', 'Show or hide Activity|activityBody|true']);
     await page.click('#chevActivity');
     assert.ok(!(await visible(page, '#activityBody')), 'the ▾ on Home should still fold a section');
+    assert.strictEqual((await expanded())[2], 'Show or hide Activity|activityBody|false', 'a screen reader should hear it is folded');
     await page.click('#chevActivity');
+    assert.strictEqual((await expanded())[2], 'Show or hide Activity|activityBody|true');
   });
 
   await step('owed: with one person owing, the header has no "All paid back" (theirs does the same job)', async () => {
