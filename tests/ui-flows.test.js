@@ -372,7 +372,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(await visible(page, '#txFilters') && await visible(page, '#txSearch'), 'the button should show the filters');
     assert.strictEqual(await page.getAttribute('#txFilterBtn', 'aria-expanded'), 'true');
     assert.ok(!(await visible(page, '#txActive')), 'no chips while the filters themselves show');
-    const word = await page.evaluate(() => state.amex.find(r => r.desc.toLowerCase() !== 'start').desc.slice(0, 4));
+    const word = await page.evaluate(() => state.amex.find(r => r.desc.toLowerCase() !== 'start').desc.slice(0, 4).trim());
     await page.click('#txf_amex');
     await page.fill('#txSearch', word + ' ');   // phone keyboards add a space after a suggestion
     await page.click('#txFilterBtn');
