@@ -3,8 +3,7 @@
 // app opens at once from its saved copy, picks up a new version for next time (and offers a reload), and that a bad
 // reply never replaces the saved copy.
 //
-//   set PW_PATH=C:\Users\JonfH\pf-tools\node_modules\playwright-core
-//   node tests/sw.test.js
+//   node tests/sw.test.js   (playwright-core from PW_PATH, or from npm ci --ignore-scripts)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');

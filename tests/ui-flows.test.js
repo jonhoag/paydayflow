@@ -1,8 +1,7 @@
 // Real-Chrome click-through of the main screens, using the test page (real index.html, pretend backend).
 // Checks the redesigned layout and that every button still makes the right save.
 //
-//   set PW_PATH=C:\Users\JonfH\pf-tools\node_modules\playwright-core
-//   node tests/ui-flows.test.js
+//   node tests/ui-flows.test.js   (playwright-core from PW_PATH, or from npm ci --ignore-scripts)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -33,8 +32,6 @@ async function monthBars(page) {
     } finally { spendMonthTotals = real; closeSpendModal(); }
   });
 }
-
-
 
 // 21 extra "owed" items (Kim 10, Robin 4 more, Sam 4, Lee 3) on top of the demo data. All names are invented.
 const SEED_OWED = `(async () => {
@@ -887,7 +884,6 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(left.includes('pf_cache_Test Payday 2026'), left.join());
   });
 
-
   await step('coming back to the app after a while fetches the latest figures; a quick glance away does not', async () => {
     let n = (await calls(page, 'getCachedSheetState')).length;
     await awayAndBack(page, 5000);
@@ -1196,8 +1192,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   // ---------------- a Google account the server turns down ----------------
   {
     const c2 = await browser.newContext(desk);
-    const p2 = await c2.newPage();
-    p2.on('pageerror', e => errors.push(e.message));
+    const p2 = watch(await c2.newPage());
     await p2.goto(`http://localhost:${PORT}/tests/harness.html?demo=1&token=none&latency=50`);
     await p2.waitForFunction(() => window.MOCK && typeof MOCK.gsiCallback === 'function');
     await step('a browser that refuses to save the sign-in says so plainly and sends nothing', async () => {
@@ -1387,7 +1382,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     }
     {
       const c2 = await browser.newContext(phone);
-      const p2 = await c2.newPage();
+      const p2 = watch(await c2.newPage());
       await p2.goto(`http://localhost:${PORT}/tests/harness.html?demo=1&token=none&go=owed&latency=50`);
       await p2.waitForFunction(() => window.MOCK && typeof MOCK.gsiCallback === 'function');
       await step('shortcut while signed out: the screen opens once you have signed in', async () => {

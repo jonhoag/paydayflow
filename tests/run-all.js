@@ -1,8 +1,8 @@
 // Runs every automated check:  node tests/run-all.js
 //   --quick             Node checks only, even when PW_PATH is set (deploy-backend.ps1 uses this)
 //   --require-private   fail if the backend checks are missing (deploy-backend.ps1 uses this too)
-//   - the page's own checks: spending summary, tailwind.css freshness, and in real Chrome (set PW_PATH to a
-//     playwright-core folder) the service worker and the screens
+//   - the page's own checks: spending summary, tailwind.css freshness, and in real Chrome (playwright-core from
+//     PW_PATH, or from npm ci --ignore-scripts) the service worker and the screens
 //   - the backend checks, listed in tests/private/suites.js. They need the private backend files, so they are kept
 //     out of the public repo with them; where that folder is missing they are skipped, and the summary says so.
 const { spawnSync } = require('child_process');
@@ -12,7 +12,8 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const quick = process.argv.includes('--quick');
 const requirePrivate = process.argv.includes('--require-private');
-const chrome = !!process.env.PW_PATH && !quick;
+const canDriveChrome = (() => { try { require.resolve(process.env.PW_PATH || 'playwright-core'); return true; } catch (e) { return false; } })();
+const chrome = canDriveChrome && !quick;
 const privateList = path.join(__dirname, 'private', 'suites.js');
 const privateSuites = fs.existsSync(privateList) ? require(privateList) : null;
 const backend = (privateSuites || []).filter(s => !s[2]);
@@ -28,7 +29,7 @@ if (chrome) {
   suites.push(['service worker (real Chrome)', ['tests/sw.test.js']]);
   suites.push(['screens and buttons (real Chrome)', ['tests/ui-flows.test.js']]);
 } else if (quick) console.log('(quick run: the real-Chrome tests are skipped)\n');
-else console.log('(skipping the real-Chrome tests: set PW_PATH to a playwright-core folder to include them)\n');
+else console.log('(skipping the real-Chrome tests: run npm ci --ignore-scripts, or set PW_PATH to a playwright-core folder)\n');
 
 let failed = 0;
 for (const [name, args] of suites) {

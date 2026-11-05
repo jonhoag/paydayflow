@@ -3,7 +3,7 @@
 const CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
 const { chromium } = require(process.env.PW_PATH || 'playwright-core');
 
-const launchChrome = () => chromium.launch({ executablePath: CHROME, headless: true });
+const launchChrome = (opts = {}) => chromium.launch({ executablePath: CHROME, headless: true, ...opts });
 
 // step(name, fn) runs one check and records whether it passed (with the first lines of the error if not); a failed
 // check never stops the run. finish() prints every result and the count, and exits 1 if any failed.
@@ -34,4 +34,4 @@ const awayAndBack = (page, ms) => page.evaluate(away => {
   try { vis('visible'); } finally { Date.now = realNow; }
 }, ms);
 
-module.exports = { CHROME, launchChrome, makeSteps, awayAndBack };
+module.exports = { launchChrome, makeSteps, awayAndBack };

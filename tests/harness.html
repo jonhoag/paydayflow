@@ -276,7 +276,6 @@
   xhr.open('GET', new URLSearchParams(location.search).get('src') || '/index.html', false);
   xhr.send();
   let html = xhr.responseText;
-
   // The page is served from /tests/ here, so make its relative links (tailwind.css, sw.js...) resolve from the root.
   html = html.replace(/<head>/i, '<head><base href="/">');
   // Written once this harness has finished parsing. While its own parser is running, document.open() does nothing
