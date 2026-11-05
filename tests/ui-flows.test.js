@@ -359,8 +359,47 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok((await page.textContent('#actSpend')).includes('Spent on cards this month'));
   });
 
+  await step('Activity tab: the account filters and search fold away behind one button; each left on shows as a chip that clears it', async () => {
+    await page.evaluate(() => setView('activity'));
+    const rowCount = () => page.$$eval('#txListContainer > .tx-row', d => d.length);
+    assert.ok(!(await visible(page, '#txFilters')) && !(await visible(page, '#txSearch')), 'the filters should start folded away');
+    assert.strictEqual(await page.getAttribute('#txFilterBtn', 'aria-expanded'), 'false');
+    const all = await rowCount();
+    const look = () => page.$eval('#txFilterBtn', b => getComputedStyle(b).color + ' ' + getComputedStyle(b).backgroundColor);
+    const closedLook = await look();
+    await page.click('#txFilterBtn');
+    assert.notStrictEqual(await look(), closedLook, 'the button should look different while its filters are open');
+    assert.ok(await visible(page, '#txFilters') && await visible(page, '#txSearch'), 'the button should show the filters');
+    assert.strictEqual(await page.getAttribute('#txFilterBtn', 'aria-expanded'), 'true');
+    assert.ok(!(await visible(page, '#txActive')), 'no chips while the filters themselves show');
+    const word = await page.evaluate(() => state.amex.find(r => r.desc.toLowerCase() !== 'start').desc.slice(0, 4).trim());
+    await page.click('#txf_amex');
+    await page.fill('#txSearch', word + ' ');   // phone keyboards add a space after a suggestion
+    await page.click('#txFilterBtn');
+    assert.ok(!(await visible(page, '#txFilters')) && !(await visible(page, '#txSearch')));
+    const chips = await page.$$eval('#txActive button', b => b.map(x => x.getAttribute('aria-label')));
+    assert.deepStrictEqual(chips, ['Clear filter: Amex only', 'Clear filter: \u201C' + word + '\u201D']);
+    const shown = await page.$$eval('#txListContainer > .tx-row', d => d.map(r => r.getAttribute('aria-label')));
+    assert.ok(shown.length >= 1 && shown.length < all, 'the list should still be filtered: ' + JSON.stringify(shown));
+    await page.click('#txActive button[aria-label="Clear filter: Amex only"]');
+    assert.strictEqual(await page.evaluate(() => txFilter), 'all');
+    await page.click('#txFilterBtn');
+    await page.fill('#txSearch', '   ');   // only spaces: no filter, so every row and no chip
+    await page.click('#txFilterBtn');
+    assert.strictEqual(await rowCount(), all, 'a search of only spaces hid rows');
+    assert.deepStrictEqual(await page.$$eval('#txActive button', b => b.map(x => x.getAttribute('aria-label'))), [], 'no chip for spaces');
+    await page.click('#txFilterBtn');
+    await page.fill('#txSearch', word);
+    await page.click('#txFilterBtn');
+    await page.click('#txActive button');   // the search one
+    assert.strictEqual(await page.inputValue('#txSearch'), '');
+    assert.ok(!(await visible(page, '#txActive')), 'no chips once nothing is left on');
+    assert.strictEqual(await rowCount(), all);
+  });
+
   await step('leaving the Activity tab clears its filters; Home shows the latest 4, no filters, and "See all"', async () => {
     await page.click('#actSpend button[data-cat="Groceries"]');
+    await page.click('#txFilterBtn');
     await page.click('#txf_amex');
     await page.fill('#txSearch', 'zzz');
     await page.click('nav [data-nav="home"]');
@@ -373,6 +412,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.strictEqual(await page.evaluate(() => document.body.dataset.view), 'activity', '"See all" should open the Activity tab');
     const s = await page.evaluate(() => ({ filter: txFilter, search: document.getElementById('txSearch').value, cat: actCat }));
     assert.deepStrictEqual(s, { filter: 'all', search: '', cat: null }, 'the old filters came back');
+    assert.ok(!(await visible(page, '#txFilters')) && !(await visible(page, '#txActive')), 'the filters should be folded away again, with no chips');
     await page.click('nav [data-nav="home"]');
   });
 
@@ -407,6 +447,22 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     const a = (await calls(page, 'addTransactionBundle')).pop();
     assert.ok(a && a.merchant === 'Flow test shop' && Number(a.grossAmount) === 7.25, JSON.stringify(a));
     assert.ok((await page.textContent('#txListContainer')).includes('Flow test shop'));
+  });
+
+  await step('Add and Edit forms: Amount comes first, full width and large, then Where / Description', async () => {
+    const r = await page.evaluate(() => {
+      const out = {};
+      for (const [modal, a, d] of [['addModal', 'inpAmount', 'inpMerchant'], ['editTxModal', 'editTxAmt', 'editTxDesc']]) {
+        document.getElementById(modal).classList.remove('hidden');
+        const A = document.getElementById(a), D = document.getElementById(d), ra = A.getBoundingClientRect(), rd = D.getBoundingClientRect();
+        out[modal] = { above: ra.bottom <= rd.top, sameWidth: Math.abs(ra.width - rd.width) < 1, size: getComputedStyle(A).fontSize,
+          tabOrder: !!(A.compareDocumentPosition(D) & Node.DOCUMENT_POSITION_FOLLOWING) };
+        document.getElementById(modal).classList.add('hidden');
+      }
+      return out;
+    });
+    const want = { above: true, sameWidth: true, size: '28px', tabOrder: true };
+    assert.deepStrictEqual(r, { addModal: want, editTxModal: want });
   });
 
   await step('edit then delete a transaction (with what the row should contain), and Undo', async () => {
@@ -525,7 +581,13 @@ const contrastOf = (page, sel) => page.evaluate(s => {
         await page.evaluate(() => { document.getElementById('paidFold').open = true; });
         bad = bad.concat(await check('#clearedBudgetsList button:not([aria-label])', 1));
         await page.evaluate(() => setView('activity'));
+        bad = bad.concat(await check('#txFilterBtn', 1));
+        await page.click('#txFilterBtn');
         bad = bad.concat(await check('#txFilters button', 5));
+        await page.click('#txf_amex');
+        await page.click('#txFilterBtn');
+        bad = bad.concat(await check('#txActive button', 1));
+        await page.click('#txActive button');
         bad = bad.concat(await check('#actSpend button[data-cat]', 2));
         await page.evaluate(() => setView('home'));
         console.log('      hit areas: ' + report.join(' | '));
@@ -885,6 +947,9 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     const rows = await page.$$eval('#txListContainer > .tx-row', d => d.length);
     assert.strictEqual(rows, 8);
     assert.ok(await visible(page, '#txFilters') && await visible(page, '#txSearch'), 'desktop keeps the Activity filters');
+    await page.click('#txf_amex');
+    assert.ok(!(await visible(page, '#txFilterBtn')) && !(await visible(page, '#txActive')), 'desktop needs no filter button or chips');
+    await page.click('#txf_all');
     assert.ok(await page.$('#sec_activity button:has-text("Show all")'), 'desktop keeps "Show all"');
   });
   await step('desktop: Owed sits under Bills, Activity on the right; no top-bar Add, the sidebar Add is always there', async () => {

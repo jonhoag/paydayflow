@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Styles are pre-built into tailwind.css (see build-css.js); the service worker keeps a copy for offline use. -->
-  <link rel="stylesheet" href="tailwind.css?v=e339f4a9bf">
+  <link rel="stylesheet" href="tailwind.css?v=70406de626">
   <style>
     /* Inter, served from this site (SIL Open Font License: fonts/OFL.txt): one variable file per set of characters,
        fetched only when the page uses them. Text shows in the fallback font until it arrives. */
@@ -43,6 +43,9 @@
     .chip-row::-webkit-scrollbar { display: none; }
     /* Small buttons get a 44x44px hit area (at least their own size) without changing how they look. */
     .hit { position: relative; }
+    /* The Activity filter button shows when its filters are open (its look follows aria-expanded, see renderTxFilterUi). */
+    #txFilterBtn[aria-expanded="true"] { color: #059669; background: rgba(16, 185, 129, 0.12); }
+    .dark #txFilterBtn[aria-expanded="true"] { color: #34D399; background: rgba(16, 185, 129, 0.16); }
     .hit::after { content: ''; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
     /* "Owed": Home on a phone shows a short summary per person; the Owed tab (and desktop) shows every item. */
     .owed-summary, .act-title-tab, #actSpend { display: none; }
@@ -66,7 +69,7 @@
       /* A tab that is the whole screen can't be folded away, so it has no ▾. */
       body[data-view="budgets"] #chevBudgets, body[data-view="pending"] #chevPending, body[data-view="activity"] #chevActivity { display: none; }
       /* Home shows the latest few spends with no filters; the Activity tab has the filters (see renderTransactions). */
-      body:not([data-view="activity"]) #txFilters, body:not([data-view="activity"]) #txSearch { display: none; }
+      body:not([data-view="activity"]) #txFilterPanel, body:not([data-view="activity"]) #txFilterBtn { display: none; }
       /* space-y-3 still spaces the list from those hidden filters, so take that gap away. */
       body:not([data-view="activity"]) #txListContainer { margin-top: 0; }
     }
@@ -78,7 +81,10 @@
       body[data-view="home"] #sec_budgets { grid-row: 1 / span 2; }
       body[data-view="home"] .sec-head { flex-direction: column; align-items: flex-start; gap: 0.25rem; }
     }
+    /* The desktop has room for the Activity filters, so they always show there and need no button. */
     @media (min-width: 1024px) {
+      #txFilterBtn, #txActive { display: none; }
+      #txFilterPanel { display: block; }
       #mainGrid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto 1fr; align-items: start; }
       #sec_budgets { grid-column: 1; grid-row: 1; }
       #sec_pending { grid-column: 1; grid-row: 2; }
@@ -410,14 +416,21 @@
         <div id="sec_activity" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
           <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('activity')">
             <h2 class="text-base font-semibold text-slate-900 dark:text-white"><span class="act-title-home">Recent Activity</span><span class="act-title-tab">Activity</span></h2>
-            <button onclick="event.stopPropagation(); toggleSection('activity')" id="chevActivity" aria-label="Recent Activity" aria-controls="activityBody" aria-expanded="true" class="hit w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
-              ▾
-            </button>
+            <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation()">
+              <!-- Phone Activity tab: the account filters and search fold away behind this (see toggleTxFilters) -->
+              <button onclick="toggleTxFilters()" id="txFilterBtn" aria-label="Filter activity" aria-controls="txFilterPanel" aria-expanded="false" class="hit w-11 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center">
+                <span data-icon="filter" data-class="w-[18px] h-[18px]"></span>
+              </button>
+              <button onclick="toggleSection('activity')" id="chevActivity" aria-label="Recent Activity" aria-controls="activityBody" aria-expanded="true" class="hit w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
+                ▾
+              </button>
+            </div>
           </div>
 
           <div id="activityBody" class="px-4 pb-4 space-y-3 border-t border-slate-100 dark:border-slate-800/80 pt-3">
             <!-- Phone Activity tab only: this month's card spending; tap a category to filter the list below -->
             <div id="actSpend"></div>
+            <div id="txFilterPanel" class="hidden space-y-3">
             <div id="txFilters"><div class="chip-row overflow-x-auto">
               <div class="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold w-max">
                 <button onclick="setTxFilter('all')" id="txf_all" class="hit px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">All</button>
@@ -429,6 +442,9 @@
             </div></div>
             <input id="txSearch" type="text" placeholder="Filter merchant..." oninput="renderTransactions()"
                    class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none" />
+            </div>
+            <!-- With the filters folded away, each one still on shows here; tap it to clear it -->
+            <div id="txActive" class="hidden flex flex-wrap gap-2"></div>
             <div id="txListContainer" class="divide-y divide-slate-100 dark:divide-slate-800/70"></div>
           </div>
         </div>
@@ -531,16 +547,17 @@
         </button>
       </div>
 
-      <div class="grid grid-cols-12 gap-2.5">
-        <div class="col-span-7">
+      <!-- Amount first (it is what you know at the till), then where -->
+      <div class="space-y-2.5">
+        <div>
+          <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
+          <input id="inpAmount" type="number" step="0.01" inputmode="decimal" placeholder="0.00" oninput="onGrossAmountInput()"
+                 class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-[28px] leading-9 tabular-nums font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
+        </div>
+        <div>
           <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Where / Description</label>
           <input id="inpMerchant" type="text" placeholder="e.g. Waitrose, YouTube"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
-        </div>
-        <div class="col-span-5">
-          <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
-          <input id="inpAmount" type="number" step="0.01" inputmode="decimal" placeholder="0.00" oninput="onGrossAmountInput()"
-                 class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm tabular-nums font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
         </div>
       </div>
 
@@ -632,16 +649,17 @@
         </button>
       </div>
 
-      <div class="grid grid-cols-12 gap-2.5">
-        <div class="col-span-7">
+      <!-- Same order as the Add form: Amount first, then where -->
+      <div class="space-y-2.5">
+        <div>
+          <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
+          <input id="editTxAmt" type="number" step="0.01" inputmode="decimal"
+                 class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-[28px] leading-9 tabular-nums font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
+        </div>
+        <div>
           <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Where / Description</label>
           <input id="editTxDesc" type="text"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
-        </div>
-        <div class="col-span-5">
-          <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
-          <input id="editTxAmt" type="number" step="0.01" inputmode="decimal"
-                 class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm tabular-nums font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
         </div>
       </div>
 
@@ -785,6 +803,7 @@ const ICON_PATHS = {
   chart: '<path d="M4 20V11"/><path d="M10 20V4"/><path d="M16 20v-6"/><path d="M22 20H2"/>',
   pound: '<circle cx="12" cy="12" r="9"/><path d="M14.5 8.8a2.6 2.6 0 0 0-5 .9V16h5.5M8.5 12.5h4.5"/>',
   logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
+  filter: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
   share: '<path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="m16 6-4-4-4 4"/><path d="M12 2v13"/>',
   chevron_right: '<path d="m9 6 6 6-6 6"/>',
   // Spending categories
@@ -2679,6 +2698,31 @@ async function postToServer(bodyObj, opts = {}) {
       markTxFilter(flt);
       renderTransactions();
     }
+    // Phone Activity tab: the account filters and search sit behind one button. While they are folded away, any
+    // still on shows as a chip (tap to clear). They start folded away each time you open the tab.
+    let txFiltersOpen = false;
+    function toggleTxFilters() {
+      closeMenu();   // the header's buttons stop the page click that would close it
+      txFiltersOpen = !txFiltersOpen;
+      renderTransactions();
+    }
+    function clearTxSearch() {
+      document.getElementById('txSearch').value = '';
+      renderTransactions();
+    }
+    function renderTxFilterUi(q) {
+      const btn = document.getElementById('txFilterBtn');
+      btn.setAttribute('aria-expanded', String(txFiltersOpen));
+      document.getElementById('txFilterPanel').classList.toggle('hidden', !txFiltersOpen);
+      const chip = (label, onclick) => `<button type="button" onclick="${onclick}" aria-label="Clear filter: ${esc(label)}" class="hit h-8 px-3 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">${esc(label)}<span aria-hidden="true">✕</span></button>`;
+      const chips = txFiltersOpen ? [] : [
+        txFilter !== 'all' ? chip(ACCOUNT_CARDS[txFilter].name + ' only', "setTxFilter('all')") : '',
+        q ? chip('“' + q + '”', 'clearTxSearch()') : ''
+      ].filter(Boolean);
+      const box = document.getElementById('txActive');
+      box.innerHTML = chips.join('');
+      box.classList.toggle('hidden', !chips.length);
+    }
 
     // The phone's Activity tab shows the whole list, with this month's card spending on top. Tapping a category
     // there filters the list to that category's card spends. That, the account filter and the search belong to the
@@ -2735,11 +2779,13 @@ async function postToServer(bodyObj, opts = {}) {
       const search = document.getElementById('txSearch');
       const onTab = onPhoneTab('activity');
       const phoneHome = PHONE_MQ.matches && !onTab;
-      if (!onTab) actCat = null;
+      if (!onTab) { actCat = null; txFiltersOpen = false; }
       // Home on a phone has no filters, so none may be left on (this also clears them when a window narrows to phone size).
       if (phoneHome && (txFilter !== 'all' || search.value)) { markTxFilter('all'); search.value = ''; }
       if (onTab) renderActSpend();
-      const q = (search.value || '').toLowerCase();
+      // Trimmed, so a phone keyboard's trailing space (or a search of only spaces) can't hide rows with no chip to say so.
+      const q = search.value.trim().toLowerCase();
+      renderTxFilterUi(search.value.trim());
       const tsMap = getLocalTimestamps();
 
       const tagRows = (arr, acct) => {
