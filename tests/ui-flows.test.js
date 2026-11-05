@@ -529,6 +529,25 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       await syncSettled('synced');
     } finally { dropExpectedSyncErrors(from); }
   });
+  await step('sync status: with no caption, Money Left sits the normal gap below the top bar (no empty line left)', async () => {
+    await syncSettled('synced');
+    await page.evaluate(() => { setView('home'); window.scrollTo(0, 0); });
+    const gap = await page.evaluate(() => Math.round(document.getElementById('heroSection').getBoundingClientRect().top - document.querySelector('header').getBoundingClientRect().bottom));
+    assert.strictEqual(gap, 14, 'gap above Money Left: ' + gap + 'px (the page padding is 14px)');
+  });
+  await step('sync status: a request that fails while offline shows grey, and back online the sheet is checked again (no red left)', async () => {
+    const from = errors.length;
+    try {
+      await ctx.setOffline(true);
+      await page.evaluate(() => { MOCK.dropNext = 1; });
+      await page.click('#syncBtn');
+      await page.waitForFunction(() => apiInflight === 0 && lastSyncFailed === 'reach');
+      assert.strictEqual((await syncShown()).sync, 'offline', 'offline comes before the failure');
+      await ctx.setOffline(false);
+      await syncSettled('synced');
+      assert.strictEqual((await syncShown()).caption, null);
+    } finally { await ctx.setOffline(false); dropExpectedSyncErrors(from); }
+  });
   await step('sync status: fingerprint requests never change it', async () => {
     const from = errors.length;
     try {
@@ -621,8 +640,9 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     });
     if (w === 344) {
       await step('344px: each red sync caption fits on one line, with no sideways scroll', async () => {
+        await page.waitForFunction(() => apiInflight === 0);   // a request in flight would show "syncing" instead
         const r = await page.evaluate(() => ['reach', 'refused'].map(k => {
-          lastSyncFailed = k; apiInflight = 0; updateSyncUi();
+          lastSyncFailed = k; updateSyncUi();
           const n = document.getElementById('syncStatus'), rg = document.createRange(); rg.selectNodeContents(n);
           const out = { k, shown: !n.classList.contains('hidden'), fits: rg.getBoundingClientRect().right <= innerWidth - 14, sideways: document.documentElement.scrollWidth > innerWidth };
           lastSyncFailed = null; updateSyncUi();

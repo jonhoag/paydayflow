@@ -44,7 +44,7 @@
     /* Small buttons get a 44x44px hit area (at least their own size) without changing how they look. */
     .hit { position: relative; }
     /* The sync button's colour is the sync status (data-sync, set by updateSyncUi); no dot or badge covers the icon. */
-    #syncBtn[data-sync="synced"], #syncBtn[data-sync="busy"], #syncBtn[data-sync="waiting"], #syncBtn[data-sync="offline"], #syncBtn[data-sync="failed"] { border-color: transparent; }
+    #syncBtn[data-sync]:not([data-sync="saved"]) { border-color: transparent; }
     #syncBtn[data-sync="synced"] { color: #059669; background: rgba(16, 185, 129, 0.12); }
     #syncBtn[data-sync="busy"], #syncBtn[data-sync="waiting"] { color: #B45309; background: rgba(251, 191, 36, 0.16); }
     #syncBtn[data-sync="offline"] { color: #64748B; background: rgba(100, 116, 139, 0.12); }
@@ -184,7 +184,7 @@
       </div>
 
       <div class="flex items-center gap-1.5 shrink-0">
-        <button onclick="forceSyncSheet()" id="syncBtn" title="Sync latest from Google Sheet" aria-label="Sync from Google Sheet"
+        <button onclick="forceSyncSheet()" id="syncBtn" title="Showing saved figures. Tap to sync" aria-label="Showing saved figures. Tap to sync"
                 class="w-10 h-10 lg:w-8 lg:h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
           <span data-icon="refresh" data-class="w-4 h-4"></span>
         </button>
@@ -227,7 +227,7 @@
     </header>
 
     <!-- Page Canvas -->
-    <main class="max-w-5xl mx-auto p-3.5 lg:p-6 space-y-3.5">
+    <main class="max-w-5xl mx-auto p-3.5 lg:p-6 flex flex-col gap-3.5">   <!-- gap, not space-y: hidden cards (caption, offers) leave no space -->
 
       <!-- Sync status lives in the sync button's colour and label (updateSyncUi). Words show only when a sync failed. -->
       <button id="syncStatus" onclick="forceSyncSheet()" class="hidden text-xs text-rose-700 dark:text-rose-400 -mb-1 px-1 whitespace-nowrap text-left">
@@ -1533,6 +1533,12 @@ async function signOut(forget) {
     // or 'refused' (the server turned a change down). Fingerprint requests aren't about the sheet, so they don't count.
     let apiInflight = 0, lastSyncAt = null, lastSyncFailed = null;
     const SHEET_READS = ['getCachedSheetState', 'getCategoryChoices'];
+    // What a failed sheet request means for the sync status: null for a sign-in problem (the lock screen shows that),
+    // 'reach' when nothing usable came back or a read failed, 'refused' when the server turned a change down.
+    function syncFailure(action, err) {
+      if (err && (err.needsSignIn || err.auth)) return null;
+      return (isConnectionError(err) || SHEET_READS.includes(action)) ? 'reach' : 'refused';
+    }
     function apiCall(action, payload = {}, opts = {}) {
       const run = () => apiCallNow(action, payload, opts);
       apiInflight++;
@@ -1542,7 +1548,7 @@ async function signOut(forget) {
       // Track sync health for the status (a sign-in problem is the lock screen's to show instead).
       const counts = !/^passkey/.test(action);
       p.then(() => { if (counts) { lastSyncFailed = null; lastSyncAt = Date.now(); } },
-             err => { if (counts && !(err && (err.needsSignIn || err.auth))) lastSyncFailed = isConnectionError(err) || SHEET_READS.includes(action) ? 'reach' : 'refused'; })
+             err => { if (counts) lastSyncFailed = syncFailure(action, err) || lastSyncFailed; })
        .then(() => { apiInflight--; updateSyncUi(); });
       return p;
     }
@@ -2190,7 +2196,7 @@ async function postToServer(bodyObj, opts = {}) {
       toastTimer = setTimeout(() => el.classList.add('hidden'), opts.duration || 6000);
     }
 
-    // ---- Sync status line: "Synced 2 min ago" / "Syncing…" / "Couldn't sync" ----
+    // ---- Sync status: the sync button's colour and label, and a red caption when a sync failed ----
     function relTime(t) {
       const s = Math.floor((Date.now() - t) / 1000);
       if (s < 45) return 'just now';
@@ -3158,7 +3164,11 @@ async function postToServer(bodyObj, opts = {}) {
         updateSyncUi();
       }
     }
-    window.addEventListener('online', () => { flushOutbox(); });
+    // Back online: send what was saved here. If a request failed meanwhile, check the sheet again too (which also
+    // sends), so the red caption doesn't stay up once the connection is back.
+    window.addEventListener('online', () => {
+      if (lastSyncFailed && appUiReady && hasValidToken() && !lockScreenShowing()) forceSyncSheet(); else flushOutbox();
+    });
     window.addEventListener('offline', updateSyncUi);
     setInterval(flushOutbox, 60000);
     
