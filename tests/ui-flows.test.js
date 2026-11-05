@@ -439,7 +439,9 @@ const contrastOf = (page, sel) => page.evaluate(s => {
 
   // ---------------- layout: widths, wrapping, hit areas, contrast ----------------
   const VIEWS = ['home', 'budgets', 'pending', 'activity'];
-  for (const [w, scheme] of [[344, 'dark'], [400, 'light'], [768, 'light']]) {
+  // 411 and 749 are Jon's Galaxy Z Fold 7, folded and unfolded (CSS px). The unfolded layout starts at 720px.
+  const UNFOLDED = 749;
+  for (const [w, scheme] of [[344, 'dark'], [400, 'light'], [411, 'dark'], [UNFOLDED, 'light']]) {
     ({ ctx, page } = await open({ viewport: { width: w, height: 860 }, isMobile: true, hasTouch: true, colorScheme: scheme }));
     await page.evaluate(SEED_OWED);
     await step(`${w}px: no sideways scroll and no balance spills out, on every tab`, async () => {
@@ -520,7 +522,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
         assert.deepStrictEqual(bad, []);
       });
     }
-    if (w !== 768) {
+    if (w !== UNFOLDED) {
       await step(`${w}px ${scheme}: the small captions read at a contrast of at least 4.5:1`, async () => {
         const sels = ['#syncText', '#budClearedCount', '.owed-summary .text-xs'];
         const r = [];
@@ -532,8 +534,35 @@ const contrastOf = (page, sel) => page.evaluate(s => {
         assert.deepStrictEqual(r.filter(x => x[1] < 4.5), []);
       });
     }
-    if (w === 768) {
-      await step('768px (unfolded): 4 account cards across; Bills beside Owed + Activity; one column on a tab', async () => {
+    if (w === 411) {
+      await step('411px (folded): account cards 2x2 and one column of sections', async () => {
+        const tops = await page.$$eval('#tilesSection > div', d => d.map(x => Math.round(x.getBoundingClientRect().top)));
+        assert.strictEqual(new Set(tops).size, 2, 'cards should be 2x2: ' + tops);
+        const cols = await page.evaluate(() => getComputedStyle(document.getElementById('mainGrid')).gridTemplateColumns.split(' ').length);
+        assert.strictEqual(cols, 1);
+      });
+    }
+    if (w === UNFOLDED) {
+      await step('unfolded: the biggest balances still fit 4 cards across, at 720px and at ' + UNFOLDED + 'px', async () => {
+        const r = [];
+        for (const width of [720, UNFOLDED]) {
+          await page.setViewportSize({ width, height: 860 });
+          r.push(width + ' ' + JSON.stringify(await page.evaluate(() => {
+            const els = [...document.querySelectorAll('#tilesSection .kpi-figure')];
+            const out = els.map(e => { e.textContent = '−£99,999.99'; const rg = document.createRange(); rg.selectNodeContents(e); return Math.floor(e.clientWidth - rg.getBoundingClientRect().width); });
+            renderAll();
+            return out;
+          })));
+        }
+        assert.ok(r.every(x => JSON.parse(x.split(' ')[1]).every(n => n >= 0)), r.join(' | '));
+      });
+      await step('the unfolded layout starts at exactly 720px (719px is still the phone layout)', async () => {
+        const shape = async width => { await page.setViewportSize({ width, height: 860 }); return page.evaluate(() => [new Set([...document.querySelectorAll('#tilesSection > div')].map(x => Math.round(x.getBoundingClientRect().top))).size, getComputedStyle(document.getElementById('mainGrid')).gridTemplateColumns.split(' ').length]); };
+        const r = { 719: await shape(719), 720: await shape(720) };
+        await page.setViewportSize({ width: UNFOLDED, height: 860 });
+        assert.deepStrictEqual(r, { 719: [2, 1], 720: [1, 2] });
+      });
+      await step(UNFOLDED + 'px (unfolded): 4 account cards across; Bills beside Owed + Activity; one column on a tab', async () => {
         const tops = await page.$$eval('#tilesSection > div', d => d.map(x => Math.round(x.getBoundingClientRect().top)));
         assert.strictEqual(new Set(tops).size, 1, 'cards not in one row: ' + tops);
         const r = await page.evaluate(() => Object.fromEntries(['sec_budgets', 'sec_pending', 'sec_activity'].map(id => { const b = document.getElementById(id).getBoundingClientRect(); return [id, { l: Math.round(b.left), t: Math.round(b.top), b: Math.round(b.bottom), w: Math.round(b.width) }]; })));
