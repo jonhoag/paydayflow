@@ -12,7 +12,11 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : null)))
-    ).then(() => self.clients.claim())
+    )
+      // Older versions also saved the page as /index.html, and that stale copy stayed in this cache. Drop it.
+      // (Once every device has run this version, the line can go.)
+      .then(() => caches.open(CACHE_NAME)).then((cache) => cache.delete('/index.html'))
+      .then(() => self.clients.claim())
   );
 });
 
