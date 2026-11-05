@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Styles are pre-built into tailwind.css (see build-css.js); the service worker keeps a copy for offline use. -->
-  <link rel="stylesheet" href="tailwind.css?v=d41f134048">
+  <link rel="stylesheet" href="tailwind.css?v=e339f4a9bf">
   <style>
     /* Inter, served from this site (SIL Open Font License: fonts/OFL.txt): one variable file per set of characters,
        fetched only when the page uses them. Text shows in the fallback font until it arrives. */
@@ -71,8 +71,9 @@
       body:not([data-view="activity"]) #txListContainer { margin-top: 0; }
     }
     /* Main sections: one column on a phone. Unfolded (Home): Bills beside Owed + Activity. Desktop: Bills + Owed beside
-       Activity. The second row takes up the slack, so the shorter column never leaves a gap between its two sections. */
-    @media (min-width: 768px) and (max-width: 1023px) {
+       Activity. The second row takes up the slack, so the shorter column never leaves a gap between its two sections.
+       "Unfolded" starts at 720px so a Galaxy Z Fold (749px open) gets it; keep it in step with min-[720px]:grid-cols-4 on #tilesSection. */
+    @media (min-width: 720px) and (max-width: 1023px) {
       body[data-view="home"] #mainGrid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto 1fr; align-items: start; }
       body[data-view="home"] #sec_budgets { grid-row: 1 / span 2; }
       body[data-view="home"] .sec-head { flex-direction: column; align-items: flex-start; gap: 0.25rem; }
@@ -251,7 +252,7 @@
       </section>
 
       <!-- 2. ACCOUNT BALANCES: each account's card mark sits beside its name, the balance gets the full width -->
-      <section id="tilesSection" class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+      <section id="tilesSection" class="grid grid-cols-2 min-[720px]:grid-cols-4 gap-2.5">
         <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-4 py-3 min-w-0">
           <div class="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400"><span id="logoCardAmex" class="shrink-0 inline-flex"></span>Amex</div>
           <div id="kpiAmex" class="kpi-figure mt-1.5 font-semibold tracking-tight tabular-nums text-slate-900 dark:text-white whitespace-nowrap">£—</div>
