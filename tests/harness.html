@@ -86,6 +86,7 @@
     latency: Number(q.get('latency') || 300),
     nextLatencies: [],    // consumed one per request before falling back to `latency`
     failNext: 0,          // number of upcoming write calls that should fail
+    dropNext: 0,          // number of upcoming calls of any kind that get no reply (like a lost connection)
     authError: null,      // set to an error text and the server turns down every request as a sign-in problem
     config: CONFIG,       // the names sent with every reply (null: none, like an older backend)
     categoryChoices: {},  // the mock server's saved Spending category choices
@@ -150,6 +151,12 @@
     MOCK.calls.push(call);
     const wait = MOCK.nextLatencies.length ? MOCK.nextLatencies.shift() : MOCK.latency;
     const isWrite = body.action !== 'getCachedSheetState';
+    if (MOCK.dropNext > 0) {
+      MOCK.dropNext--;
+      await new Promise(r => setTimeout(r, wait));
+      call.end = Date.now();
+      throw new TypeError('Failed to fetch');
+    }
 
     // The server does its work as soon as the request arrives...
     let reply;

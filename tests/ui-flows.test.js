@@ -446,6 +446,98 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok((await page.textContent('#txListContainer')).includes('Flow test shop'));
   });
 
+  // The sync button: its colour (data-sync) and label are the status; the red caption is the only text, when a sync failed.
+  const syncShown = () => page.evaluate(() => {
+    const b = document.getElementById('syncBtn'), n = document.getElementById('syncStatus');
+    return { sync: b.dataset.sync, label: b.getAttribute('aria-label'), sameTitle: b.title === b.getAttribute('aria-label'),
+      colour: getComputedStyle(b).color, caption: n.classList.contains('hidden') ? null : n.textContent.trim() };
+  });
+  const syncSettled = sync => page.waitForFunction(v => apiInflight === 0 && document.getElementById('syncBtn').dataset.sync === v, sync, { timeout: 8000 });
+  // Requests this test fails on purpose are logged by the page; take just those back out of the error list.
+  const dropExpectedSyncErrors = from => { for (let i = errors.length - 1; i >= from; i--) if (/Failed to fetch|Mock server failure/.test(errors[i])) errors.splice(i, 1); };
+  await step('sync status: green when synced, with when in its label; no words on the page', async () => {
+    await syncSettled('synced');
+    const v = await syncShown();
+    assert.ok(/^Synced (just now|\d+ min ago)\. Tap to sync now$/.test(v.label) && v.sameTitle, JSON.stringify(v));
+    assert.strictEqual(v.caption, null);
+  });
+  await step('sync status: no reply turns it red with "Couldn\'t reach your sheet", on one line; the next good sync clears it', async () => {
+    const from = errors.length;
+    try {
+      const green = (await syncShown()).colour;
+      await page.evaluate(() => { MOCK.dropNext = 1; });
+      await page.click('#syncBtn');
+      await syncSettled('failed');
+      const v = await syncShown();
+      assert.deepStrictEqual([v.caption, v.label], ["Couldn't reach your sheet. Tap ↻ to try again.", "Couldn't reach your sheet. Tap to try again"], JSON.stringify(v));
+      assert.notStrictEqual(v.colour, green, 'red should look different from green');
+      await page.click('#syncStatus');   // the caption syncs too
+      await syncSettled('synced');
+      assert.strictEqual((await syncShown()).caption, null);
+    } finally { dropExpectedSyncErrors(from); }
+  });
+  await step('sync status: a spend that could not be sent is amber with no words; tapping the button sends it', async () => {
+    const from = errors.length;
+    try {
+      await page.evaluate(() => { MOCK.dropNext = 1; });
+      await page.click('nav button[aria-label="Add transaction"]');
+      await page.fill('#inpAmount', '4.10');
+      await page.fill('#inpMerchant', 'Waiting shop');
+      await page.click('#btnSubmitTx');
+      await syncSettled('waiting');
+      const v = await syncShown();
+      assert.deepStrictEqual([v.label, v.caption], ['1 spend waiting to send. Tap to send now', null], 'waiting comes before the failure, with no words');
+      const sent = (await calls(page, 'addTransactionBundle')).length;
+      await page.click('#syncBtn');
+      await syncSettled('synced');
+      const after = await calls(page, 'addTransactionBundle');
+      assert.ok(after.length === sent + 1 && after.pop().merchant === 'Waiting shop', 'tapping should send the waiting spend');
+      assert.strictEqual(await page.evaluate(() => loadOutbox().length), 0);
+    } finally { dropExpectedSyncErrors(from); }
+  });
+  await step('sync status: offline is grey with no words; a spend saved offline makes it amber; back online it sends', async () => {
+    await ctx.setOffline(true);
+    await page.waitForFunction(() => document.getElementById('syncBtn').dataset.sync === 'offline');
+    const off = await syncShown();
+    assert.deepStrictEqual([off.label, off.caption], ['Offline, showing saved figures', null]);
+    await page.click('nav button[aria-label="Add transaction"]');
+    await page.fill('#inpAmount', '2.50');
+    await page.fill('#inpMerchant', 'Offline shop');
+    await page.click('#btnSubmitTx');
+    await page.waitForFunction(() => document.getElementById('syncBtn').dataset.sync === 'waiting');
+    const w = await syncShown();
+    assert.deepStrictEqual([w.label, w.caption], ["1 spend waiting to send. It sends when you're back online", null]);
+    assert.notStrictEqual(w.colour, off.colour, 'amber should look different from grey');
+    await ctx.setOffline(false);
+    await syncSettled('synced');
+    assert.strictEqual(await page.evaluate(() => loadOutbox().length), 0);
+  });
+  await step('sync status: a saved spend the sheet turns down shows "Your sheet turned down the last change"', async () => {
+    const from = errors.length;
+    try {
+      await page.evaluate(() => { MOCK.dropNext = 1; });
+      await page.click('nav button[aria-label="Add transaction"]');
+      await page.fill('#inpAmount', '1.00');
+      await page.fill('#inpMerchant', 'Refused shop');
+      await page.click('#btnSubmitTx');
+      await syncSettled('waiting');
+      await page.evaluate(() => { MOCK.failNext = 1; });
+      await page.click('#syncBtn');
+      await syncSettled('failed');
+      assert.strictEqual((await syncShown()).caption, 'Your sheet turned down the last change.');
+      await page.click('#syncBtn');
+      await syncSettled('synced');
+    } finally { dropExpectedSyncErrors(from); }
+  });
+  await step('sync status: fingerprint requests never change it', async () => {
+    const from = errors.length;
+    try {
+      await page.evaluate(() => { MOCK.dropNext = 1; return apiCall('passkeyList').catch(() => {}); });
+      await syncSettled('synced');
+      assert.strictEqual((await syncShown()).caption, null);
+    } finally { dropExpectedSyncErrors(from); }
+  });
+
   await step('Add and Edit forms: Amount comes first, full width and large, then Where / Description', async () => {
     const r = await page.evaluate(() => {
       const out = {};
@@ -528,6 +620,16 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.deepStrictEqual(lines.filter(x => !/:1$/.test(x)), [], lines.join(' '));
     });
     if (w === 344) {
+      await step('344px: each red sync caption fits on one line, with no sideways scroll', async () => {
+        const r = await page.evaluate(() => ['reach', 'refused'].map(k => {
+          lastSyncFailed = k; apiInflight = 0; updateSyncUi();
+          const n = document.getElementById('syncStatus'), rg = document.createRange(); rg.selectNodeContents(n);
+          const out = { k, shown: !n.classList.contains('hidden'), fits: rg.getBoundingClientRect().right <= innerWidth - 14, sideways: document.documentElement.scrollWidth > innerWidth };
+          lastSyncFailed = null; updateSyncUi();
+          return out;
+        }));
+        assert.ok(r.every(x => x.shown && x.fits && !x.sideways), JSON.stringify(r));
+      });
       await step('344px: Spending shows full amounts (pounds and pence); four big month figures each fit their own bar', async () => {
         const out = await monthBars(page);
         assert.strictEqual(out.length, 4, JSON.stringify(out));
@@ -595,7 +697,9 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       await step(`${w}px ${scheme}: the small captions read at a contrast of at least 4.5:1`, async () => {
         const sels = ['#syncText', '#budClearedCount', '.owed-summary .text-xs'];
         const r = [];
+        await page.evaluate(() => { lastSyncFailed = 'reach'; updateSyncUi(); });   // the red caption
         for (const s of sels) r.push([s, await contrastOf(page, s)]);
+        await page.evaluate(() => { lastSyncFailed = null; updateSyncUi(); });
         await page.evaluate(() => setView('pending'));
         r.push(['.owed-groups span.block.text-xs', await contrastOf(page, '.owed-groups span.block.text-xs')]);
         await page.evaluate(() => setView('home'));
@@ -929,6 +1033,13 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   // ---------------- desktop ----------------
   ({ ctx, page } = await open(desk));
   await page.evaluate(SEED_OWED);
+  await step('desktop: the sync button carries the status too; the red caption shows only on a failure', async () => {
+    const r = await page.evaluate(() => { const n = document.getElementById('syncStatus'), b = document.getElementById('syncBtn');
+      const fine = [b.dataset.sync, n.classList.contains('hidden')];
+      lastSyncFailed = 'reach'; updateSyncUi(); const bad = [b.dataset.sync, n.classList.contains('hidden'), n.textContent.trim()];
+      lastSyncFailed = null; updateSyncUi(); return { fine, bad }; });
+    assert.deepStrictEqual(r, { fine: ['synced', true], bad: ['failed', false, "Couldn't reach your sheet. Tap ↻ to try again."] });
+  });
   await step('desktop: every owed item grouped by person, no summary, no Activity-tab extras', async () => {
     assert.ok(await visible(page, '.owed-groups') && !(await visible(page, '.owed-summary')));
     assert.ok(await visible(page, '#owedTabs'));

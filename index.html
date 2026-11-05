@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Styles are pre-built into tailwind.css (see build-css.js); the service worker keeps a copy for offline use. -->
-  <link rel="stylesheet" href="tailwind.css?v=70406de626">
+  <link rel="stylesheet" href="tailwind.css?v=5aa78afa01">
   <style>
     /* Inter, served from this site (SIL Open Font License: fonts/OFL.txt): one variable file per set of characters,
        fetched only when the page uses them. Text shows in the fallback font until it arrives. */
@@ -43,6 +43,15 @@
     .chip-row::-webkit-scrollbar { display: none; }
     /* Small buttons get a 44x44px hit area (at least their own size) without changing how they look. */
     .hit { position: relative; }
+    /* The sync button's colour is the sync status (data-sync, set by updateSyncUi); no dot or badge covers the icon. */
+    #syncBtn[data-sync="synced"], #syncBtn[data-sync="busy"], #syncBtn[data-sync="waiting"], #syncBtn[data-sync="offline"], #syncBtn[data-sync="failed"] { border-color: transparent; }
+    #syncBtn[data-sync="synced"] { color: #059669; background: rgba(16, 185, 129, 0.12); }
+    #syncBtn[data-sync="busy"], #syncBtn[data-sync="waiting"] { color: #B45309; background: rgba(251, 191, 36, 0.16); }
+    #syncBtn[data-sync="offline"] { color: #64748B; background: rgba(100, 116, 139, 0.12); }
+    #syncBtn[data-sync="failed"] { color: #E11D48; background: rgba(244, 63, 94, 0.12); }
+    .dark #syncBtn[data-sync="synced"] { color: #34D399; }
+    .dark #syncBtn[data-sync="busy"], .dark #syncBtn[data-sync="waiting"] { color: #FBBF24; }
+    .dark #syncBtn[data-sync="failed"] { color: #FB7185; }
     /* The Activity filter button shows when its filters are open (its look follows aria-expanded, see renderTxFilterUi). */
     #txFilterBtn[aria-expanded="true"] { color: #059669; background: rgba(16, 185, 129, 0.12); }
     .dark #txFilterBtn[aria-expanded="true"] { color: #34D399; background: rgba(16, 185, 129, 0.16); }
@@ -220,9 +229,9 @@
     <!-- Page Canvas -->
     <main class="max-w-5xl mx-auto p-3.5 lg:p-6 space-y-3.5">
 
-      <!-- Sync status: shows when the figures were last confirmed against your sheet (tap to refresh) -->
-      <button id="syncStatus" onclick="forceSyncSheet()" class="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 -mb-1 px-1">
-        <span id="syncDot" class="w-1.5 h-1.5 rounded-full bg-slate-400"></span><span id="syncText">Showing saved data</span>
+      <!-- Sync status lives in the sync button's colour and label (updateSyncUi). Words show only when a sync failed. -->
+      <button id="syncStatus" onclick="forceSyncSheet()" class="hidden text-xs text-rose-700 dark:text-rose-400 -mb-1 px-1 whitespace-nowrap text-left">
+        <span id="syncText"></span>
       </button>
 
       <!-- One-time offer to turn on fingerprint sign-in (shown after a Google sign-in on a capable device) -->
@@ -1519,17 +1528,21 @@ async function signOut(forget) {
     // Requests go to the server strictly one at a time. Apps Script can answer two quick requests out of
     // order, and a late, older reply would otherwise overwrite newer screen state.
     let apiQueue = Promise.resolve();
-    // For the sync status line (updateSyncUi): requests not yet answered, and how the last one went.
-    let apiInflight = 0, lastSyncAt = null, lastSyncFailed = false;
+    // For the sync status (updateSyncUi): requests not yet answered, and how the last one to the sheet went:
+    // lastSyncFailed is null (fine), 'reach' (no reply, none that could be read, or a read the server couldn't answer)
+    // or 'refused' (the server turned a change down). Fingerprint requests aren't about the sheet, so they don't count.
+    let apiInflight = 0, lastSyncAt = null, lastSyncFailed = null;
+    const SHEET_READS = ['getCachedSheetState', 'getCategoryChoices'];
     function apiCall(action, payload = {}, opts = {}) {
       const run = () => apiCallNow(action, payload, opts);
       apiInflight++;
       updateSyncUi();
       const p = apiQueue.then(run, run);
       apiQueue = p.catch(() => {});
-      // Track sync health for the status line (a missing sign-in is handled by the lock screen instead).
-      p.then(() => { lastSyncFailed = false; lastSyncAt = Date.now(); },
-             err => { if (!(err && err.needsSignIn)) lastSyncFailed = true; })
+      // Track sync health for the status (a sign-in problem is the lock screen's to show instead).
+      const counts = !/^passkey/.test(action);
+      p.then(() => { if (counts) { lastSyncFailed = null; lastSyncAt = Date.now(); } },
+             err => { if (counts && !(err && (err.needsSignIn || err.auth))) lastSyncFailed = isConnectionError(err) || SHEET_READS.includes(action) ? 'reach' : 'refused'; })
        .then(() => { apiInflight--; updateSyncUi(); });
       return p;
     }
@@ -2110,10 +2123,12 @@ async function postToServer(bodyObj, opts = {}) {
         });
     }
 
+    // The sync button (and the red caption): fetch the sheet afresh, then send anything saved on this phone.
     function forceSyncSheet() {
       apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
         .then(applyServerState)
-        .catch(err => console.error(err));
+        .catch(err => console.error(err))
+        .then(flushOutbox);
     }
 
     function applyServerState(s) {
@@ -2182,20 +2197,34 @@ async function postToServer(bodyObj, opts = {}) {
       if (s < 3600) return Math.round(s / 60) + ' min ago';
       return 'at ' + new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     }
+    // The red caption, the only words the sync status shows (short enough for one line on a 344px phone).
+    const SYNC_FAILED = {
+      reach: { text: "Couldn't reach your sheet. Tap ↻ to try again.", label: "Couldn't reach your sheet. Tap to try again" },
+      refused: { text: 'Your sheet turned down the last change.', label: 'Your sheet turned down the last change. Tap to sync' }
+    };
+    // The sync button shows the status by its colour (green synced, amber syncing or something waiting to send, grey
+    // offline, red failed). Its tooltip and screen-reader label say it in words, including when it last synced.
     function updateSyncUi() {
-      const dot = document.getElementById('syncDot'), txt = document.getElementById('syncText');
-      if (!dot || !txt) return;
-      let text, dotCls;
+      const btn = document.getElementById('syncBtn'), note = document.getElementById('syncStatus');
+      if (!btn || !note) return;
       const waiting = loadOutbox().length;
-      if (apiInflight > 0) { text = 'Syncing…'; dotCls = 'bg-amber-400 animate-pulse'; }
-      else if (waiting) { text = waiting + (waiting === 1 ? ' spend' : ' spends') + ' waiting to send'; dotCls = 'bg-amber-400'; }
-      else if (!IS_GAS_ENV && navigator.onLine === false) { text = "Offline - showing saved data"; dotCls = 'bg-slate-400'; }
-      else if (lastSyncFailed) { text = "Couldn't sync - showing saved data"; dotCls = 'bg-rose-500'; }
-      else if (lastSyncAt) { text = 'Synced ' + relTime(lastSyncAt); dotCls = 'bg-emerald-500'; }
-      else { text = 'Showing saved data'; dotCls = 'bg-slate-400'; }
-      txt.textContent = text;
-      dot.className = 'w-1.5 h-1.5 rounded-full ' + dotCls;
-      const spin = document.querySelector('#syncBtn svg');
+      const offline = !IS_GAS_ENV && navigator.onLine === false;
+      let status, label;
+      if (apiInflight > 0) { status = 'busy'; label = 'Syncing…'; }
+      else if (waiting) {
+        status = 'waiting';
+        label = waiting + (waiting === 1 ? ' spend' : ' spends') + ' waiting to send. ' + (offline ? (waiting === 1 ? 'It sends' : 'They send') + " when you're back online" : 'Tap to send now');
+      }
+      else if (offline) { status = 'offline'; label = 'Offline, showing saved figures'; }
+      else if (lastSyncFailed) { status = 'failed'; label = SYNC_FAILED[lastSyncFailed].label; }
+      else if (lastSyncAt) { status = 'synced'; label = 'Synced ' + relTime(lastSyncAt) + '. Tap to sync now'; }
+      else { status = 'saved'; label = 'Showing saved figures. Tap to sync'; }
+      btn.dataset.sync = status;
+      btn.title = label;
+      btn.setAttribute('aria-label', label);
+      document.getElementById('syncText').textContent = status === 'failed' ? SYNC_FAILED[lastSyncFailed].text : '';
+      note.classList.toggle('hidden', status !== 'failed');
+      const spin = btn.querySelector('svg');
       if (spin) spin.classList.toggle('animate-spin', apiInflight > 0);
     }
     setInterval(updateSyncUi, 20000);
