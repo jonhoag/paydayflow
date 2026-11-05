@@ -1,0 +1,9 @@
+{
+  "name": "paydayflow",
+  "private": true,
+  "description": "Build and test tools only (the site itself has no dependencies). Install with: npm ci --ignore-scripts",
+  "devDependencies": {
+    "playwright-core": "1.64.1",
+    "tailwindcss": "3.4.17"
+  }
+}

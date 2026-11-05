@@ -10,8 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 
-const { chromium } = require(process.env.PW_PATH || 'playwright-core');
-const CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
+const { launchChrome, makeSteps } = require('./lib/runner');
 const PORT = 8127;
 const origin = 'http://localhost:' + PORT;
 const { HOST, TYPES, siteRel, siteFile } = require('./lib/site-files');
@@ -36,15 +35,11 @@ const server = http.createServer((req, res) => {
   if (mode === 'slow' && isPage) setTimeout(send, 10000); else send();
 });
 
-const results = [];
-async function step(name, fn) {
-  try { await fn(); results.push([true, name]); }
-  catch (e) { results.push([false, name + '\n      ' + String(e.message).split('\n')[0]]); }
-}
+const { step, finish } = makeSteps();
 
 (async () => {
   await new Promise(r => server.listen(PORT, HOST, r));
-  const browser = await chromium.launch({ executablePath: CHROME, headless: true });
+  const browser = await launchChrome();
   const context = await browser.newContext({ serviceWorkers: 'allow' });
   // Keep the test local: Google's sign-in script and the Apps Script backend are not needed here.
   await context.route(url => !String(url).startsWith(origin), r => r.abort());
@@ -177,8 +172,5 @@ async function step(name, fn) {
 
   await browser.close();
   server.close();
-  let failed = 0;
-  results.forEach(([ok, name]) => { if (!ok) failed++; console.log((ok ? '  PASS  ' : '  FAIL  ') + name); });
-  console.log(`\n${results.length - failed}/${results.length} passed`);
-  process.exit(failed ? 1 : 0);
+  finish();
 })().catch(e => { console.error(e); process.exit(1); });

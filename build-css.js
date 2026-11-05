@@ -4,7 +4,8 @@
 //   node build-css.js           build tailwind.css and update the hash in index.html
 //   node build-css.js --check   exit 1 if tailwind.css is out of date (does not change any files)
 //
-// Run it after any change to index.html that adds or changes Tailwind classes.
+// Run it after any change to index.html that adds or changes Tailwind classes. It uses the Tailwind version pinned in
+// package-lock.json, installed once with: npm ci --ignore-scripts
 const { execSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -22,7 +23,9 @@ const outFile = check ? path.join(tmpDir, 'tailwind.css') : cssPath;
 const hashOf = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex').slice(0, 10);
 let hash;
 try {
-  execSync(`npx --yes tailwindcss@3.4.17 -c tailwind.config.js -i tailwind.input.css -o "${outFile}" --minify`,
+  const cli = path.join(root, 'node_modules', 'tailwindcss', 'lib', 'cli.js');
+  if (!fs.existsSync(cli)) throw new Error('Tailwind is not installed here. Run: npm ci --ignore-scripts');
+  execSync(`"${process.execPath}" "${cli}" -c tailwind.config.js -i tailwind.input.css -o "${outFile}" --minify`,
     { cwd: root, stdio: 'pipe', env: { ...process.env, BROWSERSLIST_IGNORE_OLD_DATA: '1' } });
   hash = hashOf(outFile);
 } catch (e) {

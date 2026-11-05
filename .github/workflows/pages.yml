@@ -24,14 +24,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Tailwind (for the stylesheet check) and playwright-core (the browser tests drive the runner's own Chrome), at
+      # the exact versions and hashes in package-lock.json. No install scripts are run.
+      - name: Install the build and test tools
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: The stylesheet matches the page
         run: node build-css.js --check
       - name: Spending summary
         run: node tests/spending.test.js
-      # The browser tests drive the runner's own Chrome. playwright-core has no dependencies of its own; it is
-      # pinned to an exact version and its install scripts are not run.
-      - name: Install the browser driver
-        run: npm install --no-save --no-package-lock --ignore-scripts playwright-core@1.64.1
       - name: Service worker (real Chrome)
         run: node tests/sw.test.js
         env:

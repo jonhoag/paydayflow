@@ -276,13 +276,7 @@
   xhr.open('GET', new URLSearchParams(location.search).get('src') || '/index.html', false);
   xhr.send();
   let html = xhr.responseText;
-  // Google sign-in is mocked, so drop its script. The Tailwind CDN script is also dropped (faster, offline
-  // friendly) unless ?cdn=1, which keeps the page exactly as the browser would load it.
-  html = html.replace(/<script src="https:\/\/accounts\.google\.com[^>]*><\/script>/, '');
-  if (new URLSearchParams(location.search).get('cdn') !== '1') {
-    html = html.replace(/<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>/, '');
-    html = html.replace(/<script>\s*tailwind\.config[^<]*<\/script>/, '');
-  }
+
   // The page is served from /tests/ here, so make its relative links (tailwind.css, sw.js...) resolve from the root.
   html = html.replace(/<head>/i, '<head><base href="/">');
   // Written once this harness has finished parsing. While its own parser is running, document.open() does nothing
