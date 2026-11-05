@@ -67,6 +67,10 @@ const lineCounts = (page, sels) => page.evaluate(list => list.map(sel => {
 // The page never scrolls sideways, and no balance spills out of its card.
 const noSideways = page => page.evaluate(() => ({ width: innerWidth, sideways: document.documentElement.scrollWidth > innerWidth,
   kpi: [...document.querySelectorAll('.kpi-figure')].filter(e => e.getClientRects().length && e.scrollWidth > e.clientWidth).map(e => e.id) }));
+// How the screen is laid out: rows of account cards, and columns of main sections.
+const layoutShape = page => page.evaluate(() => ({
+  cardRows: new Set([...document.querySelectorAll('#tilesSection > div')].map(x => Math.round(x.getBoundingClientRect().top))).size,
+  cols: getComputedStyle(document.getElementById('mainGrid')).gridTemplateColumns.split(' ').length }));
 // Each button's hit area: at least 44x44px, and every part of it really reaches that button (not cut off by a
 // scrolling box, not covered by a neighbour's hit area). Returns the problems found, plus the sizes measured.
 const hitAreas = (page, sel) => page.evaluate(async s => {
@@ -439,10 +443,12 @@ const contrastOf = (page, sel) => page.evaluate(s => {
 
   // ---------------- layout: widths, wrapping, hit areas, contrast ----------------
   const VIEWS = ['home', 'budgets', 'pending', 'activity'];
-  // 411 and 749 are Jon's Galaxy Z Fold 7, folded and unfolded (CSS px). The unfolded layout starts at 720px.
-  const UNFOLDED = 749;
-  for (const [w, scheme] of [[344, 'dark'], [400, 'light'], [411, 'dark'], [UNFOLDED, 'light']]) {
-    ({ ctx, page } = await open({ viewport: { width: w, height: 860 }, isMobile: true, hasTouch: true, colorScheme: scheme }));
+  // Jon's Galaxy Z Fold 7 in Chrome, measured: folded 411 x 847, unfolded 749 x 638 CSS px, pixel ratio 2.63.
+  // The unfolded layout starts at 720px (index.html), so that edge is checked at the unfolded height too.
+  const UNFOLD_FROM = 720, UNFOLDED = 749, FOLD_DPR = 2.63;
+  for (const [w, h, scheme] of [[344, 860, 'dark'], [400, 860, 'light'], [411, 847, 'dark'], [UNFOLD_FROM, 638, 'dark'], [UNFOLDED, 638, 'light']]) {
+    const dpr = w === 411 || w >= UNFOLD_FROM ? { deviceScaleFactor: FOLD_DPR } : {};
+    ({ ctx, page } = await open({ viewport: { width: w, height: h }, ...dpr, isMobile: true, hasTouch: true, colorScheme: scheme }));
     await page.evaluate(SEED_OWED);
     await step(`${w}px: no sideways scroll and no balance spills out, on every tab`, async () => {
       const found = [];
@@ -522,7 +528,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
         assert.deepStrictEqual(bad, []);
       });
     }
-    if (w !== UNFOLDED) {
+    if (w < UNFOLD_FROM) {
       await step(`${w}px ${scheme}: the small captions read at a contrast of at least 4.5:1`, async () => {
         const sels = ['#syncText', '#budClearedCount', '.owed-summary .text-xs'];
         const r = [];
@@ -534,37 +540,28 @@ const contrastOf = (page, sel) => page.evaluate(s => {
         assert.deepStrictEqual(r.filter(x => x[1] < 4.5), []);
       });
     }
-    if (w === 411) {
-      await step('411px (folded): account cards 2x2 and one column of sections', async () => {
-        const tops = await page.$$eval('#tilesSection > div', d => d.map(x => Math.round(x.getBoundingClientRect().top)));
-        assert.strictEqual(new Set(tops).size, 2, 'cards should be 2x2: ' + tops);
-        const cols = await page.evaluate(() => getComputedStyle(document.getElementById('mainGrid')).gridTemplateColumns.split(' ').length);
-        assert.strictEqual(cols, 1);
+    if (w < UNFOLD_FROM) {
+      await step(`${w}px: account cards 2x2 and one column of sections`, async () => {
+        assert.deepStrictEqual(await layoutShape(page), { cardRows: 2, cols: 1 });
       });
     }
-    if (w === UNFOLDED) {
-      await step('unfolded: the biggest balances still fit 4 cards across, at 720px and at ' + UNFOLDED + 'px', async () => {
-        const r = [];
-        for (const width of [720, UNFOLDED]) {
-          await page.setViewportSize({ width, height: 860 });
-          r.push(width + ' ' + JSON.stringify(await page.evaluate(() => {
-            const els = [...document.querySelectorAll('#tilesSection .kpi-figure')];
-            const out = els.map(e => { e.textContent = '−£99,999.99'; const rg = document.createRange(); rg.selectNodeContents(e); return Math.floor(e.clientWidth - rg.getBoundingClientRect().width); });
-            renderAll();
-            return out;
-          })));
-        }
-        assert.ok(r.every(x => JSON.parse(x.split(' ')[1]).every(n => n >= 0)), r.join(' | '));
+    if (w === UNFOLD_FROM) {
+      await step(`the unfolded layout starts at exactly ${UNFOLD_FROM}px (${UNFOLD_FROM - 1}px is still the phone layout)`, async () => {
+        await page.setViewportSize({ width: UNFOLD_FROM - 1, height: h });
+        const below = await layoutShape(page);
+        await page.setViewportSize({ width: UNFOLD_FROM, height: h });
+        assert.deepStrictEqual(below, { cardRows: 2, cols: 1 });
       });
-      await step('the unfolded layout starts at exactly 720px (719px is still the phone layout)', async () => {
-        const shape = async width => { await page.setViewportSize({ width, height: 860 }); return page.evaluate(() => [new Set([...document.querySelectorAll('#tilesSection > div')].map(x => Math.round(x.getBoundingClientRect().top))).size, getComputedStyle(document.getElementById('mainGrid')).gridTemplateColumns.split(' ').length]); };
-        const r = { 719: await shape(719), 720: await shape(720) };
-        await page.setViewportSize({ width: UNFOLDED, height: 860 });
-        assert.deepStrictEqual(r, { 719: [2, 1], 720: [1, 2] });
+    }
+    if (w >= UNFOLD_FROM) {
+      await step(`${w}px (unfolded): the biggest balances still fit 4 cards across`, async () => {
+        await page.evaluate(() => document.querySelectorAll('#tilesSection .kpi-figure').forEach(e => { e.textContent = '−£99,999.99'; }));
+        const m = await noSideways(page);
+        await page.evaluate(() => renderAll());
+        assert.deepStrictEqual(m.kpi, [], JSON.stringify(m));
       });
-      await step(UNFOLDED + 'px (unfolded): 4 account cards across; Bills beside Owed + Activity; one column on a tab', async () => {
-        const tops = await page.$$eval('#tilesSection > div', d => d.map(x => Math.round(x.getBoundingClientRect().top)));
-        assert.strictEqual(new Set(tops).size, 1, 'cards not in one row: ' + tops);
+      await step(`${w}px (unfolded): 4 account cards across; Bills beside Owed + Activity; one column on a tab`, async () => {
+        assert.deepStrictEqual(await layoutShape(page), { cardRows: 1, cols: 2 });
         const r = await page.evaluate(() => Object.fromEntries(['sec_budgets', 'sec_pending', 'sec_activity'].map(id => { const b = document.getElementById(id).getBoundingClientRect(); return [id, { l: Math.round(b.left), t: Math.round(b.top), b: Math.round(b.bottom), w: Math.round(b.width) }]; })));
         assert.ok(r.sec_pending.l > r.sec_budgets.l + 100 && r.sec_pending.t === r.sec_budgets.t, JSON.stringify(r));
         assert.ok(r.sec_activity.l === r.sec_pending.l && r.sec_activity.t > r.sec_pending.b && r.sec_activity.t - r.sec_pending.b <= 20, 'Activity should follow Owed: ' + JSON.stringify(r));
