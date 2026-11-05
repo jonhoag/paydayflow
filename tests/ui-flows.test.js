@@ -1,20 +1,18 @@
 // Real-Chrome click-through of the main screens, using the test page (real index.html, pretend backend).
 // Checks the redesigned layout and that every button still makes the right save.
 //
-//   set PW_PATH=C:\Users\JonfH\pf-tools\node_modules\playwright-core
-//   node tests/ui-flows.test.js
+//   node tests/ui-flows.test.js   (playwright-core from PW_PATH, or from npm ci --ignore-scripts)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 
-const { chromium } = require(process.env.PW_PATH || 'playwright-core');
-const CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
+const { launchChrome, makeSteps, awayAndBack } = require('./lib/runner');
 const PORT = 8129;
 const { root, HOST, sendSiteFile } = require('./lib/site-files');
 const server = http.createServer(sendSiteFile);
 
-const results = [];
+const { step, finish } = makeSteps();
 // Spending's month bars with six big months: the bars it shows, each label's text, line count and whether it fits
 // its own bar; or a message if the row spills out of the box.
 async function monthBars(page) {
@@ -33,11 +31,6 @@ async function monthBars(page) {
       });
     } finally { spendMonthTotals = real; closeSpendModal(); }
   });
-}
-
-async function step(name, fn) {
-  try { await fn(); results.push([true, name]); }
-  catch (e) { results.push([false, name + '\n      ' + String(e.message).split('\n')[0]]); }
 }
 
 // 21 extra "owed" items (Kim 10, Robin 4 more, Sam 4, Lee 3) on top of the demo data. All names are invented.
@@ -112,17 +105,21 @@ const contrastOf = (page, sel) => page.evaluate(s => {
 
 (async () => {
   await new Promise(r => server.listen(PORT, HOST, r));
-  const browser = await chromium.launch({ executablePath: CHROME, headless: true });
+  const browser = await launchChrome();
   const errors = [];
   const offSite = [];   // every request that leaves this test server (there should be none)
-  const open = async (opts, query = 'demo=1') => {
-    const ctx = await browser.newContext(opts);
-    const page = await ctx.newPage();
+  // Every page the test opens reports its errors, refused loads and off-site requests (checked at the end).
+  const watch = page => {
     page.on('pageerror', e => errors.push(e.message));
     // Anything the page's security policy refuses is reported here too ("Refused to load ...").
     page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
     page.on('response', r => { if (r.status() >= 400 && r.url().startsWith('http://localhost')) errors.push(r.status() + ' ' + r.url()); });
     page.on('request', r => { if (!/^(http:\/\/localhost|data:|blob:)/.test(r.url())) offSite.push(r.url()); });
+    return page;
+  };
+  const open = async (opts, query = 'demo=1') => {
+    const ctx = await browser.newContext(opts);
+    const page = watch(await ctx.newPage());
     await page.goto(`http://localhost:${PORT}/tests/harness.html?${query}&latency=50`);
     await page.waitForFunction(() => document.getElementById('kpiNCA') && /£\d/.test(document.getElementById('kpiNCA').textContent) && window.MOCK && MOCK.calls.length > 0);
     await page.waitForTimeout(400);
@@ -887,14 +884,6 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(left.includes('pf_cache_Test Payday 2026'), left.join());
   });
 
-  const awayAndBack = (page, ms) => page.evaluate(away => {
-    const realNow = Date.now;
-    const vis = s => { Object.defineProperty(document, 'visibilityState', { value: s, configurable: true }); document.dispatchEvent(new Event('visibilitychange')); };
-    vis('hidden');
-    Date.now = () => realNow() + away;
-    try { vis('visible'); } finally { Date.now = realNow; }
-  }, ms);
-
   await step('coming back to the app after a while fetches the latest figures; a quick glance away does not', async () => {
     let n = (await calls(page, 'getCachedSheetState')).length;
     await awayAndBack(page, 5000);
@@ -1203,8 +1192,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   // ---------------- a Google account the server turns down ----------------
   {
     const c2 = await browser.newContext(desk);
-    const p2 = await c2.newPage();
-    p2.on('pageerror', e => errors.push(e.message));
+    const p2 = watch(await c2.newPage());
     await p2.goto(`http://localhost:${PORT}/tests/harness.html?demo=1&token=none&latency=50`);
     await p2.waitForFunction(() => window.MOCK && typeof MOCK.gsiCallback === 'function');
     await step('a browser that refuses to save the sign-in says so plainly and sends nothing', async () => {
@@ -1249,8 +1237,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     // Opens the test page with "today" fixed (timers keep running), like open() above.
     const openAt = async (opts, when, query = 'demo=1') => {
       const c = await browser.newContext(opts);
-      const p = await c.newPage();
-      p.on('pageerror', e => errors.push(e.message));
+      const p = watch(await c.newPage());
       if (when) await p.clock.setFixedTime(new Date(when));
       await p.goto(`http://localhost:${PORT}/tests/harness.html?${query}&latency=50`);
       await p.waitForFunction(() => document.getElementById('kpiNCA') && /£\d/.test(document.getElementById('kpiNCA').textContent));
@@ -1395,7 +1382,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     }
     {
       const c2 = await browser.newContext(phone);
-      const p2 = await c2.newPage();
+      const p2 = watch(await c2.newPage());
       await p2.goto(`http://localhost:${PORT}/tests/harness.html?demo=1&token=none&go=owed&latency=50`);
       await p2.waitForFunction(() => window.MOCK && typeof MOCK.gsiCallback === 'function');
       await step('shortcut while signed out: the screen opens once you have signed in', async () => {
@@ -1448,8 +1435,5 @@ const contrastOf = (page, sel) => page.evaluate(s => {
 
   await browser.close();
   server.close();
-  let failed = 0;
-  results.forEach(([ok, name]) => { if (!ok) failed++; console.log((ok ? '  PASS  ' : '  FAIL  ') + name); });
-  console.log(`\n${results.length - failed}/${results.length} passed`);
-  process.exit(failed ? 1 : 0);
+  finish();
 })().catch(e => { console.error(e); process.exit(1); });
