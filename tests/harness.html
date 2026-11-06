@@ -282,7 +282,7 @@
   try {
     if (sessionStorage.getItem('pf_signed_out') === '1') MOCK.gsiAccount = 'owner@example.com';
     else {
-      localStorage.clear();
+      if (q.get('keep') !== '1') localStorage.clear();   // ?keep=1: the app opened again, with what this device saved
       if (q.get('token') !== 'none') localStorage.setItem('pf_google_id_token', makeToken('owner@example.com'));
     }
   } catch (e) {}
