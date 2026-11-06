@@ -179,7 +179,7 @@
     <!-- Clean Single-Line Header -->
     <header class="sticky top-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3.5 lg:px-8 py-2.5 flex items-center justify-between gap-2">
       <div class="relative flex items-center min-w-0 flex-1 max-w-xs">
-        <select id="monthSelector" onchange="switchMonth(this.value)"
+        <select id="monthSelector" aria-label="Month" onchange="switchMonth(this.value)"
                 class="w-full appearance-none bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold text-xs sm:text-sm rounded-xl pl-3 pr-7 py-2 border border-slate-200 dark:border-slate-700 truncate focus:outline-none cursor-pointer">
           <option value="">—</option>
         </select>
@@ -1892,7 +1892,6 @@ async function postToServer(bodyObj, opts = {}) {
       apiCall('getCategoryChoices').then(applyCategoryChoices).catch(() => {});   // quiet: the saved copy is already showing
     }
     function closeSpendModal() { document.getElementById('spendModal').classList.add('hidden'); }
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTopSheet(); });
 
     // Month tabs are named like "October Payday 2026".
     const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -2036,15 +2035,20 @@ async function postToServer(bodyObj, opts = {}) {
     // ---- Back (Android's Back gesture, or the browser's back button) ----
     // An open sheet, and a phone tab other than Home, are each one step in the browser's history, so Back closes the
     // sheet, then goes back to Home, before it leaves the app. history.state.pfDepth is how many steps an entry is.
-    // Escape closes the top sheet too. (The order is which sheet counts as on top when more than one is open.)
+    // Escape closes a sheet too. Sheets are watched (a MutationObserver), so every way of opening or closing one counts,
+    // even a close that is turned down (Sign out while busy); tabs change only in setView, which calls syncHistory.
+    // A new sheet goes in SHEETS (with its close function) and gets the kb-sheet class; a test checks the two match.
     const SHEETS = [['spendModal', closeSpendModal], ['addModal', closeAddModal], ['editTxModal', closeEditTxModal],
       ['newMonthModal', closeNewMonthModal], ['passkeyModal', closePasskeyModal], ['signOutModal', closeSignOutModal]];
     const sheetOpen = id => !document.getElementById(id).classList.contains('hidden');
+    // Closes the first open sheet in SHEETS (two are never open together). True if one was open, even if it stayed
+    // open (Sign out while busy), so that Back doesn't go on to change the tab as well.
     function closeTopSheet() {
       const top = SHEETS.find(([id]) => sheetOpen(id));
       if (top) top[1]();
       return !!top;
     }
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTopSheet(); });
     const historyDepth = () => (history.state && history.state.pfDepth) || 0;
     const wantedDepth = () => (document.body.dataset.view !== 'home' && PHONE_MQ.matches ? 1 : 0) + (SHEETS.some(([id]) => sheetOpen(id)) ? 1 : 0);
     let historyMoving = false;   // a history.go() of ours is on its way (its popstate isn't a Back)
@@ -2057,8 +2061,9 @@ async function postToServer(bodyObj, opts = {}) {
       if (have > want) { historyMoving = true; history.go(want - have); }
     }
     if (!IS_GAS_ENV) {
-      // Reloaded with a sheet open (e.g. Sign out reloads): nothing is open now, so this entry is the bottom again.
-      if (historyDepth()) history.replaceState({ pfDepth: 0 }, '');
+      // Reloaded with a sheet or tab open (Sign out and "Reload" do that): nothing is open now, so go back down to the
+      // app's bottom entry, or the first Back would do nothing.
+      if (historyDepth()) { historyMoving = true; history.go(-historyDepth()); }
       window.addEventListener('popstate', () => {
         if (historyMoving) { historyMoving = false; syncHistory(); return; }
         // Back: take off what shows, one step for each step gone back (the top sheet first, then the tab).
@@ -2076,6 +2081,7 @@ async function postToServer(bodyObj, opts = {}) {
       const v = document.body.dataset.view;
       if (SECTIONS[v] && PHONE_MQ.matches) setSectionOpen(v, true);
       renderAll();
+      syncHistory();   // a tab is a Back step only on a phone
     });
 
     // ---- Long lists show a few rows with a "Show all" toggle instead of scrolling inside the page ----
@@ -2248,6 +2254,7 @@ async function postToServer(bodyObj, opts = {}) {
       el.innerHTML = '<span class="flex-1 text-left"></span>'
         + (opts.actionLabel ? '<button id="toastAction" class="font-bold text-emerald-300 px-2.5 h-9 -my-1.5 -mr-2 rounded-lg inline-flex items-center gap-1">' + icon(opts.actionIcon || 'undo', 'w-3.5 h-3.5') + esc(opts.actionLabel) + '</button>' : '');
       el.firstChild.textContent = msg;
+      el.setAttribute('role', opts.kind === 'info' ? 'status' : 'alert');   // a failure is read out at once
       clearTimeout(toastTimer);
       if (opts.actionLabel) {
         document.getElementById('toastAction').onclick = () => { clearTimeout(toastTimer); el.classList.add('hidden'); opts.onAction(); };
