@@ -2233,10 +2233,10 @@ async function postToServer(bodyObj, opts = {}) {
       if (!btn || !note) return;
       const list = loadOutbox(), setAside = list.filter(x => x.setAside).length, waiting = list.length - setAside;
       const offline = !IS_GAS_ENV && navigator.onLine === false;
-      const failed = setAside ? 'setAside' : lastSyncFailed;
+      const failed = setAside && !offline ? 'setAside' : lastSyncFailed;
       let status, label;
       if (apiInflight > 0) { status = 'busy'; label = 'Syncing…'; }
-      else if (setAside && !offline) { status = 'failed'; label = SYNC_FAILED.setAside.label; }
+      else if (failed === 'setAside') { status = 'failed'; label = SYNC_FAILED.setAside.label; }
       else if (waiting) {
         status = 'waiting';
         label = waiting + (waiting === 1 ? ' spend' : ' spends') + ' waiting to send. ' + (offline ? (waiting === 1 ? 'It sends' : 'They send') + " when you're back online" : 'Tap to send now');
@@ -3167,10 +3167,17 @@ async function postToServer(bodyObj, opts = {}) {
         actionLabel: 'Remove', actionIcon: 'trash', duration: 9000,
         onAction: () => { updateOutboxItem(item.id, null); forceSyncSheet(); }
       });
-      forceSyncSheet();
     }
-    // A tap on sync (or Send now when signing out): spends set aside go back in the queue, counted afresh.
+    // The sheet fetched afresh for the screen only: it sends nothing, so it can't set off another round of sending.
+    function refreshFromSheet() {
+      apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
+        .then(applyServerState)
+        .catch(err => console.error(err));
+    }
+    // A tap on sync (or Send now when signing out): spends set aside go back in the queue, counted afresh. Offline,
+    // nothing could be sent, so they stay as they are.
     function retrySetAside() {
+      if (!IS_GAS_ENV && navigator.onLine === false) return;
       saveOutbox(loadOutbox().map(x => x.setAside ? { ...x, setAside: undefined, tries: undefined, sentAt: undefined } : x));
     }
     function sendNewSpend(payload) {
@@ -3186,7 +3193,7 @@ async function postToServer(bodyObj, opts = {}) {
           // Kept on this phone either way, so a spend is never just lost (see OUTBOX_MAX_TRIES for what happens next).
           const kind = failureKind(err);
           queueSpend(payload, kind === 'reach' ? { sentAt: Date.now() } : {});
-          if (kind === 'refused') setSpendAside({ id: payload.clientId, payload }, plainError(err));
+          if (kind === 'refused') { setSpendAside({ id: payload.clientId, payload }, plainError(err)); refreshFromSheet(); }
           else showToast(err && err.network ? "No connection - saved on this phone, it will send when you're back online."
             : "Couldn't save it just now - kept on this phone, it will send again shortly.", { kind: 'info' });
         });
@@ -3197,6 +3204,7 @@ async function postToServer(bodyObj, opts = {}) {
       // Signed out or locked: wait. Asking now would redraw the lock screen and overwrite what it says.
       if (!hasValidToken() || lockScreenShowing()) return;
       outboxFlushing = true;
+      let anySetAside = false;   // then the screen is fetched afresh once, at the end
       try {
         const tried = new Set();   // each spend at most once a round, even if this phone's storage can't be written
         let item;
@@ -3204,6 +3212,7 @@ async function postToServer(bodyObj, opts = {}) {
           tried.add(item.id);
           if (item.sentAt && Date.now() - item.sentAt > RESEND_WITHIN_MS) {
             setSpendAside(item, 'it may already be in your sheet. Check, then tap ↻ to send it anyway.');
+            anySetAside = true;
             continue;
           }
           try {
@@ -3217,12 +3226,14 @@ async function postToServer(bodyObj, opts = {}) {
             const tries = (item.tries || 0) + 1;
             if (kind === 'busy' && tries < OUTBOX_MAX_TRIES) { updateOutboxItem(item.id, { tries }); break; }
             setSpendAside(item, plainError(err));
+            anySetAside = true;
           }
         }
       } finally {
         outboxFlushing = false;
         updateSyncUi();
       }
+      if (anySetAside) refreshFromSheet();
     }
     // Back online: send what was saved here. If a request failed meanwhile, check the sheet again too (which also
     // sends), so the red caption doesn't stay up once the connection is back.

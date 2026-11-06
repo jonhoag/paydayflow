@@ -626,6 +626,25 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.strictEqual(await sentCount('Old lost shop'), 1);
     assert.strictEqual((await outbox()).length, 0);
   });
+  await step("outbox: with this phone's storage full, a turned-down spend is not sent over and over", async () => {
+    const from = errors.length;
+    try {
+      const payload = { sheetName: await page.evaluate(() => activeMonth), merchant: 'Full storage shop', grossAmount: 2, isRefund: false, account: 'amex', splits: [], marcusShare: 0, markNeed: false, clientId: 'full-1' };
+      await page.evaluate(p => {
+        saveOutbox([{ id: p.clientId, payload: p }]);
+        MOCK.failWith = 'Invalid amount.'; MOCK.failNext = 10;
+        window.__setItem = Storage.prototype.setItem;
+        Storage.prototype.setItem = function () { throw new Error('QuotaExceededError'); };   // nothing can be saved now
+        return flushOutbox();
+      }, payload);
+      await page.waitForTimeout(2500);   // long enough for several rounds if setting it aside started another
+      await page.waitForFunction(() => apiInflight === 0);
+      assert.strictEqual(await sentCount('Full storage shop'), 1);
+    } finally {
+      await page.evaluate(() => { Storage.prototype.setItem = window.__setItem; MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; saveOutbox([]); updateSyncUi(); });
+      dropExpectedSyncErrors(from);
+    }
+  });
   await step('outbox: (tidy up) the spends these steps saved are taken back out of the pretend sheet', async () => {
     await page.evaluate(() => {
       const ours = /^(Bad reply|Busy|Very busy|Half done|Old lost) shop$/;
@@ -763,13 +782,13 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       await step('344px: each red sync caption fits on one line, with no sideways scroll', async () => {
         await page.waitForFunction(() => apiInflight === 0);   // a request in flight would show "syncing" instead
         const r = await page.evaluate(() => Object.keys(SYNC_FAILED).map(k => {
-          const saved = localStorage.getItem('pf_outbox');
+          const saved = localStorage.getItem(OUTBOX_KEY);
           if (k === 'setAside') saveOutbox([{ id: 'fit1', payload: { merchant: 'x' }, setAside: 'test' }]); else lastSyncFailed = k;
           updateSyncUi();
           const n = document.getElementById('syncStatus'), rg = document.createRange(); rg.selectNodeContents(n);
           const out = { k, shown: !n.classList.contains('hidden'), fits: rg.getBoundingClientRect().right <= innerWidth - 14, sideways: document.documentElement.scrollWidth > innerWidth };
           lastSyncFailed = null;
-          if (saved === null) localStorage.removeItem('pf_outbox'); else localStorage.setItem('pf_outbox', saved);
+          if (saved === null) localStorage.removeItem(OUTBOX_KEY); else localStorage.setItem(OUTBOX_KEY, saved);
           updateSyncUi();
           return out;
         }));
