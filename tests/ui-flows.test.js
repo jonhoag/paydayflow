@@ -933,6 +933,64 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.keyboard.press('Escape');
     assert.ok(!(await visible(page, '#addModal')));
   });
+  // ---- Back (Android's Back gesture = the browser going back) ----
+  const backState = () => page.evaluate(() => ({ depth: (history.state && history.state.pfDepth) || 0, view: document.body.dataset.view,
+    add: !document.getElementById('addModal').classList.contains('hidden'), app: typeof setView === 'function' && location.pathname.endsWith('/tests/harness.html') }));
+  const goBack = async () => { await page.evaluate(() => history.back()); await page.waitForTimeout(150); };
+  await step('Back with the Add form open closes it and stays in the app', async () => {
+    await page.click('nav button[aria-label="Add transaction"]');
+    assert.deepStrictEqual(await backState(), { depth: 1, view: 'home', add: true, app: true });
+    await goBack();
+    assert.deepStrictEqual(await backState(), { depth: 0, view: 'home', add: false, app: true });
+  });
+  await step('Back from the Bills tab goes to Home; with a sheet open over a tab, Back closes the sheet first', async () => {
+    await page.click('nav button[data-nav="budgets"]');
+    assert.deepStrictEqual(await backState(), { depth: 1, view: 'budgets', add: false, app: true });
+    await page.click('nav button[data-nav="activity"]');   // tab to tab: still one step
+    assert.strictEqual((await backState()).depth, 1);
+    await page.click('nav button[aria-label="Add transaction"]');
+    assert.deepStrictEqual(await backState(), { depth: 2, view: 'activity', add: true, app: true });
+    await goBack();
+    assert.deepStrictEqual(await backState(), { depth: 1, view: 'activity', add: false, app: true });
+    await goBack();
+    assert.deepStrictEqual(await backState(), { depth: 0, view: 'home', add: false, app: true });
+  });
+  await step('closing a sheet with ✕, Escape or Save takes its step off too, so the next Back is not wasted', async () => {
+    await page.click('nav button[aria-label="Add transaction"]');
+    await page.click('#addModal button[aria-label="Close"]');
+    await page.waitForFunction(() => !((history.state && history.state.pfDepth) || 0));
+    await page.click('nav button[aria-label="Add transaction"]');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !((history.state && history.state.pfDepth) || 0));
+    await page.click('nav button[data-nav="budgets"]');
+    await page.click('nav button[data-nav="home"]');   // Home by tapping: its step is taken off as well
+    await page.waitForFunction(() => !((history.state && history.state.pfDepth) || 0));
+    // Closing one sheet and opening another straight away still leaves one step for the open one.
+    await page.evaluate(() => { openAddModal(); closeAddModal(); openAddModal(); });
+    await page.waitForFunction(() => (history.state && history.state.pfDepth) === 1);
+    await page.waitForTimeout(200);
+    assert.deepStrictEqual(await backState(), { depth: 1, view: 'home', add: true, app: true });
+    await goBack();
+    assert.deepStrictEqual(await backState(), { depth: 0, view: 'home', add: false, app: true });
+  });
+  await step('screen readers: form boxes have labels, sheets are dialogs with a title, chosen buttons say so', async () => {
+    const r = await page.evaluate(() => {
+      const unlabelled = ['inpAmount', 'inpMerchant', 'editTxAmt', 'editTxDesc', 'nmName', 'nmPaycheck', 'nmSavings', 'inpBudName', 'inpBudAmt', 'txSearch']
+        .filter(id => { const el = document.getElementById(id); return !(el.labels && el.labels.length) && !el.getAttribute('aria-label'); });
+      const dialogs = SHEETS.map(([id]) => { const d = document.querySelector('#' + id + ' [role="dialog"]'); const t = d && document.getElementById(d.getAttribute('aria-labelledby'));
+        return d && d.getAttribute('aria-modal') === 'true' && t && t.textContent.trim() ? 'ok' : id; });
+      openAddModal(); selectAcct('barclays');
+      const pressed = ACCTS.map(a => document.getElementById('acct_' + a).getAttribute('aria-pressed'));
+      selectAcct('amex'); closeAddModal();
+      return { unlabelled, dialogs, pressed, current: [...document.querySelectorAll('nav [data-nav]')].map(b => b.getAttribute('aria-current')),
+        toast: [document.getElementById('toast').getAttribute('role'), document.getElementById('toast').getAttribute('aria-live')] };
+    });
+    assert.deepStrictEqual(r, { unlabelled: [], dialogs: ['ok', 'ok', 'ok', 'ok', 'ok', 'ok'], pressed: ['false', 'true', 'false', 'false'],
+      current: ['page', null, null, null], toast: ['status', 'polite'] });
+    await page.click('nav button[data-nav="pending"]');
+    assert.deepStrictEqual(await page.$$eval('nav [data-nav]', bs => bs.map(b => b.getAttribute('aria-current'))), [null, null, 'page', null]);
+    await page.click('nav button[data-nav="home"]');
+  });
   await ctx.close();
 
   // ---------------- layout: widths, wrapping, hit areas, contrast ----------------
