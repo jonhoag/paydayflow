@@ -778,6 +778,8 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       await page.evaluate(() => confirmStartNewMonth());
       assert.strictEqual(await page.textContent('#nmPaycheckErr'), 'Type an amount, like 12.50');
       assert.strictEqual((await calls(page, 'startNewMonth')).length, months, 'no month was made with £0 pay');
+      await page.evaluate(() => { closeNewMonthModal(); openNewMonthModal(); closeNewMonthModal(); openEditTxModal('amex', 4, 'start', 0); });
+      assert.ok(await page.evaluate(() => ['nmPaycheckErr', 'editTxAmtErr'].every(id => document.getElementById(id).classList.contains('hidden'))), 'reopened forms show no old message');
     } finally { await page.evaluate(() => closeNewMonthModal()); await resetAddForm(); }
   });
   await step('amount boxes read "12.50", "£1,234.50", " 7 " and "1,500"; anything else ("12,50", "-4", "12.5e3") is not an amount', async () => {
@@ -853,6 +855,9 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       await page.uncheck('#chkEqualIncludeMe');
       assert.deepStrictEqual(await shares(), ['6.67', '6.67', '6.66']);
       assert.strictEqual(await page.evaluate(() => buildSplitData().splits.reduce((a, s) => a + s.amount, 0).toFixed(2)), '20.00');
+      await page.fill('#inpAmount', '0.02');
+      await page.click('#chip_robin');   // 2p between four: nobody's share goes below 0
+      assert.deepStrictEqual(await shares(), ['0', '0', '0', '0.02'].map(v => v === '0' ? '' : v));
     } finally { await resetAddForm(); }
   });
   await step('phone keyboard up: the sheet fills just what is visible, so the form stays in sight (and scrolls if taller)', async () => {

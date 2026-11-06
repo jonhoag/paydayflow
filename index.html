@@ -721,13 +721,13 @@
             <label class="font-medium text-slate-500 dark:text-slate-400 block mb-1">My Pay (£)</label>
             <input id="nmPaycheck" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00"
                    class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm tabular-nums font-semibold text-emerald-500" />
-          <p id="nmPaycheckErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
+            <p id="nmPaycheckErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
           </div>
           <div>
             <label class="font-medium text-slate-500 dark:text-slate-400 block mb-1">Moving to Marcus (£)</label>
             <input id="nmSavings" type="text" inputmode="decimal" autocomplete="off" placeholder="0"
                    class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm tabular-nums font-semibold text-amber-400" />
-          <p id="nmSavingsErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
+            <p id="nmSavingsErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
           </div>
         </div>
 
@@ -2419,6 +2419,7 @@ async function postToServer(bodyObj, opts = {}) {
     // the screen holds by the time you tap (the figures can refresh while the form is open).
     let budFormExpect = null;
     function openBudgetForm(row = '', name = '', amount = '', isRecurring = false) {
+      clearFieldError('inpBudAmt');   // filled in code below, which clears no old message by itself
       budFormExpect = row ? { name, amount: Number(amount) } : null;
       document.getElementById('editBudRow').value = row;
       document.getElementById('inpBudName').value = name;
@@ -3059,7 +3060,8 @@ async function postToServer(bodyObj, opts = {}) {
       const incMe = document.getElementById('chkEqualIncludeMe').checked;
       const divisor = people.length + (incMe ? 1 : 0);
       if (divisor) {
-        const each = Math.round(pence / divisor);
+        let each = Math.round(pence / divisor);
+        if (!incMe && each * (people.length - 1) > pence) each = Math.floor(pence / divisor);   // a few pence: no share below 0
         people.forEach(e => { e.amount = each / 100; });
         if (!incMe) people[people.length - 1].amount = (pence - each * (people.length - 1)) / 100;
       }
@@ -3340,6 +3342,7 @@ async function postToServer(bodyObj, opts = {}) {
     // What the edit form showed when it opened (see budFormExpect).
     let editTxExpect = null;
     function openEditTxModal(acct, row, desc, amount) {
+      clearFieldError('editTxAmt');
       editTxExpect = { desc, amount: Number(amount) };
       document.getElementById('editTxOldAcct').value = acct;
       document.getElementById('editTxRow').value = row;
@@ -3492,6 +3495,7 @@ async function postToServer(bodyObj, opts = {}) {
     }
 
     function openNewMonthModal() {
+      ['nmPaycheck', 'nmSavings'].forEach(clearFieldError);
       const s = state.summary;
       document.getElementById('nmName').value = getNextMonthName(activeMonth);
       document.getElementById('nmPaycheck').value = thisMonthAmount(/^paycheck$/i);
