@@ -713,6 +713,132 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.deepStrictEqual(r, { addModal: want, editTxModal: want });
   });
 
+  // ---- quicker Add form ----
+  const addForm = () => page.evaluate(() => ({ focus: document.activeElement && document.activeElement.id,
+    amtErr: document.getElementById('inpAmountErr').classList.contains('hidden') ? null : document.getElementById('inpAmountErr').textContent,
+    descErr: document.getElementById('inpMerchantErr').classList.contains('hidden') ? null : document.getElementById('inpMerchantErr').textContent,
+    open: !document.getElementById('addModal').classList.contains('hidden') }));
+  await step('Add form: opens with the cursor in Amount; Enter moves to Description; Enter there saves', async () => {
+    await page.click('nav button[aria-label="Add transaction"]');
+    assert.strictEqual((await addForm()).focus, 'inpAmount');
+    assert.deepStrictEqual(await page.$eval('#inpAmount', i => [i.type, i.inputMode, i.enterKeyHint]), ['text', 'decimal', 'next']);
+    await page.keyboard.type('6.40');
+    await page.keyboard.press('Enter');
+    assert.strictEqual((await addForm()).focus, 'inpMerchant');
+    assert.strictEqual(await page.$eval('#inpMerchant', i => i.enterKeyHint), 'done');
+    const sent = (await calls(page, 'addTransactionBundle')).length;
+    await page.keyboard.type('Enter key shop');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(n => MOCK.calls.filter(c => c.action === 'addTransactionBundle').length === n + 1, sent);
+    const a = (await calls(page, 'addTransactionBundle')).pop();
+    assert.ok(a.merchant === 'Enter key shop' && Number(a.grossAmount) === 6.4, JSON.stringify(a));
+    assert.ok(!(await addForm()).open, 'the form closes once saved');
+  });
+  await step('Add form: Save with something missing says what, under the box, and sends nothing', async () => {
+    const sent = (await calls(page, 'addTransactionBundle')).length;
+    await page.click('nav button[aria-label="Add transaction"]');
+    await page.click('#btnSubmitTx');
+    let f = await addForm();
+    assert.deepStrictEqual([f.amtErr, f.focus], ['Add the amount', 'inpAmount']);
+    await page.fill('#inpAmount', '12.5e3');
+    assert.strictEqual((await addForm()).amtErr, null, 'typing clears the line');
+    await page.click('#btnSubmitTx');
+    assert.strictEqual((await addForm()).amtErr, 'Type an amount, like 12.50');
+    await page.fill('#inpAmount', '3.20');
+    await page.click('#btnSubmitTx');
+    f = await addForm();
+    assert.deepStrictEqual([f.descErr, f.focus, f.open], ['Add where it was', 'inpMerchant', true]);
+    assert.strictEqual(await page.getAttribute('#inpMerchant', 'aria-invalid'), 'true');
+    assert.strictEqual((await calls(page, 'addTransactionBundle')).length, sent, 'nothing is sent');
+    await page.evaluate(() => closeAddModal());
+    await page.evaluate(() => openAddModal());
+    f = await addForm();
+    assert.deepStrictEqual([f.amtErr, f.descErr], [null, null], 'a fresh form shows no old message');
+    await page.evaluate(() => { closeAddModal(); document.getElementById('inpAmount').value = ''; });
+  });
+  await step('amount boxes read "12.50", "£1,234.50", "12,50" and "-4"; junk like "12.5e3" or "1.2.3" is not an amount', async () => {
+    const r = await page.evaluate(() => ['12.50', '£1,234.50', '12,50', '-4', ' 7 ', '.5', '', '12.5e3', '1.2.3', 'abc'].map(parseAmount));
+    assert.deepStrictEqual(r.map(x => Number.isNaN(x) ? 'NaN' : x), [12.5, 1234.5, 12.5, 4, 7, 0.5, 0, 'NaN', 'NaN', 'NaN']);
+  });
+  await step('Add form: starts on the card the last spend went on, also after the app is opened again', async () => {
+    await page.click('nav button[aria-label="Add transaction"]');
+    await page.click('#acct_barclays');
+    await page.fill('#inpAmount', '1.75');
+    await page.fill('#inpMerchant', 'Card memory shop');
+    await page.click('#btnSubmitTx');
+    await page.waitForFunction(() => apiInflight === 0);
+    const p2 = watch(await ctx.newPage());   // the app opened again on this phone (same saved data)
+    try {
+      assert.strictEqual(await page.evaluate(() => localStorage.getItem('pf_last_acct')), 'barclays');
+      await p2.goto(page.url() + '&keep=1');
+      await p2.waitForFunction(() => typeof openAddModal === 'function' && window.MOCK && MOCK.calls.length > 0);
+      await p2.evaluate(() => openAddModal());
+      assert.ok((await p2.getAttribute('#acct_barclays', 'class')).includes('bg-emerald-500'), 'Barclays should be picked: ' + JSON.stringify(await p2.evaluate(() => [localStorage.getItem('pf_last_acct'), formAcct, location.href])));
+      assert.ok(!(await p2.getAttribute('#acct_amex', 'class')).includes('bg-emerald-500'));
+    } finally { await p2.close(); }
+    await page.evaluate(() => { localStorage.setItem('pf_last_acct', 'amex'); formAcct = 'amex'; });
+  });
+  await step('group split: equal shares from the start, redone as people are added or taken off, until you type one', async () => {
+    const shares = () => page.$$eval('#dynamicSplitRows .split-amt', i => i.map(x => x.value));
+    await page.evaluate(() => openAddModal());
+    await page.fill('#inpAmount', '42.50');
+    await page.evaluate(() => selectSplit('custom'));   // the quick-split person is added by itself
+    assert.deepStrictEqual(await shares(), ['21.25'], 'you and Kim, half each');
+    await page.click('#chip_lee');
+    assert.deepStrictEqual(await shares(), ['14.17', '14.17']);
+    assert.ok((await page.textContent('#cleanSplitPill')).includes('You pay: £14.16'), await page.textContent('#cleanSplitPill'));
+    await page.click('#chip_lee');
+    assert.deepStrictEqual(await shares(), ['21.25'], 'taking Lee off shares it again');
+    await page.fill('#inpAmount', '50');
+    assert.deepStrictEqual(await shares(), ['25'], 'a new amount is shared again');
+    await page.fill('#dynamicSplitRows .split-amt', '10');   // typed: yours from now on
+    await page.click('#chip_lee');
+    assert.deepStrictEqual(await shares(), ['10', ''], 'a typed share stays; the new person starts empty');
+    await page.click('#customSplitBox button:has-text("Split Equally")');
+    assert.deepStrictEqual(await shares(), ['16.67', '16.67'], '÷ Split Equally goes back to equal shares');
+    await page.evaluate(() => { closeAddModal(); document.getElementById('inpAmount').value = ''; });
+  });
+  await step('phone keyboard up: the sheet ends at its top edge, so the form stays in sight (and scrolls if taller)', async () => {
+    await page.evaluate(() => openAddModal());
+    const r = await page.evaluate(() => {
+      const vv = window.visualViewport, h = 500;
+      Object.defineProperty(vv, 'height', { get: () => h, configurable: true });
+      vv.dispatchEvent(new Event('resize'));
+      const wrap = document.getElementById('addModal').getBoundingClientRect(), sheet = document.querySelector('#addModal > div');
+      const s = sheet.getBoundingClientRect(), a = document.getElementById('inpAmount').getBoundingClientRect();
+      const out = { kb: getComputedStyle(document.documentElement).getPropertyValue('--kb').trim(), wrapBottom: Math.round(wrap.bottom), sheetBottom: Math.round(s.bottom),
+        sheetTop: Math.round(s.top), amountInSight: a.top >= 0 && a.bottom <= h, scrolls: sheet.scrollHeight <= sheet.clientHeight || getComputedStyle(sheet).overflowY === 'auto' };
+      delete vv.height;
+      vv.dispatchEvent(new Event('resize'));
+      out.after = getComputedStyle(document.documentElement).getPropertyValue('--kb').trim();
+      return out;
+    });
+    const H = page.viewportSize().height;
+    assert.strictEqual(r.kb, (H - 500) + 'px', JSON.stringify(r));
+    assert.ok(r.wrapBottom <= 500 && r.sheetBottom <= 500 && r.sheetTop >= 0 && r.amountInSight && r.scrolls, JSON.stringify(r));
+    assert.strictEqual(r.after, '0px', 'keyboard gone: back to the bottom');
+    await page.evaluate(() => closeAddModal());
+  });
+  await step('Add form: (tidy up) the spends these steps saved are taken back out of the pretend sheet', async () => {
+    await page.evaluate(() => {
+      const ours = /^(Enter key|Card memory) shop$/;
+      Object.values(MOCK.db).filter(Array.isArray).forEach(a => { for (let i = a.length - 1; i >= 0; i--) if (ours.test(a[i].desc)) a.splice(i, 1); });
+      forceSyncSheet();
+    });
+    await page.waitForFunction(() => apiInflight === 0 && !document.getElementById('txListContainer').textContent.includes('Card memory shop'));
+  });
+  for (const [w, h] of [[411, 847], [749, 638]]) {
+    await step(`Add form at ${w}x${h} (the Fold ${w < 700 ? 'folded' : 'unfolded'}): Amount has the cursor and sits in sight`, async () => {
+      const { ctx: c3, page: p3 } = await open({ viewport: { width: w, height: h }, deviceScaleFactor: 2.63, isMobile: true, hasTouch: true });
+      try {
+        await p3.click('nav button[aria-label="Add transaction"]');
+        const r = await p3.evaluate(() => { const a = document.getElementById('inpAmount').getBoundingClientRect(), s = document.querySelector('#addModal > div').getBoundingClientRect();
+          return { focus: document.activeElement.id, inSight: a.top >= 0 && a.bottom <= innerHeight, sheetFits: s.top >= 0 && s.bottom <= innerHeight + 1 }; });
+        assert.deepStrictEqual(r, { focus: 'inpAmount', inSight: true, sheetFits: true });
+      } finally { await c3.close(); }
+    });
+  }
+
   await step('edit then delete a transaction (with what the row should contain), and Undo', async () => {
     await page.click('#txListContainer > .tx-row:has-text("Flow test shop")');
     assert.ok(await visible(page, '#editTxModal'));
@@ -1062,7 +1188,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok((await page.getAttribute('#chip_kim', 'class')).includes('bg-emerald-500'), 'the quick-split person is picked by default');
     assert.ok((await page.getAttribute('#chip_marcus', 'class')).includes('text-amber-600'));
     await page.click('#chip_lee');
-    assert.deepStrictEqual(await page.$$eval('#dynamicSplitRows input[type="text"]', i => i.map(x => x.value)), ['kim', 'lee']);
+    assert.deepStrictEqual(await page.$$eval('#dynamicSplitRows .split-name', i => i.map(x => x.value)), ['kim', 'lee']);
     await page.evaluate(() => closeAddModal());
   });
 
@@ -1078,12 +1204,12 @@ const contrastOf = (page, sel) => page.evaluate(s => {
 
   await step('a reply arriving while you type a split amount does not interrupt the typing', async () => {
     await page.evaluate(() => { openAddModal(); selectSplit('custom'); });
-    await page.click('#dynamicSplitRows input[type="number"]');
+    await page.click('#dynamicSplitRows .split-amt');
     await page.keyboard.type('1');
     await page.evaluate(() => forceSyncSheet());
     await page.waitForTimeout(400);
     await page.keyboard.type('2');
-    assert.strictEqual(await page.inputValue('#dynamicSplitRows input[type="number"]'), '12', 'the reply interrupted the typing');
+    assert.strictEqual(await page.inputValue('#dynamicSplitRows .split-amt'), '12', 'the reply interrupted the typing');
     await page.evaluate(() => closeAddModal());
   });
 
@@ -1297,13 +1423,13 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.strictEqual(await page.evaluate(() => formSplit), '100_me', 'a hidden quick split could still be chosen');
     await page.evaluate(() => selectSplit('custom'));
     assert.deepStrictEqual(await page.$$eval('#personChips button[id^="chip_"]', b => b.map(x => x.id)), ['chip_marcus']);
-    assert.strictEqual(await page.$$eval('#dynamicSplitRows input[type="text"]', i => i.length), 0, 'nobody should be picked by default');
+    assert.strictEqual(await page.$$eval('#dynamicSplitRows .split-name', i => i.length), 0, 'nobody should be picked by default');
     await page.click('#personChips button:has-text("Other")');
-    await page.fill('#dynamicSplitRows input[type="text"]', 'pat');
+    await page.fill('#dynamicSplitRows .split-name', 'pat');
     await page.fill('#inpMerchant', 'Split shop');
     await page.fill('#inpAmount', '20');
-    await page.click('#dynamicSplitRows input[type="number"]');
-    await page.fill('#dynamicSplitRows input[type="number"]', '10');
+    await page.click('#dynamicSplitRows .split-amt');
+    await page.fill('#dynamicSplitRows .split-amt', '10');
     await page.click('#btnSubmitTx');
     await page.waitForTimeout(300);
     const a = (await calls(page, 'addTransactionBundle')).pop();

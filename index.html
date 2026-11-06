@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Styles are pre-built into tailwind.css (see build-css.js); the service worker keeps a copy for offline use. -->
-  <link rel="stylesheet" href="tailwind.css?v=5aa78afa01">
+  <link rel="stylesheet" href="tailwind.css?v=a33d9a1ff1">
   <style>
     /* Inter, served from this site (SIL Open Font License: fonts/OFL.txt): one variable file per set of characters,
        fetched only when the page uses them. Text shows in the fallback font until it arrives. */
@@ -69,7 +69,10 @@
       body[data-view="activity"] .act-title-tab { display: inline; }
       body[data-view="activity"] #actSpend { display: block; }
     }
-    input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    /* Pop-up sheets end where the phone keyboard starts (--kb, set by followKeyboard), so the form and its Save button
+       stay in sight while you type; a sheet taller than what is left scrolls. */
+    .kb-sheet.fixed { bottom: var(--kb, 0px); }
+    .kb-sheet > div { max-height: min(92vh, 100%); overflow-y: auto; }
     /* Phone bottom bar acts as real views: Home shows everything, the other tabs show one section. */
     @media (max-width: 1023px) {
       body[data-view="budgets"] #heroSection, body[data-view="budgets"] #tilesSection, body[data-view="budgets"] #sec_pending, body[data-view="budgets"] #sec_activity,
@@ -352,7 +355,7 @@
                 <div class="grid grid-cols-12 gap-2">
                   <input id="inpBudName" type="text" placeholder="e.g. Comedy, Petrol"
                          class="col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-xs text-slate-900 dark:text-white" />
-                  <input id="inpBudAmt" type="number" step="0.01" inputmode="decimal" placeholder="40.00"
+                  <input id="inpBudAmt" type="text" inputmode="decimal" autocomplete="off" placeholder="40.00"
                          class="col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-xs tabular-nums font-semibold text-slate-900 dark:text-white" />
                 </div>
 
@@ -482,7 +485,7 @@
   </nav>
 
   <!-- SPENDING SUMMARY DIALOG -->
-  <div id="spendModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeSpendModal()">
+  <div id="spendModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeSpendModal()">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 class="text-base font-semibold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="chart" data-class="w-4 h-4"></span>Spending</h3>
@@ -493,7 +496,7 @@
   </div>
 
   <!-- FINGERPRINT SIGN-IN DIALOG -->
-  <div id="passkeyModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div id="passkeyModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="fingerprint" data-class="w-4 h-4"></span>Fingerprint sign-in</h3>
@@ -515,7 +518,7 @@
   </div>
 
   <!-- SIGN OUT DIALOG -->
-  <div id="signOutModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeSignOutModal()">
+  <div id="signOutModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeSignOutModal()">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="logout" data-class="w-4 h-4"></span>Sign out of this device</h3>
@@ -539,7 +542,7 @@
   </div>
 
   <!-- MODAL 1: ADD SPEND OR REFUND / MONEY IN (+ DYNAMIC GROUP SPLIT BUILDER) -->
-  <div id="addModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div id="addModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 id="addModalTitle" class="text-sm font-bold text-slate-900 dark:text-white">Add Transaction</h3>
@@ -560,13 +563,17 @@
       <div class="space-y-2.5">
         <div>
           <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
-          <input id="inpAmount" type="number" step="0.01" inputmode="decimal" placeholder="0.00" oninput="onGrossAmountInput()"
+          <input id="inpAmount" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" placeholder="0.00" oninput="clearFieldError(this); onGrossAmountInput()"
+                 onkeydown="if (event.key === 'Enter') { event.preventDefault(); document.getElementById('inpMerchant').focus(); }"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-[28px] leading-9 tabular-nums font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
+          <p id="inpAmountErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400" aria-live="polite"></p>
         </div>
         <div>
           <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Where / Description</label>
-          <input id="inpMerchant" type="text" placeholder="e.g. Waitrose, YouTube"
+          <input id="inpMerchant" type="text" enterkeyhint="done" placeholder="e.g. Waitrose, YouTube" oninput="clearFieldError(this)"
+                 onkeydown="if (event.key === 'Enter') { event.preventDefault(); submitExpense(); }"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
+          <p id="inpMerchantErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400" aria-live="polite"></p>
         </div>
       </div>
 
@@ -635,7 +642,7 @@
   </div>
 
   <!-- MODAL 2: EDIT OR MOVE SPEND (With Spend (-) vs Credit (+) Toggle) -->
-  <div id="editTxModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div id="editTxModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
         <div>
@@ -662,12 +669,14 @@
       <div class="space-y-2.5">
         <div>
           <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
-          <input id="editTxAmt" type="number" step="0.01" inputmode="decimal"
+          <input id="editTxAmt" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next"
+                 onkeydown="if (event.key === 'Enter') { event.preventDefault(); document.getElementById('editTxDesc').focus(); }"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-[28px] leading-9 tabular-nums font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
         </div>
         <div>
           <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Where / Description</label>
-          <input id="editTxDesc" type="text"
+          <input id="editTxDesc" type="text" enterkeyhint="done"
+                 onkeydown="if (event.key === 'Enter') { event.preventDefault(); saveEditedTx(); }"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
         </div>
       </div>
@@ -694,7 +703,7 @@
   </div>
 
   <!-- MODAL 3: START NEW MONTH (With Interactive Rollover Checklist) -->
-  <div id="newMonthModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+  <div id="newMonthModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
     <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-bold text-slate-900 dark:text-white">Start New Month</h3>
@@ -712,12 +721,12 @@
         <div class="grid grid-cols-2 gap-2.5">
           <div>
             <label class="font-medium text-slate-500 dark:text-slate-400 block mb-1">My Pay (£)</label>
-            <input id="nmPaycheck" type="number" step="0.01" inputmode="decimal" placeholder="0.00"
+            <input id="nmPaycheck" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00"
                    class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm tabular-nums font-semibold text-emerald-500" />
           </div>
           <div>
             <label class="font-medium text-slate-500 dark:text-slate-400 block mb-1">Moving to Marcus (£)</label>
-            <input id="nmSavings" type="number" step="1" inputmode="decimal" placeholder="0"
+            <input id="nmSavings" type="text" inputmode="decimal" autocomplete="off" placeholder="0"
                    class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm tabular-nums font-semibold text-amber-400" />
           </div>
         </div>
@@ -771,6 +780,7 @@ const TX_TS_PREFIX = 'pf_tx_ts_';                      // + month name: when thi
 const CONFIG_KEY = 'pf_config';                        // the names the backend last sent (see applyConfig)
 const SPEND_OVERRIDES_KEY = 'pf_cat_overrides';        // your Spending category choices
 const OUTBOX_KEY = 'pf_outbox';                        // spends saved offline, still to send
+const LAST_ACCT_KEY = 'pf_last_acct';                  // the card the last spend went on (the Add form starts there)
 const SIGNED_OUT_FLAG = 'pf_signed_out';               // sessionStorage: this tab has just signed out
 // Storage can refuse (a private window, or a full or blocked store): a read then finds nothing and a write is
 // skipped, rather than stopping the page.
@@ -1675,7 +1685,7 @@ async function postToServer(bodyObj, opts = {}) {
 
     // Transaction Modal State
     let txDirection = 'spend'; // 'spend' (-) or 'refund' (+)
-    let formAcct = 'amex';
+    let formAcct = ACCTS.includes(lsGet(LAST_ACCT_KEY)) ? lsGet(LAST_ACCT_KEY) : 'amex';
     let formSplit = '100_me';
     let customSplitEntries = []; // [{ person: 'sam', amount: 3.33 }, ...]
     let autoEqualActive = false;
@@ -2448,7 +2458,7 @@ async function postToServer(bodyObj, opts = {}) {
     function submitBudgetForm() {
       const row = document.getElementById('editBudRow').value;
       const name = document.getElementById('inpBudName').value.trim();
-      const rawAbs = Math.abs(Number(document.getElementById('inpBudAmt').value || 0));
+      const rawAbs = amountIn('inpBudAmt') || 0;
       if (!name || !rawAbs) return;
 
       const signedAmt = +(rawAbs * budFormSign).toFixed(2);
@@ -2891,14 +2901,54 @@ async function postToServer(bodyObj, opts = {}) {
         + (q || actCat || onTab ? '' : phoneHome ? seeAllActivityBtn(filtered.length) : showMoreBtn('tx', filtered.length, TX_PREVIEW));
     }
 
+    // What was typed in an amount box, as a number: "12.50", "£1,234.50" and "12,50" all work; 0 when empty, NaN when
+    // it isn't an amount. (The boxes are text with a decimal keypad, so a mouse wheel can't change them by accident.)
+    function parseAmount(raw) {
+      let t = String(raw == null ? '' : raw).replace(/[£\s]/g, '').replace(/^[-−]/, '');
+      if (/^\d+,\d{1,2}$/.test(t)) t = t.replace(',', '.');      // a decimal comma
+      else t = t.replace(/,(?=\d{3}(?!\d))/g, '');               // thousands
+      if (t === '') return 0;
+      return /^(\d+\.?\d*|\.\d+)$/.test(t) ? Number(t) : NaN;
+    }
+    function amountIn(id) { return parseAmount(document.getElementById(id).value); }
+
+    // A short red line under a form box (id + 'Err'), until it is typed in.
+    function showFieldError(id, msg) {
+      const el = document.getElementById(id), note = document.getElementById(id + 'Err');
+      note.textContent = msg;
+      note.classList.remove('hidden');
+      el.setAttribute('aria-invalid', 'true');
+      el.setAttribute('aria-describedby', id + 'Err');
+      el.focus();
+    }
+    function clearFieldError(el) {
+      const note = document.getElementById(el.id + 'Err');
+      if (!note || note.classList.contains('hidden')) return;
+      note.classList.add('hidden');
+      el.removeAttribute('aria-invalid');
+    }
+
+    // The phone keyboard slides over the page without moving anything fixed, so a sheet would sit under it. While it is
+    // up, --kb is its height, and the sheets end at its top edge (see .kb-sheet).
+    (function followKeyboard() {
+      const vv = window.visualViewport;
+      if (!vv) return;
+      const set = () => document.documentElement.style.setProperty('--kb', Math.max(0, Math.round(innerHeight - vv.height - vv.offsetTop)) + 'px');
+      vv.addEventListener('resize', set);
+      vv.addEventListener('scroll', set);
+    })();
+
     // ================= ADD TRANSACTION & DYNAMIC GROUP SPLIT =================
     function openAddModal() {
       setTxDirection('spend');
+      selectAcct(formAcct);   // the card the last spend went on
       selectSplit('100_me');
       customSplitEntries = [];
       autoEqualActive = false;
       renderDynamicSplitRows();
+      ['inpAmount', 'inpMerchant'].forEach(id => clearFieldError(document.getElementById(id)));
       document.getElementById('addModal').classList.remove('hidden');
+      document.getElementById('inpAmount').focus();   // the number pad comes straight up
     }
     function closeAddModal() { document.getElementById('addModal').classList.add('hidden'); }
 
@@ -2926,8 +2976,11 @@ async function postToServer(bodyObj, opts = {}) {
         'px-2.5 py-1.5 rounded-xl bg-emerald-500 text-slate-950', 'px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300');
       document.getElementById('customSplitBox').classList.toggle('hidden', s !== 'custom');
       document.getElementById('needToggleWrap').classList.toggle('hidden', s === '100_me');
-      if (s === 'custom' && customSplitEntries.length === 0 && QUICK_SPLIT) {
-        togglePersonChip(QUICK_SPLIT);
+      // A group split shares the amount equally from the start, and again as people are added or taken off, until
+      // you type someone's share yourself (÷ Split Equally goes back to equal shares).
+      if (s === 'custom' && customSplitEntries.length === 0) {
+        autoEqualActive = true;
+        if (QUICK_SPLIT) togglePersonChip(QUICK_SPLIT);
       }
       updateSplitSummary();
     }
@@ -2948,7 +3001,7 @@ async function postToServer(bodyObj, opts = {}) {
 
     function addBlankPersonRow() {
       customSplitEntries.push({ person: '', amount: 0 });
-      renderDynamicSplitRows();
+      if (autoEqualActive) applyEqualGroupSplit(); else renderDynamicSplitRows();
     }
 
     function removePersonRow(idx) {
@@ -2967,14 +3020,14 @@ async function postToServer(bodyObj, opts = {}) {
 
     function updatePersonRowAmt(idx, val) {
       autoEqualActive = false;
-      if (customSplitEntries[idx]) customSplitEntries[idx].amount = Math.abs(Number(val || 0));
+      if (customSplitEntries[idx]) customSplitEntries[idx].amount = parseAmount(val) || 0;
       updateSplitSummary();
     }
 
     function applyEqualGroupSplit() {
       if (customSplitEntries.length === 0) return;
       autoEqualActive = true;
-      const gross = Math.abs(Number(document.getElementById('inpAmount').value || 0));
+      const gross = amountIn('inpAmount') || 0;
       const incMe = document.getElementById('chkEqualIncludeMe').checked;
       const divisor = customSplitEntries.length + (incMe ? 1 : 0);
       const each = divisor > 0 ? +(gross / divisor).toFixed(2) : 0;
@@ -3006,12 +3059,12 @@ async function postToServer(bodyObj, opts = {}) {
 
       container.innerHTML = customSplitEntries.map((entry, idx) => `
         <div class="flex items-center gap-2">
-          <input type="text" value="${esc(entry.person)}" placeholder="Name (e.g. Sam)" oninput="updatePersonRowName(${idx}, this.value)"
-                 class="w-32 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-900 dark:text-white capitalize" />
+          <input type="text" value="${esc(entry.person)}" placeholder="Name (e.g. Sam)" aria-label="Name" oninput="updatePersonRowName(${idx}, this.value)"
+                 class="split-name w-32 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-900 dark:text-white capitalize" />
           <div class="relative flex-1">
             <span class="absolute left-2.5 top-1.5 text-slate-500 dark:text-slate-400 text-xs tabular-nums">£</span>
-            <input type="number" step="0.01" inputmode="decimal" value="${entry.amount || ''}" placeholder="0.00" oninput="updatePersonRowAmt(${idx}, this.value)"
-                   class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-6 pr-2.5 py-1.5 text-xs tabular-nums font-semibold text-slate-900 dark:text-white" />
+            <input type="text" inputmode="decimal" autocomplete="off" aria-label="Their share (£)" value="${entry.amount || ''}" placeholder="0.00" oninput="updatePersonRowAmt(${idx}, this.value)"
+                   class="split-amt w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-6 pr-2.5 py-1.5 text-xs tabular-nums font-semibold text-slate-900 dark:text-white" />
           </div>
           <button type="button" onclick="removePersonRow(${idx})" class="text-slate-500 dark:text-slate-400 hover:text-rose-500 px-1.5 font-bold">✕</button>
         </div>
@@ -3019,7 +3072,7 @@ async function postToServer(bodyObj, opts = {}) {
     }
 
     function buildSplitData() {
-      const gross = Math.abs(Number(document.getElementById('inpAmount').value || 0));
+      const gross = amountIn('inpAmount') || 0;
       const isRefund = txDirection === 'refund';
       const need = formSplit !== '100_me' && document.getElementById('chkNeed').checked;
       const splits = [];
@@ -3080,7 +3133,10 @@ async function postToServer(bodyObj, opts = {}) {
     function submitExpense() {
       const merchant = document.getElementById('inpMerchant').value.trim();
       const { gross, isRefund, need, splits, marcusShare } = buildSplitData();
-      if (!merchant || !gross) return;
+      const typed = amountIn('inpAmount');
+      if (!(typed > 0)) return showFieldError('inpAmount', Number.isNaN(typed) ? 'Type an amount, like 12.50' : 'Add the amount');
+      if (!merchant) return showFieldError('inpMerchant', 'Add where it was');
+      lsSet(LAST_ACCT_KEY, formAcct);
 
       const now = Date.now();
       const primarySigned = isRefund ? gross : -gross;
@@ -3299,7 +3355,7 @@ async function postToServer(bodyObj, opts = {}) {
       const newAcct = editTxNewAcct;
       const row = Number(document.getElementById('editTxRow').value);
       const newDesc = document.getElementById('editTxDesc').value.trim();
-      const rawAbs = Math.abs(Number(document.getElementById('editTxAmt').value || 0));
+      const rawAbs = amountIn('editTxAmt') || 0;
       if (!newDesc || !rawAbs) return;
 
       const newAmount = +(rawAbs * editTxSign).toFixed(2);
@@ -3473,8 +3529,8 @@ async function postToServer(bodyObj, opts = {}) {
 
     function confirmStartNewMonth() {
       const newMonthName = document.getElementById('nmName').value.trim();
-      const paycheck = Number(document.getElementById('nmPaycheck').value || 0);
-      const savingsAmount = Number(document.getElementById('nmSavings').value || 0);
+      const paycheck = amountIn('nmPaycheck') || 0;
+      const savingsAmount = amountIn('nmSavings') || 0;
       const keepBudgetRows = Array.from(document.querySelectorAll('.ro-bud-chk:checked')).map(el => Number(el.value));
       if (!newMonthName) return;
       const replaceExisting = (state.availableMonths || []).includes(newMonthName);
