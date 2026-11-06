@@ -2051,21 +2051,27 @@ async function postToServer(bodyObj, opts = {}) {
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTopSheet(); });
     const historyDepth = () => (history.state && history.state.pfDepth) || 0;
     const wantedDepth = () => (document.body.dataset.view !== 'home' && PHONE_MQ.matches ? 1 : 0) + (SHEETS.some(([id]) => sheetOpen(id)) ? 1 : 0);
-    let historyMoving = false;   // a history.go() of ours is on its way (its popstate isn't a Back)
+    let historyMoving = false, historyMovingTimer = 0;   // a history.go() of ours is on its way (its popstate isn't a Back)
+    function historyGo(steps) {
+      historyMoving = true;
+      clearTimeout(historyMovingTimer);
+      historyMovingTimer = setTimeout(() => { historyMoving = false; }, 1000);   // should its popstate never come
+      history.go(steps);
+    }
     // Brings the history in line with what shows: a step added when a sheet or tab opens, taken off when it closes.
     function syncHistory() {
       if (IS_GAS_ENV || historyMoving) return;
       const want = wantedDepth();
       let have = historyDepth();
       while (have < want) history.pushState({ pfDepth: ++have }, '');
-      if (have > want) { historyMoving = true; history.go(want - have); }
+      if (have > want) historyGo(want - have);
     }
     if (!IS_GAS_ENV) {
       // Reloaded with a sheet or tab open (Sign out and "Reload" do that): nothing is open now, so go back down to the
       // app's bottom entry, or the first Back would do nothing.
-      if (historyDepth()) { historyMoving = true; history.go(-historyDepth()); }
+      if (historyDepth()) historyGo(-historyDepth());
       window.addEventListener('popstate', () => {
-        if (historyMoving) { historyMoving = false; syncHistory(); return; }
+        if (historyMoving) { historyMoving = false; clearTimeout(historyMovingTimer); syncHistory(); return; }
         // Back: take off what shows, one step for each step gone back (the top sheet first, then the tab).
         for (let i = wantedDepth() - historyDepth(); i > 0; i--) {
           if (!closeTopSheet() && document.body.dataset.view !== 'home') setView('home');
@@ -2249,12 +2255,14 @@ async function postToServer(bodyObj, opts = {}) {
     function showToast(msg, opts = {}) {
       const el = document.getElementById('toast');
       if (!el) return;
+      // Set before the words change, so a screen reader reads them: a failure at once, anything else when it can.
+      el.setAttribute('role', opts.kind === 'info' ? 'status' : 'alert');
+      el.setAttribute('aria-live', opts.kind === 'info' ? 'polite' : 'assertive');
       el.className = 'fixed left-1/2 -translate-x-1/2 bottom-24 lg:bottom-6 z-[100000] max-w-sm w-[90%] px-4 py-2.5 rounded-xl text-white text-xs font-medium shadow-lg flex items-center justify-between gap-3 '
         + (opts.kind === 'info' ? 'bg-slate-800 border border-slate-600' : 'bg-rose-600');
       el.innerHTML = '<span class="flex-1 text-left"></span>'
         + (opts.actionLabel ? '<button id="toastAction" class="font-bold text-emerald-300 px-2.5 h-9 -my-1.5 -mr-2 rounded-lg inline-flex items-center gap-1">' + icon(opts.actionIcon || 'undo', 'w-3.5 h-3.5') + esc(opts.actionLabel) + '</button>' : '');
       el.firstChild.textContent = msg;
-      el.setAttribute('role', opts.kind === 'info' ? 'status' : 'alert');   // a failure is read out at once
       clearTimeout(toastTimer);
       if (opts.actionLabel) {
         document.getElementById('toastAction').onclick = () => { clearTimeout(toastTimer); el.classList.add('hidden'); opts.onAction(); };

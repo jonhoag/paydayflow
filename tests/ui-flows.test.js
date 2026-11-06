@@ -993,13 +993,14 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       const pressed = ACCTS.map(a => document.getElementById('acct_' + a).getAttribute('aria-pressed'));
       selectAcct('amex'); closeAddModal();
       const sameSheets = JSON.stringify([...document.querySelectorAll('.kb-sheet')].map(el => el.id).sort()) === JSON.stringify(SHEETS.map(([id]) => id).sort());
-      showToast('x', { kind: 'info' }); const info = document.getElementById('toast').getAttribute('role');
-      showToast('x'); const failure = document.getElementById('toast').getAttribute('role');
+      const live = () => document.getElementById('toast').getAttribute('role') + '/' + document.getElementById('toast').getAttribute('aria-live');
+      showToast('x', { kind: 'info' }); const info = live();
+      showToast('x'); const failure = live();
       return { unlabelled, dialogs, pressed, sameSheets, current: [...document.querySelectorAll('nav [data-nav]')].map(b => b.getAttribute('aria-current')),
-        toast: [info, failure, document.getElementById('toast').getAttribute('aria-live')] };
+        toast: [info, failure] };
     });
     assert.deepStrictEqual(r, { unlabelled: [], dialogs: ['ok', 'ok', 'ok', 'ok', 'ok', 'ok'], pressed: ['false', 'true', 'false', 'false'],
-      sameSheets: true, current: ['page', null, null, null], toast: ['status', 'alert', 'polite'] });
+      sameSheets: true, current: ['page', null, null, null], toast: ['status/polite', 'alert/assertive'] });
     await page.click('nav button[data-nav="pending"]');
     assert.deepStrictEqual(await page.$$eval('nav [data-nav]', bs => bs.map(b => b.getAttribute('aria-current'))), [null, null, 'page', null]);
     await page.click('nav button[data-nav="home"]');
