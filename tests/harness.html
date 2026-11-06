@@ -86,6 +86,9 @@
     latency: Number(q.get('latency') || 300),
     nextLatencies: [],    // consumed one per request before falling back to `latency`
     failNext: 0,          // number of upcoming write calls that should fail
+    failWith: 'Mock server failure',   // what the server says when it fails one of them
+    failAfterWriteNext: 0,   // number of upcoming write calls that do their work, then reply with an error
+    badReplyNext: 0,      // number of upcoming calls that get a page that isn't JSON (like Google's error page)
     dropNext: 0,          // number of upcoming calls of any kind that get no reply (like a lost connection)
     authError: null,      // set to an error text and the server turns down every request as a sign-in problem
     config: CONFIG,       // the names sent with every reply (null: none, like an older backend)
@@ -98,9 +101,13 @@
     gsi: { initialize: 0, prompt: 0, disableAutoSelect: 0 }   // calls to the pretend Google sign-in
   };
 
+  const seenClientIds = new Set();
   const handlers = {
     getCachedSheetState: (p, d, n) => snapshot(d, n),
     addTransactionBundle: (p, d, n) => {
+      // Like the server, a repeat of a spend already saved (same clientId) is ignored.
+      if (p.clientId && seenClientIds.has(p.clientId)) return snapshot(d, n);
+      if (p.clientId) seenClientIds.add(p.clientId);
       const arr = d[p.account];
       arr.push({ row: nextRow(arr), desc: p.merchant, amount: p.isRefund ? Math.abs(p.grossAmount) : -Math.abs(p.grossAmount), need: false });
       (p.splits || []).forEach(s => d.checking.push({ row: nextRow(d.checking), desc: s.person + ' ' + p.merchant, amount: s.amount, need: !!s.need }));
@@ -164,7 +171,7 @@
       reply = { ok: false, authError: true, error: MOCK.authError };
     } else if (isWrite && MOCK.failNext > 0) {
       MOCK.failNext--;
-      reply = { ok: false, error: 'Mock server failure' };
+      reply = { ok: false, error: MOCK.failWith };
     } else if (!handlers[body.action]) {
       reply = { ok: false, error: 'Unknown action ' + body.action };
     } else {
@@ -172,10 +179,15 @@
       const name = dbs[p.sheetName || p.sourceSheetName] ? (p.sheetName || p.sourceSheetName) : MONTH;
       try { reply = { ok: true, data: handlers[body.action](p, dbs[name], name) }; }
       catch (e) { reply = { ok: false, error: e.message }; }
+      if (isWrite && reply.ok && MOCK.failAfterWriteNext > 0) { MOCK.failAfterWriteNext--; reply = { ok: false, error: MOCK.failWith }; }
     }
     // ...but the reply reaches the browser only after its latency.
     await new Promise(r => setTimeout(r, wait));
     call.end = Date.now();
+    if (MOCK.badReplyNext > 0) {   // the work was done, but the reply that comes back can't be read
+      MOCK.badReplyNext--;
+      return { text: async () => '<!DOCTYPE html><html><body>Error 500 (Server Error)</body></html>' };
+    }
     return { text: async () => JSON.stringify(reply) };
   };
 

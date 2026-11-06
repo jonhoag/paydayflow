@@ -454,7 +454,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   });
   const syncSettled = sync => page.waitForFunction(v => apiInflight === 0 && document.getElementById('syncBtn').dataset.sync === v, sync, { timeout: 8000 });
   // Requests this test fails on purpose are logged by the page; take just those back out of the error list.
-  const dropExpectedSyncErrors = from => { for (let i = errors.length - 1; i >= from; i--) if (/Failed to fetch|Mock server failure/.test(errors[i])) errors.splice(i, 1); };
+  const dropExpectedSyncErrors = from => { for (let i = errors.length - 1; i >= from; i--) if (/Failed to fetch|Mock server failure|something unexpected|Lock timeout|Invalid amount|check the Google sign-in/.test(errors[i])) errors.splice(i, 1); };
   await step('sync status: green when synced, with when in its label; no words on the page', async () => {
     await syncSettled('synced');
     const v = await syncShown();
@@ -512,22 +512,162 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await syncSettled('synced');
     assert.strictEqual(await page.evaluate(() => loadOutbox().length), 0);
   });
-  await step('sync status: a saved spend the sheet turns down shows "Your sheet turned down the last change"', async () => {
+  // Offline spends: kept on this phone until the sheet has them. Only the sheet being busy is tried again by itself
+  // (plus no reply, which the server de-duplicates); anything else is set aside in red, with Remove.
+  const outbox = () => page.evaluate(() => loadOutbox());
+  const rowsNamed = merchant => page.evaluate(m => Object.values(MOCK.db).filter(Array.isArray).flat().filter(r => r && r.desc === m).length, merchant);
+  const sentCount = merchant => page.evaluate(m => MOCK.calls.filter(c => c.action === 'addTransactionBundle' && c.payload.merchant === m).length, merchant);
+  const toastParts = () => page.evaluate(() => [document.querySelector('#toast span').textContent, (document.getElementById('toastAction') || {}).textContent || null]);
+  const LOCK_TIMEOUT = 'Lock timeout: another process was holding the lock for too long.';
+  const addSpend = async (amount, merchant) => {
+    await page.click('nav button[aria-label="Add transaction"]');
+    await page.fill('#inpAmount', amount);
+    await page.fill('#inpMerchant', merchant);
+    await page.click('#btnSubmitTx');
+  };
+  await step('outbox: a reply that cannot be read (Google error page) keeps the spend and sends it again, saved once', async () => {
     const from = errors.length;
     try {
-      await page.evaluate(() => { MOCK.dropNext = 1; });
-      await page.click('nav button[aria-label="Add transaction"]');
-      await page.fill('#inpAmount', '1.00');
-      await page.fill('#inpMerchant', 'Refused shop');
-      await page.click('#btnSubmitTx');
+      await page.evaluate(() => { MOCK.badReplyNext = 1; });
+      await addSpend('3.30', 'Bad reply shop');
       await syncSettled('waiting');
-      await page.evaluate(() => { MOCK.failNext = 1; });
-      await page.click('#syncBtn');
-      await syncSettled('failed');
-      assert.strictEqual((await syncShown()).caption, 'Your sheet turned down the last change.');
+      const o = await outbox();
+      assert.ok(o.length === 1 && o[0].sentAt > 0, 'kept on this phone, noted as maybe sent: ' + JSON.stringify(o));
+      assert.ok((await toastParts())[0].includes('kept on this phone'));
       await page.click('#syncBtn');
       await syncSettled('synced');
+      assert.strictEqual((await outbox()).length, 0);
+      assert.strictEqual(await rowsNamed('Bad reply shop'), 1, 'the server ignores the repeat, so it is in the sheet once');
     } finally { dropExpectedSyncErrors(from); }
+  });
+  await step('outbox: the sheet busy (lock timeout) keeps the spend waiting; the next send gets it there', async () => {
+    const from = errors.length;
+    try {
+      await page.evaluate(t => { MOCK.failWith = t; MOCK.failNext = 2; }, LOCK_TIMEOUT);
+      await addSpend('2.20', 'Busy shop');
+      await syncSettled('waiting');
+      await page.click('#syncBtn');   // the sheet is still busy
+      await syncSettled('waiting');
+      const o = await outbox();
+      assert.ok(o.length === 1 && o[0].tries === 1 && !o[0].setAside && !o[0].sentAt, JSON.stringify(o));
+      await page.click('#syncBtn');
+      await syncSettled('synced');
+      assert.strictEqual((await outbox()).length, 0);
+      assert.strictEqual(await rowsNamed('Busy shop'), 1);
+    } finally { await page.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; }); dropExpectedSyncErrors(from); }
+  });
+  await step('outbox: busy OUTBOX_MAX_TRIES times in a row sets it aside in red; the timer leaves it; a tap sends it', async () => {
+    const from = errors.length;
+    try {
+      const max = await page.evaluate(() => OUTBOX_MAX_TRIES);
+      await page.evaluate(([t, n]) => { MOCK.failWith = t; MOCK.failNext = n + 1; }, [LOCK_TIMEOUT, max]);
+      await addSpend('1.10', 'Very busy shop');   // the first send isn't counted: then `max` tries
+      await syncSettled('waiting');
+      await page.evaluate(async n => { for (let i = 0; i < n; i++) await flushOutbox(); }, max);
+      await syncSettled('failed');
+      const o = await outbox();
+      assert.ok(o.length === 1 && /^Lock timeout/.test(o[0].setAside), JSON.stringify(o));
+      const v = await syncShown();
+      assert.deepStrictEqual([v.caption, v.label], ["A spend couldn't be sent. Tap ↻ to try again.", "A spend saved on this phone couldn't be sent. Tap to try again"]);
+      await page.evaluate(() => flushOutbox());   // the timer leaves a set-aside spend alone
+      assert.strictEqual(await sentCount('Very busy shop'), max + 1);
+      await page.click('#syncStatus');
+      await syncSettled('synced');
+      assert.strictEqual((await outbox()).length, 0);
+      assert.strictEqual(await rowsNamed('Very busy shop'), 1);
+    } finally { await page.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; }); dropExpectedSyncErrors(from); }
+  });
+  await step('outbox: any other server error is not sent again by itself: set aside, and the screen shows whether it got there', async () => {
+    const from = errors.length;
+    try {
+      // The server wrote the rows, then failed (so it never noted the spend as saved: a resend would write it twice).
+      await page.evaluate(() => { MOCK.failAfterWriteNext = 1; });
+      await addSpend('5.40', 'Half done shop');
+      await syncSettled('failed');
+      assert.strictEqual(await sentCount('Half done shop'), 1, 'sent once, not again');
+      assert.strictEqual((await outbox())[0].setAside, 'Mock server failure');
+      assert.deepStrictEqual(await toastParts(), ["Couldn't send Half done shop £5.40: Mock server failure", 'Remove']);
+      await page.waitForFunction(() => document.getElementById('txListContainer').textContent.includes('Half done shop'));   // fetched afresh: it is there
+      await page.click('#toastAction');   // so remove it from this phone
+      await syncSettled('synced');
+      assert.strictEqual((await outbox()).length, 0);
+      assert.strictEqual(await rowsNamed('Half done shop'), 1, 'Remove only takes it off this phone');
+    } finally { await page.evaluate(() => { MOCK.failAfterWriteNext = 0; }); dropExpectedSyncErrors(from); }
+  });
+  await step('outbox: a spend the sheet turns down is kept and shown in red (not lost); a tap tries it again; Remove takes it off', async () => {
+    const from = errors.length;
+    try {
+      await page.evaluate(() => { MOCK.failWith = 'Invalid amount.'; MOCK.failNext = 2; });
+      await addSpend('1.00', 'Refused shop');
+      await syncSettled('failed');
+      assert.deepStrictEqual(await toastParts(), ["Couldn't send Refused shop £1.00: Invalid amount.", 'Remove']);
+      assert.strictEqual((await outbox())[0].setAside, 'Invalid amount.');
+      assert.strictEqual((await syncShown()).caption, "A spend couldn't be sent. Tap ↻ to try again.");
+      await page.click('#syncBtn');   // a tap tries it again: still turned down, still kept
+      await page.waitForFunction(() => MOCK.failNext === 0 && apiInflight === 0);
+      await syncSettled('failed');
+      assert.strictEqual(await sentCount('Refused shop'), 2);
+      assert.strictEqual((await outbox()).length, 1);
+      await page.click('#toastAction');
+      await syncSettled('synced');
+      assert.strictEqual((await outbox()).length, 0);
+      assert.strictEqual(await rowsNamed('Refused shop'), 0);
+    } finally { await page.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; }); dropExpectedSyncErrors(from); }
+  });
+  await step('outbox: a spend whose reply was lost hours ago is not sent again by itself (it may be there); a tap sends it', async () => {
+    const payload = { sheetName: await page.evaluate(() => activeMonth), merchant: 'Old lost shop', grossAmount: 6.5, isRefund: false, account: 'amex', splits: [], marcusShare: 0, markNeed: false, clientId: 'old-lost-1' };
+    await page.evaluate(p => { saveOutbox([{ id: p.clientId, payload: p, sentAt: Date.now() - RESEND_WITHIN_MS - 60000 }]); return flushOutbox(); }, payload);
+    await syncSettled('failed');
+    assert.strictEqual(await sentCount('Old lost shop'), 0, 'not sent by itself');
+    assert.ok(/may already be in your sheet/.test((await outbox())[0].setAside));
+    assert.ok((await toastParts())[0].startsWith("Couldn't send Old lost shop £6.50: it may already be in your sheet."));
+    await page.click('#syncBtn');
+    await syncSettled('synced');
+    assert.strictEqual(await sentCount('Old lost shop'), 1);
+    assert.strictEqual((await outbox()).length, 0);
+  });
+  await step("outbox: with this phone's storage full, a turned-down spend is not sent over and over", async () => {
+    const from = errors.length;
+    try {
+      const payload = { sheetName: await page.evaluate(() => activeMonth), merchant: 'Full storage shop', grossAmount: 2, isRefund: false, account: 'amex', splits: [], marcusShare: 0, markNeed: false, clientId: 'full-1' };
+      await page.evaluate(p => {
+        saveOutbox([{ id: p.clientId, payload: p }]);
+        MOCK.failWith = 'Invalid amount.'; MOCK.failNext = 10;
+        window.__setItem = Storage.prototype.setItem;
+        Storage.prototype.setItem = function () { throw new Error('QuotaExceededError'); };   // nothing can be saved now
+        return flushOutbox();
+      }, payload);
+      await page.waitForTimeout(2500);   // long enough for several rounds if setting it aside started another
+      await page.waitForFunction(() => apiInflight === 0);
+      assert.strictEqual(await sentCount('Full storage shop'), 1);
+    } finally {
+      await page.evaluate(() => { Storage.prototype.setItem = window.__setItem; MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; saveOutbox([]); updateSyncUi(); });
+      dropExpectedSyncErrors(from);
+    }
+  });
+  await step('outbox: (tidy up) the spends these steps saved are taken back out of the pretend sheet', async () => {
+    await page.evaluate(() => {
+      const ours = /^(Bad reply|Busy|Very busy|Half done|Old lost) shop$/;
+      Object.values(MOCK.db).filter(Array.isArray).forEach(a => { for (let i = a.length - 1; i >= 0; i--) if (ours.test(a[i].desc)) a.splice(i, 1); });
+    });
+    await page.click('#syncBtn');
+    await syncSettled('synced');
+    assert.strictEqual(await rowsNamed('Busy shop'), 0);
+  });
+  await step("sign-in check unavailable on the server: \"Couldn't reach your sheet\", still signed in, no lock screen", async () => {
+    const from = errors.length;
+    try {
+      const before = await page.evaluate(() => [hasValidToken(), Object.keys(localStorage).filter(k => /token|session/i.test(k)).sort().join()]);
+      await page.evaluate(() => { MOCK.authError = "AUTH_UNAVAILABLE: Couldn't check the Google sign-in just now. Try again in a minute."; });
+      await page.click('#syncBtn');
+      await syncSettled('failed');
+      assert.strictEqual((await syncShown()).caption, "Couldn't reach your sheet. Tap ↻ to try again.");
+      assert.ok(!(await page.evaluate(() => lockScreenShowing())), 'no lock screen');
+      assert.deepStrictEqual(await page.evaluate(() => [hasValidToken(), Object.keys(localStorage).filter(k => /token|session/i.test(k)).sort().join()]), before, 'sign-in kept');
+      await page.evaluate(() => { MOCK.authError = null; });
+      await page.click('#syncBtn');
+      await syncSettled('synced');
+    } finally { await page.evaluate(() => { MOCK.authError = null; }); dropExpectedSyncErrors(from); }
   });
   await step('sync status: with no caption, Money Left sits the normal gap below the top bar (no empty line left)', async () => {
     await syncSettled('synced');
@@ -641,13 +781,18 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     if (w === 344) {
       await step('344px: each red sync caption fits on one line, with no sideways scroll', async () => {
         await page.waitForFunction(() => apiInflight === 0);   // a request in flight would show "syncing" instead
-        const r = await page.evaluate(() => ['reach', 'refused'].map(k => {
-          lastSyncFailed = k; updateSyncUi();
+        const r = await page.evaluate(() => Object.keys(SYNC_FAILED).map(k => {
+          const saved = localStorage.getItem(OUTBOX_KEY);
+          if (k === 'setAside') saveOutbox([{ id: 'fit1', payload: { merchant: 'x' }, setAside: 'test' }]); else lastSyncFailed = k;
+          updateSyncUi();
           const n = document.getElementById('syncStatus'), rg = document.createRange(); rg.selectNodeContents(n);
           const out = { k, shown: !n.classList.contains('hidden'), fits: rg.getBoundingClientRect().right <= innerWidth - 14, sideways: document.documentElement.scrollWidth > innerWidth };
-          lastSyncFailed = null; updateSyncUi();
+          lastSyncFailed = null;
+          if (saved === null) localStorage.removeItem(OUTBOX_KEY); else localStorage.setItem(OUTBOX_KEY, saved);
+          updateSyncUi();
           return out;
         }));
+        assert.strictEqual(r.length, 3, JSON.stringify(r));
         assert.ok(r.every(x => x.shown && x.fits && !x.sideways), JSON.stringify(r));
       });
       await step('344px: Spending shows full amounts (pounds and pence); four big month figures each fit their own bar', async () => {
@@ -1349,6 +1494,13 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.ok(s.off >= 1, 'automatic Google sign-in was not stopped');
       assert.strictEqual(s.calls, 1, 'signed itself in again: ' + s.calls + ' requests');
       assert.strictEqual(await p2.evaluate(() => MOCK.gsi.initialize), 1, "Google's sign-in should be set up once per page load");
+    });
+    await step("Google sign-in the server can't check just now: says try again (not Access Denied) and keeps no token", async () => {
+      await p2.evaluate(() => { MOCK.authError = "AUTH_UNAVAILABLE: Couldn't check the Google sign-in just now. Try again in a minute."; MOCK.gsiCallback({ credential: MOCK.makeToken('owner@example.com') }); });
+      await p2.waitForFunction(() => /Couldn't reach the server/.test(document.getElementById('authLockMsg').textContent));
+      const s = await p2.evaluate(() => ({ msg: document.getElementById('authLockMsg').textContent, token: localStorage.getItem('pf_google_id_token'), locked: lockScreenShowing() }));
+      assert.ok(s.locked && !/Access Denied/.test(s.msg), JSON.stringify(s));
+      assert.strictEqual(s.token, null, 'a token the server never checked was kept, so a reload would open the app with it');
     });
     await step('then picking the right account on the button gets straight in, and sends a spend saved offline', async () => {
       await p2.evaluate(() => {

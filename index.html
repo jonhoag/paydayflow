@@ -184,7 +184,7 @@
       </div>
 
       <div class="flex items-center gap-1.5 shrink-0">
-        <button onclick="forceSyncSheet()" id="syncBtn" title="Showing saved figures. Tap to sync" aria-label="Showing saved figures. Tap to sync"
+        <button onclick="retrySetAside(); forceSyncSheet()" id="syncBtn" title="Showing saved figures. Tap to sync" aria-label="Showing saved figures. Tap to sync"
                 class="w-10 h-10 lg:w-8 lg:h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
           <span data-icon="refresh" data-class="w-4 h-4"></span>
         </button>
@@ -230,7 +230,7 @@
     <main class="max-w-5xl mx-auto p-3.5 lg:p-6 flex flex-col gap-3.5">   <!-- gap, not space-y: hidden cards (caption, offers) leave no space -->
 
       <!-- Sync status lives in the sync button's colour and label (updateSyncUi). Words show only when a sync failed. -->
-      <button id="syncStatus" onclick="forceSyncSheet()" class="hidden text-xs text-rose-700 dark:text-rose-400 -mb-1 px-1 whitespace-nowrap text-left">
+      <button id="syncStatus" onclick="retrySetAside(); forceSyncSheet()" class="hidden text-xs text-rose-700 dark:text-rose-400 -mb-1 px-1 whitespace-nowrap text-left">
         <span id="syncText"></span>
       </button>
 
@@ -968,6 +968,7 @@ function afterSignIn(viaGoogle, email) {
           showToast("Signed in, but couldn't reach the server. Showing the figures saved on this device.");
           setTimeout(forceSyncSheet, OFFLINE_RESYNC_MS);
         } else {
+          if (viaGoogle) lsDel(TOKEN_STORAGE_KEY);   // never checked by the server, so not kept for a reload to use
           showLockScreen("Couldn't reach the server. Try again in a moment.", { noAuto: true });
         }
         return;
@@ -1468,12 +1469,14 @@ async function sendWaitingBeforeSignOut() {
   setSoMessage('');
   renderSignOutModal();
   btn.textContent = 'Sending…';
+  retrySetAside();   // a tap: spends set aside are tried too
   try { await flushOutbox(); } finally {
     soBusy = false;
     btn.textContent = 'Send now';
   }
   renderSignOutModal();
-  if (loadOutbox().length) setSoMessage("Couldn't send them yet. Try again in a moment.");
+  const left = loadOutbox();
+  if (left.length) setSoMessage(left.some(x => x.setAside) ? "Your sheet didn't take one of them, so it is still here. Signing out would lose it." : "Couldn't send them yet. Try again in a moment.");
 }
 // Every saved key of this app goes, except the preferences above and, for a plain sign-out, the fingerprint link.
 function clearThisDevice(forget) {
@@ -1533,11 +1536,19 @@ async function signOut(forget) {
     // or 'refused' (the server turned a change down). Fingerprint requests aren't about the sheet, so they don't count.
     let apiInflight = 0, lastSyncAt = null, lastSyncFailed = null;
     const SHEET_READS = ['getCachedSheetState', 'getCategoryChoices'];
+    // What a failed request means: 'signin' (the lock screen deals with it), 'reach' (no usable reply), 'busy' (the
+    // sheet was busy with another save, so the server did nothing) or 'refused' (turned down, or failed part way).
+    function failureKind(err) {
+      if (err && (err.needsSignIn || err.auth)) return 'signin';
+      if (!err || isConnectionError(err)) return 'reach';
+      return /^Lock timeout/i.test(String(err.message)) ? 'busy' : 'refused';
+    }
     // What a failed sheet request means for the sync status: null for a sign-in problem (the lock screen shows that),
     // 'reach' when nothing usable came back or a read failed, 'refused' when the server turned a change down.
     function syncFailure(action, err) {
-      if (err && (err.needsSignIn || err.auth)) return null;
-      return (isConnectionError(err) || SHEET_READS.includes(action)) ? 'reach' : 'refused';
+      const kind = failureKind(err);
+      if (kind === 'signin') return null;
+      return (kind === 'reach' || SHEET_READS.includes(action)) ? 'reach' : 'refused';
     }
     function apiCall(action, payload = {}, opts = {}) {
       const run = () => apiCallNow(action, payload, opts);
@@ -1574,6 +1585,10 @@ async function signOut(forget) {
   const json = await postToServer({ action, payload, ...auth });
 
   if (!json.ok) {
+    // The server couldn't fetch Google's keys just now: the sign-in wasn't turned down, so keep it and try again later.
+    if (/^AUTH_UNAVAILABLE/.test(String(json.error))) {
+      throw Object.assign(new Error(String(json.error).replace(/^[A-Z_]+: /, '')), { unavailable: true });
+    }
     if (json.authError) {
       const usedSession = !!auth.session;
       if (usedSession) clearSession(); else { lsDel(TOKEN_STORAGE_KEY); stopGoogleAutoSignIn(); }
@@ -1587,8 +1602,9 @@ async function signOut(forget) {
   return json.data;
 }
 
-// No reply, or one that wasn't readable: a connection problem, not a refusal.
-const isConnectionError = err => !!(err && (err.network || err.badReply));
+// No reply, one that wasn't readable, or a server that couldn't check the sign-in just now: worth trying again
+// later, not a refusal.
+const isConnectionError = err => !!(err && (err.network || err.badReply || err.unavailable));
 
 // One POST to the Apps Script web app; resolves with the parsed { ok, data | error, authError } reply.
 // `opts.timeoutMs` shortens the wait; `opts.signal` lets the caller cancel it.
@@ -2206,29 +2222,33 @@ async function postToServer(bodyObj, opts = {}) {
     // The red caption, the only words the sync status shows (short enough for one line on a 344px phone).
     const SYNC_FAILED = {
       reach: { text: "Couldn't reach your sheet. Tap ↻ to try again.", label: "Couldn't reach your sheet. Tap to try again" },
-      refused: { text: 'Your sheet turned down the last change.', label: 'Your sheet turned down the last change. Tap to sync' }
+      refused: { text: 'Your sheet turned down the last change.', label: 'Your sheet turned down the last change. Tap to sync' },
+      setAside: { text: "A spend couldn't be sent. Tap ↻ to try again.", label: "A spend saved on this phone couldn't be sent. Tap to try again" }
     };
     // The sync button shows the status by its colour (green synced, amber syncing or something waiting to send, grey
     // offline, red failed). Its tooltip and screen-reader label say it in words, including when it last synced.
+    // A spend set aside comes before others still waiting: it needs you.
     function updateSyncUi() {
       const btn = document.getElementById('syncBtn'), note = document.getElementById('syncStatus');
       if (!btn || !note) return;
-      const waiting = loadOutbox().length;
+      const list = loadOutbox(), setAside = list.filter(x => x.setAside).length, waiting = list.length - setAside;
       const offline = !IS_GAS_ENV && navigator.onLine === false;
+      const failed = setAside && !offline ? 'setAside' : lastSyncFailed;
       let status, label;
       if (apiInflight > 0) { status = 'busy'; label = 'Syncing…'; }
+      else if (failed === 'setAside') { status = 'failed'; label = SYNC_FAILED.setAside.label; }
       else if (waiting) {
         status = 'waiting';
         label = waiting + (waiting === 1 ? ' spend' : ' spends') + ' waiting to send. ' + (offline ? (waiting === 1 ? 'It sends' : 'They send') + " when you're back online" : 'Tap to send now');
       }
       else if (offline) { status = 'offline'; label = 'Offline, showing saved figures'; }
-      else if (lastSyncFailed) { status = 'failed'; label = SYNC_FAILED[lastSyncFailed].label; }
+      else if (failed) { status = 'failed'; label = SYNC_FAILED[failed].label; }
       else if (lastSyncAt) { status = 'synced'; label = 'Synced ' + relTime(lastSyncAt) + '. Tap to sync now'; }
       else { status = 'saved'; label = 'Showing saved figures. Tap to sync'; }
       btn.dataset.sync = status;
       btn.title = label;
       btn.setAttribute('aria-label', label);
-      document.getElementById('syncText').textContent = status === 'failed' ? SYNC_FAILED[lastSyncFailed].text : '';
+      document.getElementById('syncText').textContent = status === 'failed' ? SYNC_FAILED[failed].text : '';
       note.classList.toggle('hidden', status !== 'failed');
       const spin = btn.querySelector('svg');
       if (spin) spin.classList.toggle('animate-spin', apiInflight > 0);
@@ -3120,9 +3140,45 @@ async function postToServer(bodyObj, opts = {}) {
     function saveOutbox(list) {
       lsSet(OUTBOX_KEY, JSON.stringify(list));
     }
-    function queueSpend(payload) {
-      saveOutbox(loadOutbox().concat([{ id: payload.clientId, payload }]));
+    function queueSpend(payload, extra) {
+      saveOutbox(loadOutbox().concat([{ id: payload.clientId, payload, ...extra }]));
       updateSyncUi();
+    }
+    // Changes one waiting spend (null removes it; a key set to undefined is dropped when saved).
+    function updateOutboxItem(id, change) {
+      saveOutbox(loadOutbox().flatMap(x => x.id !== id ? [x] : change ? [{ ...x, ...change }] : []));
+    }
+    // When a spend is sent again (see failureKind):
+    // - the sheet was busy ('busy'): nothing was done, so it is sent again, up to OUTBOX_MAX_TRIES times in a row;
+    // - no usable reply ('reach'): it may have got there, but the server ignores a repeat of a spend it already saved.
+    //   It only remembers that for a few hours, though, so one first sent longer ago than RESEND_WITHIN_MS (`sentAt`)
+    //   is set aside for you to check instead;
+    // - any other server error ('refused'): set aside at once, since it may have failed part way. The screen is
+    //   fetched afresh, so you can see whether it got there.
+    // A spend set aside (`setAside`: why) stays on this phone until a tap on sync sends it again, or you remove it.
+    const OUTBOX_MAX_TRIES = 5;
+    const RESEND_WITHIN_MS = 5 * 3600 * 1000;
+    const plainError = err => String((err && err.message) || 'unknown error').replace(/^[A-Z_]+: /, '');
+    function setSpendAside(item, why) {
+      updateOutboxItem(item.id, { setAside: why, tries: undefined });
+      const p = item.payload;
+      const what = String(p.merchant || 'a spend') + (p.grossAmount ? ' ' + fmtGBP(p.grossAmount) : '');
+      showToast("Couldn't send " + what + ': ' + why, {
+        actionLabel: 'Remove', actionIcon: 'trash', duration: 9000,
+        onAction: () => { updateOutboxItem(item.id, null); forceSyncSheet(); }
+      });
+    }
+    // The sheet fetched afresh for the screen only: it sends nothing, so it can't set off another round of sending.
+    function refreshFromSheet() {
+      apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
+        .then(applyServerState)
+        .catch(err => console.error(err));
+    }
+    // A tap on sync (or Send now when signing out): spends set aside go back in the queue, counted afresh. Offline,
+    // nothing could be sent, so they stay as they are.
+    function retrySetAside() {
+      if (!IS_GAS_ENV && navigator.onLine === false) return;
+      saveOutbox(loadOutbox().map(x => x.setAside ? { ...x, setAside: undefined, tries: undefined, sentAt: undefined } : x));
     }
     function sendNewSpend(payload) {
       if (!IS_GAS_ENV && navigator.onLine === false) {
@@ -3133,36 +3189,51 @@ async function postToServer(bodyObj, opts = {}) {
       apiCall('addTransactionBundle', payload)
         .then(applyStateIfViewing(payload.sheetName))
         .catch(err => {
-          if (err && err.network && !IS_GAS_ENV) {
-            queueSpend(payload);
-            showToast("No connection - saved on this phone, it will send when you're back online.", { kind: 'info' });
-          } else handleSaveError('the transaction', err);
+          if (IS_GAS_ENV) return handleSaveError('the transaction', err);
+          // Kept on this phone either way, so a spend is never just lost (see OUTBOX_MAX_TRIES for what happens next).
+          const kind = failureKind(err);
+          queueSpend(payload, kind === 'reach' ? { sentAt: Date.now() } : {});
+          if (kind === 'refused') { setSpendAside({ id: payload.clientId, payload }, plainError(err)); refreshFromSheet(); }
+          else showToast(err && err.network ? "No connection - saved on this phone, it will send when you're back online."
+            : "Couldn't save it just now - kept on this phone, it will send again shortly.", { kind: 'info' });
         });
     }
+    // Sends the waiting spends, oldest first. Ones set aside wait for a tap on sync (retrySetAside).
     async function flushOutbox() {
-      if (outboxFlushing || IS_GAS_ENV || !loadOutbox().length || navigator.onLine === false) return;
+      if (outboxFlushing || IS_GAS_ENV || !loadOutbox().some(x => !x.setAside) || navigator.onLine === false) return;
       // Signed out or locked: wait. Asking now would redraw the lock screen and overwrite what it says.
       if (!hasValidToken() || lockScreenShowing()) return;
       outboxFlushing = true;
+      let anySetAside = false;   // then the screen is fetched afresh once, at the end
       try {
-        let list = loadOutbox();
-        while (list.length) {
-          const item = list[0];
+        const tried = new Set();   // each spend at most once a round, even if this phone's storage can't be written
+        let item;
+        while ((item = loadOutbox().find(x => !x.setAside && !tried.has(x.id)))) {
+          tried.add(item.id);
+          if (item.sentAt && Date.now() - item.sentAt > RESEND_WITHIN_MS) {
+            setSpendAside(item, 'it may already be in your sheet. Check, then tap ↻ to send it anyway.');
+            anySetAside = true;
+            continue;
+          }
           try {
             const s = await apiCall('addTransactionBundle', item.payload);
-            saveOutbox(loadOutbox().filter(x => x.id !== item.id));
+            updateOutboxItem(item.id, null);
             applyStateIfViewing(item.payload.sheetName)(s);
           } catch (err) {
-            if (!err || err.network || err.auth || err.needsSignIn) break;   // try again later
-            saveOutbox(loadOutbox().filter(x => x.id !== item.id));   // the server refused it: don't retry forever
-            showToast('A spend saved offline was rejected (' + item.payload.merchant + '): ' + err.message);
+            const kind = failureKind(err);
+            if (kind === 'reach' && !item.sentAt) updateOutboxItem(item.id, { sentAt: Date.now() });
+            if (kind === 'reach' || kind === 'signin') break;   // try again later
+            const tries = (item.tries || 0) + 1;
+            if (kind === 'busy' && tries < OUTBOX_MAX_TRIES) { updateOutboxItem(item.id, { tries }); break; }
+            setSpendAside(item, plainError(err));
+            anySetAside = true;
           }
-          list = loadOutbox();
         }
       } finally {
         outboxFlushing = false;
         updateSyncUi();
       }
+      if (anySetAside) refreshFromSheet();
     }
     // Back online: send what was saved here. If a request failed meanwhile, check the sheet again too (which also
     // sends), so the red caption doesn't stay up once the connection is back.
