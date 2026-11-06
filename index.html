@@ -179,7 +179,7 @@
     <!-- Clean Single-Line Header -->
     <header class="sticky top-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3.5 lg:px-8 py-2.5 flex items-center justify-between gap-2">
       <div class="relative flex items-center min-w-0 flex-1 max-w-xs">
-        <select id="monthSelector" onchange="switchMonth(this.value)"
+        <select id="monthSelector" aria-label="Month" onchange="switchMonth(this.value)"
                 class="w-full appearance-none bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold text-xs sm:text-sm rounded-xl pl-3 pr-7 py-2 border border-slate-200 dark:border-slate-700 truncate focus:outline-none cursor-pointer">
           <option value="">—</option>
         </select>
@@ -353,9 +353,9 @@
 
                 <!-- 3. Name & Positive Amount Input -->
                 <div class="grid grid-cols-12 gap-2">
-                  <input id="inpBudName" type="text" placeholder="e.g. Comedy, Petrol"
+                  <input id="inpBudName" type="text" aria-label="Bill name" placeholder="e.g. Comedy, Petrol"
                          class="col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-xs text-slate-900 dark:text-white" />
-                  <input id="inpBudAmt" type="text" inputmode="decimal" autocomplete="off" placeholder="40.00"
+                  <input id="inpBudAmt" type="text" inputmode="decimal" autocomplete="off" aria-label="Amount (£)" placeholder="40.00"
                          class="col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-xs tabular-nums font-semibold text-slate-900 dark:text-white" />
                 </div>
                 <p id="inpBudAmtErr" class="hidden -mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
@@ -453,7 +453,7 @@
                 <button onclick="setTxFilter('marcus')" id="txf_marcus" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Marcus</button>
               </div>
             </div></div>
-            <input id="txSearch" type="text" placeholder="Filter merchant..." oninput="renderTransactions()"
+            <input id="txSearch" type="text" aria-label="Search activity" placeholder="Filter merchant..." oninput="renderTransactions()"
                    class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none" />
             </div>
             <!-- With the filters folded away, each one still on shows here; tap it to clear it -->
@@ -468,7 +468,7 @@
   <!-- MOBILE BOTTOM NAVIGATION BAR -->
   <nav class="lg:hidden fixed bottom-0 inset-x-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 px-3 py-1.5 flex justify-around items-center z-30 text-xs font-medium text-slate-500 dark:text-slate-400"
        style="padding-bottom: calc(0.375rem + env(safe-area-inset-bottom));">
-    <button onclick="setView('home')" data-nav="home" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1 text-emerald-500 font-semibold">
+    <button onclick="setView('home')" data-nav="home" aria-current="page" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1 text-emerald-500 font-semibold">
       <span data-icon="home" data-class="w-5 h-5"></span><span>Home</span>
     </button>
     <button onclick="setView('budgets')" data-nav="budgets" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1">
@@ -487,9 +487,9 @@
 
   <!-- SPENDING SUMMARY DIALOG -->
   <div id="spendModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeSpendModal()">
-    <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3 shadow-2xl border border-slate-200 dark:border-slate-800">
+    <div role="dialog" aria-modal="true" aria-labelledby="spendTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
-        <h3 class="text-base font-semibold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="chart" data-class="w-4 h-4"></span>Spending</h3>
+        <h3 id="spendTitle" class="text-base font-semibold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="chart" data-class="w-4 h-4"></span>Spending</h3>
         <button onclick="closeSpendModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
       <div id="spendBody" class="space-y-4"></div>
@@ -498,9 +498,9 @@
 
   <!-- FINGERPRINT SIGN-IN DIALOG -->
   <div id="passkeyModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
-    <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800">
+    <div role="dialog" aria-modal="true" aria-labelledby="pkTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
-        <h3 class="text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="fingerprint" data-class="w-4 h-4"></span>Fingerprint sign-in</h3>
+        <h3 id="pkTitle" class="text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="fingerprint" data-class="w-4 h-4"></span>Fingerprint sign-in</h3>
         <button onclick="closePasskeyModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
       <p id="pkStatus" class="text-xs text-slate-600 dark:text-slate-300"></p>
@@ -520,9 +520,9 @@
 
   <!-- SIGN OUT DIALOG -->
   <div id="signOutModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeSignOutModal()">
-    <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800">
+    <div role="dialog" aria-modal="true" aria-labelledby="soTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
-        <h3 class="text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="logout" data-class="w-4 h-4"></span>Sign out of this device</h3>
+        <h3 id="soTitle" class="text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="logout" data-class="w-4 h-4"></span>Sign out of this device</h3>
         <button onclick="closeSignOutModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
       <p class="text-xs text-slate-600 dark:text-slate-300">Clears everything this device has saved (figures, bills, Owed, sign-in) and locks the app. Your Google Sheet isn't touched.</p>
@@ -544,7 +544,7 @@
 
   <!-- MODAL 1: ADD SPEND OR REFUND / MONEY IN (+ DYNAMIC GROUP SPLIT BUILDER) -->
   <div id="addModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
-    <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
+    <div role="dialog" aria-modal="true" aria-labelledby="addModalTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
         <h3 id="addModalTitle" class="text-sm font-bold text-slate-900 dark:text-white">Add Transaction</h3>
         <button onclick="closeAddModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
@@ -563,13 +563,13 @@
       <!-- Amount first (it is what you know at the till), then where -->
       <div class="space-y-2.5">
         <div>
-          <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
+          <label for="inpAmount" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
           <input id="inpAmount" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" placeholder="0.00" data-enter="inpMerchant" oninput="onGrossAmountInput()"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-[28px] leading-9 tabular-nums font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
           <p id="inpAmountErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
         </div>
         <div>
-          <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Where / Description</label>
+          <label for="inpMerchant" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Where / Description</label>
           <input id="inpMerchant" type="text" enterkeyhint="done" placeholder="e.g. Waitrose, YouTube" data-enter="btnSubmitTx"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
           <p id="inpMerchantErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
@@ -577,8 +577,8 @@
       </div>
 
       <div>
-        <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Card / Account</label>
-        <div class="grid grid-cols-4 gap-1.5 text-xs font-semibold">
+        <p id="lblAcct" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Card / Account</p>
+        <div role="group" aria-labelledby="lblAcct" class="grid grid-cols-4 gap-1.5 text-xs font-semibold">
           <button type="button" onclick="selectAcct('amex')" id="acct_amex" class="py-2 rounded-xl bg-emerald-500 text-slate-950">Amex</button>
           <button type="button" onclick="selectAcct('barclays')" id="acct_barclays" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
           <button type="button" onclick="selectAcct('checking')" id="acct_checking" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Nationwide</button>
@@ -589,8 +589,8 @@
       <!-- Who's paying: for a spend and for a refund / money in alike -->
       <div class="space-y-3">
         <div>
-          <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Who's Paying?</label>
-          <div class="flex flex-wrap gap-1.5 text-xs font-semibold">
+          <p id="lblWho" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Who's Paying?</p>
+          <div role="group" aria-labelledby="lblWho" class="flex flex-wrap gap-1.5 text-xs font-semibold">
             <button type="button" onclick="selectSplit('100_me')" id="sp_100_me" class="px-2.5 py-1.5 rounded-xl bg-emerald-500 text-slate-950">Just Me</button>
             <!-- "Half w/ ..." and "All ...'s": named from the backend (renderQuickSplit), hidden until it has said who -->
             <button type="button" onclick="selectSplit('half')" id="sp_half" style="display:none" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"></button>
@@ -642,10 +642,10 @@
 
   <!-- MODAL 2: EDIT OR MOVE SPEND (With Spend (-) vs Credit (+) Toggle) -->
   <div id="editTxModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
-    <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
+    <div role="dialog" aria-modal="true" aria-labelledby="editTxTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
         <div>
-          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Edit or Move Transaction</h3>
+          <h3 id="editTxTitle" class="text-sm font-bold text-slate-900 dark:text-white">Edit or Move Transaction</h3>
           <p class="text-xs text-slate-500 dark:text-slate-400">Change card, amount, or flip between spend &amp; credit</p>
         </div>
         <button onclick="closeEditTxModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
@@ -667,21 +667,21 @@
       <!-- Same order as the Add form: Amount first, then where -->
       <div class="space-y-2.5">
         <div>
-          <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
+          <label for="editTxAmt" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
           <input id="editTxAmt" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" data-enter="editTxDesc"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-[28px] leading-9 tabular-nums font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
           <p id="editTxAmtErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
         </div>
         <div>
-          <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Where / Description</label>
+          <label for="editTxDesc" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Where / Description</label>
           <input id="editTxDesc" type="text" enterkeyhint="done" data-enter="btnSaveEditTx"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
         </div>
       </div>
 
       <div>
-        <label class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Card / Account</label>
-        <div class="grid grid-cols-4 gap-1.5 text-xs font-semibold">
+        <p id="lblEditAcct" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Card / Account</p>
+        <div role="group" aria-labelledby="lblEditAcct" class="grid grid-cols-4 gap-1.5 text-xs font-semibold">
           <button type="button" onclick="selectEditTxAcct('amex')" id="etx_amex" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Amex</button>
           <button type="button" onclick="selectEditTxAcct('barclays')" id="etx_barclays" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
           <button type="button" onclick="selectEditTxAcct('checking')" id="etx_checking" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Nationwide</button>
@@ -702,15 +702,15 @@
 
   <!-- MODAL 3: START NEW MONTH (With Interactive Rollover Checklist) -->
   <div id="newMonthModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
-    <div class="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
+    <div role="dialog" aria-modal="true" aria-labelledby="nmTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
-        <h3 class="text-sm font-bold text-slate-900 dark:text-white">Start New Month</h3>
+        <h3 id="nmTitle" class="text-sm font-bold text-slate-900 dark:text-white">Start New Month</h3>
         <button onclick="closeNewMonthModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
 
       <div class="space-y-3 text-xs">
         <div>
-          <label class="font-medium text-slate-500 dark:text-slate-400 block mb-1">New Month Name</label>
+          <label for="nmName" class="font-medium text-slate-500 dark:text-slate-400 block mb-1">New Month Name</label>
           <input id="nmName" type="text" oninput="updateNewMonthName()"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-semibold text-slate-900 dark:text-white" />
           <p id="nmExistsWarn" class="hidden mt-1.5 rounded-lg px-2.5 py-2 bg-rose-500/10 text-rose-600 dark:text-rose-400"></p>
@@ -718,13 +718,13 @@
 
         <div class="grid grid-cols-2 gap-2.5">
           <div>
-            <label class="font-medium text-slate-500 dark:text-slate-400 block mb-1">My Pay (£)</label>
+            <label for="nmPaycheck" class="font-medium text-slate-500 dark:text-slate-400 block mb-1">My Pay (£)</label>
             <input id="nmPaycheck" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00"
                    class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm tabular-nums font-semibold text-emerald-500" />
             <p id="nmPaycheckErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
           </div>
           <div>
-            <label class="font-medium text-slate-500 dark:text-slate-400 block mb-1">Moving to Marcus (£)</label>
+            <label for="nmSavings" class="font-medium text-slate-500 dark:text-slate-400 block mb-1">Moving to Marcus (£)</label>
             <input id="nmSavings" type="text" inputmode="decimal" autocomplete="off" placeholder="0"
                    class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm tabular-nums font-semibold text-amber-400" />
             <p id="nmSavingsErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
@@ -760,7 +760,7 @@
     </div>
   </div>
 
-  <div id="toast" class="hidden fixed left-1/2 -translate-x-1/2 bottom-24 lg:bottom-6 z-[100000] max-w-sm w-[90%] px-4 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-medium shadow-lg text-center"></div>
+  <div id="toast" role="status" aria-live="polite" class="hidden fixed left-1/2 -translate-x-1/2 bottom-24 lg:bottom-6 z-[100000] max-w-sm w-[90%] px-4 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-medium shadow-lg text-center"></div>
 
   <script>
     // Also written in the Content-Security-Policy at the top of the page (the screen tests check they match).
@@ -1745,7 +1745,9 @@ async function postToServer(bodyObj, opts = {}) {
     function markChoice(prefix, keys, chosen, on, off) {
       keys.forEach(k => {
         const el = document.getElementById(prefix + k);
-        if (el) el.className = k === chosen ? (typeof on === 'function' ? on(k) : on) : off;
+        if (!el) return;
+        el.className = k === chosen ? (typeof on === 'function' ? on(k) : on) : off;
+        el.setAttribute('aria-pressed', String(k === chosen));   // for screen readers, which can't see the colour
       });
     }
 
@@ -1890,16 +1892,6 @@ async function postToServer(bodyObj, opts = {}) {
       apiCall('getCategoryChoices').then(applyCategoryChoices).catch(() => {});   // quiet: the saved copy is already showing
     }
     function closeSpendModal() { document.getElementById('spendModal').classList.add('hidden'); }
-    document.addEventListener('keydown', e => {
-      if (e.key !== 'Escape') return;
-      const open = id => !document.getElementById(id).classList.contains('hidden');
-      if (open('spendModal')) closeSpendModal();
-      else if (open('addModal')) closeAddModal();
-      else if (open('editTxModal')) closeEditTxModal();
-      else if (open('newMonthModal')) closeNewMonthModal();
-      else if (open('passkeyModal')) closePasskeyModal();
-      else if (open('signOutModal')) closeSignOutModal();
-    });
 
     // Month tabs are named like "October Payday 2026".
     const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -2032,10 +2024,62 @@ async function postToServer(bodyObj, opts = {}) {
         const on = b.dataset.nav === v;
         b.classList.toggle('text-emerald-500', on);
         b.classList.toggle('font-semibold', on);
+        if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
       });
       if (SECTIONS[v]) setSectionOpen(v, true);
       renderAll();   // the Bills and Activity tabs list everything; Home shows the first few
       window.scrollTo({ top: 0 });
+      syncHistory();
+    }
+
+    // ---- Back (Android's Back gesture, or the browser's back button) ----
+    // An open sheet, and a phone tab other than Home, are each one step in the browser's history, so Back closes the
+    // sheet, then goes back to Home, before it leaves the app. history.state.pfDepth is how many steps an entry is.
+    // Escape closes a sheet too. Sheets are watched (a MutationObserver), so every way of opening or closing one counts,
+    // even a close that is turned down (Sign out while busy); tabs change only in setView, which calls syncHistory.
+    // A new sheet goes in SHEETS (with its close function) and gets the kb-sheet class; a test checks the two match.
+    const SHEETS = [['spendModal', closeSpendModal], ['addModal', closeAddModal], ['editTxModal', closeEditTxModal],
+      ['newMonthModal', closeNewMonthModal], ['passkeyModal', closePasskeyModal], ['signOutModal', closeSignOutModal]];
+    const sheetOpen = id => !document.getElementById(id).classList.contains('hidden');
+    // Closes the first open sheet in SHEETS (two are never open together). True if one was open, even if it stayed
+    // open (Sign out while busy), so that Back doesn't go on to change the tab as well.
+    function closeTopSheet() {
+      const top = SHEETS.find(([id]) => sheetOpen(id));
+      if (top) top[1]();
+      return !!top;
+    }
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTopSheet(); });
+    const historyDepth = () => (history.state && history.state.pfDepth) || 0;
+    const wantedDepth = () => (document.body.dataset.view !== 'home' && PHONE_MQ.matches ? 1 : 0) + (SHEETS.some(([id]) => sheetOpen(id)) ? 1 : 0);
+    let historyMoving = false, historyMovingTimer = 0;   // a history.go() of ours is on its way (its popstate isn't a Back)
+    function historyGo(steps) {
+      historyMoving = true;
+      clearTimeout(historyMovingTimer);
+      historyMovingTimer = setTimeout(() => { historyMoving = false; }, 1000);   // should its popstate never come
+      history.go(steps);
+    }
+    // Brings the history in line with what shows: a step added when a sheet or tab opens, taken off when it closes.
+    function syncHistory() {
+      if (IS_GAS_ENV || historyMoving) return;
+      const want = wantedDepth();
+      let have = historyDepth();
+      while (have < want) history.pushState({ pfDepth: ++have }, '');
+      if (have > want) historyGo(want - have);
+    }
+    if (!IS_GAS_ENV) {
+      // Reloaded with a sheet or tab open (Sign out and "Reload" do that): nothing is open now, so go back down to the
+      // app's bottom entry, or the first Back would do nothing.
+      if (historyDepth()) historyGo(-historyDepth());
+      window.addEventListener('popstate', () => {
+        if (historyMoving) { historyMoving = false; clearTimeout(historyMovingTimer); syncHistory(); return; }
+        // Back: take off what shows, one step for each step gone back (the top sheet first, then the tab).
+        for (let i = wantedDepth() - historyDepth(); i > 0; i--) {
+          if (!closeTopSheet() && document.body.dataset.view !== 'home') setView('home');
+        }
+        syncHistory();   // e.g. a sheet that wouldn't close (Sign out while it is busy) gets its step back
+      });
+      const watchSheets = new MutationObserver(syncHistory);
+      SHEETS.forEach(([id]) => watchSheets.observe(document.getElementById(id), { attributes: true, attributeFilter: ['class'] }));
     }
     // Folding or unfolding the phone (or resizing a window) across the phone/desktop line changes what the lists show.
     // A section folded on the desktop must open again if it becomes a phone tab, which has no ▾ to open it.
@@ -2043,6 +2087,7 @@ async function postToServer(bodyObj, opts = {}) {
       const v = document.body.dataset.view;
       if (SECTIONS[v] && PHONE_MQ.matches) setSectionOpen(v, true);
       renderAll();
+      syncHistory();   // a tab is a Back step only on a phone
     });
 
     // ---- Long lists show a few rows with a "Show all" toggle instead of scrolling inside the page ----
@@ -2210,6 +2255,9 @@ async function postToServer(bodyObj, opts = {}) {
     function showToast(msg, opts = {}) {
       const el = document.getElementById('toast');
       if (!el) return;
+      // Set before the words change, so a screen reader reads them: a failure at once, anything else when it can.
+      el.setAttribute('role', opts.kind === 'info' ? 'status' : 'alert');
+      el.setAttribute('aria-live', opts.kind === 'info' ? 'polite' : 'assertive');
       el.className = 'fixed left-1/2 -translate-x-1/2 bottom-24 lg:bottom-6 z-[100000] max-w-sm w-[90%] px-4 py-2.5 rounded-xl text-white text-xs font-medium shadow-lg flex items-center justify-between gap-3 '
         + (opts.kind === 'info' ? 'bg-slate-800 border border-slate-600' : 'bg-rose-600');
       el.innerHTML = '<span class="flex-1 text-left"></span>'

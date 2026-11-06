@@ -933,6 +933,105 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.keyboard.press('Escape');
     assert.ok(!(await visible(page, '#addModal')));
   });
+  // ---- Back (Android's Back gesture = the browser going back) ----
+  const backState = () => page.evaluate(() => ({ depth: (history.state && history.state.pfDepth) || 0, view: document.body.dataset.view,
+    add: !document.getElementById('addModal').classList.contains('hidden'), app: typeof setView === 'function' && location.pathname.endsWith('/tests/harness.html') }));
+  // history.back(), then wait until the page has handled it (and any step of its own it took after).
+  const backOn = async pg => {
+    await pg.evaluate(() => new Promise(r => { addEventListener('popstate', () => setTimeout(r, 0), { once: true }); history.back(); }));
+    await pg.waitForFunction(() => !historyMoving);
+  };
+  const goBack = () => backOn(page);
+  await step('Back with the Add form open closes it and stays in the app', async () => {
+    await page.click('nav button[aria-label="Add transaction"]');
+    assert.deepStrictEqual(await backState(), { depth: 1, view: 'home', add: true, app: true });
+    await goBack();
+    assert.deepStrictEqual(await backState(), { depth: 0, view: 'home', add: false, app: true });
+  });
+  await step('Back from the Bills tab goes to Home; with a sheet open over a tab, Back closes the sheet first', async () => {
+    await page.click('nav button[data-nav="budgets"]');
+    assert.deepStrictEqual(await backState(), { depth: 1, view: 'budgets', add: false, app: true });
+    await page.click('nav button[data-nav="activity"]');   // tab to tab: still one step
+    assert.strictEqual((await backState()).depth, 1);
+    await page.click('nav button[aria-label="Add transaction"]');
+    assert.deepStrictEqual(await backState(), { depth: 2, view: 'activity', add: true, app: true });
+    await goBack();
+    assert.deepStrictEqual(await backState(), { depth: 1, view: 'activity', add: false, app: true });
+    await goBack();
+    assert.deepStrictEqual(await backState(), { depth: 0, view: 'home', add: false, app: true });
+  });
+  await step('closing a sheet with ✕, Escape or Save takes its step off too, so the next Back is not wasted', async () => {
+    await page.click('nav button[aria-label="Add transaction"]');
+    await page.click('#addModal button[aria-label="Close"]');
+    await page.waitForFunction(() => !((history.state && history.state.pfDepth) || 0));
+    await page.click('nav button[aria-label="Add transaction"]');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !((history.state && history.state.pfDepth) || 0));
+    await page.click('nav button[data-nav="budgets"]');
+    await page.click('nav button[data-nav="home"]');   // Home by tapping: its step is taken off as well
+    await page.waitForFunction(() => !((history.state && history.state.pfDepth) || 0));
+    await page.click('nav button[aria-label="Add transaction"]');
+    await page.fill('#inpAmount', '1.05');
+    await page.fill('#inpMerchant', 'Back step shop');
+    await page.click('#btnSubmitTx');   // saved: the form closes, and so does its step
+    await page.waitForFunction(() => !((history.state && history.state.pfDepth) || 0) && !historyMoving && apiInflight === 0);
+    await page.evaluate(() => { const a = MOCK.db.amex; a.splice(a.findIndex(r => r.desc === 'Back step shop'), 1); forceSyncSheet(); });
+    // Closing one sheet and opening another straight away still leaves one step for the open one.
+    await page.evaluate(() => { openAddModal(); closeAddModal(); openAddModal(); });
+    await page.waitForFunction(() => (history.state && history.state.pfDepth) === 1 && !historyMoving);
+    assert.deepStrictEqual(await backState(), { depth: 1, view: 'home', add: true, app: true });
+    await goBack();
+    assert.deepStrictEqual(await backState(), { depth: 0, view: 'home', add: false, app: true });
+  });
+  await step('screen readers: form boxes have labels, sheets are dialogs with a title, chosen buttons say so', async () => {
+    const r = await page.evaluate(() => {
+      const unlabelled = ['monthSelector', 'inpAmount', 'inpMerchant', 'editTxAmt', 'editTxDesc', 'nmName', 'nmPaycheck', 'nmSavings', 'inpBudName', 'inpBudAmt', 'txSearch']
+        .filter(id => { const el = document.getElementById(id); return !(el.labels && el.labels.length) && !el.getAttribute('aria-label'); });
+      const dialogs = SHEETS.map(([id]) => { const d = document.querySelector('#' + id + ' [role="dialog"]'); const t = d && document.getElementById(d.getAttribute('aria-labelledby'));
+        return d && d.getAttribute('aria-modal') === 'true' && t && t.textContent.trim() ? 'ok' : id; });
+      openAddModal(); selectAcct('barclays');
+      const pressed = ACCTS.map(a => document.getElementById('acct_' + a).getAttribute('aria-pressed'));
+      selectAcct('amex'); closeAddModal();
+      const sameSheets = JSON.stringify([...document.querySelectorAll('.kb-sheet')].map(el => el.id).sort()) === JSON.stringify(SHEETS.map(([id]) => id).sort());
+      const live = () => document.getElementById('toast').getAttribute('role') + '/' + document.getElementById('toast').getAttribute('aria-live');
+      showToast('x', { kind: 'info' }); const info = live();
+      showToast('x'); const failure = live();
+      return { unlabelled, dialogs, pressed, sameSheets, current: [...document.querySelectorAll('nav [data-nav]')].map(b => b.getAttribute('aria-current')),
+        toast: [info, failure] };
+    });
+    assert.deepStrictEqual(r, { unlabelled: [], dialogs: ['ok', 'ok', 'ok', 'ok', 'ok', 'ok'], pressed: ['false', 'true', 'false', 'false'],
+      sameSheets: true, current: ['page', null, null, null], toast: ['status/polite', 'alert/assertive'] });
+    await page.click('nav button[data-nav="pending"]');
+    assert.deepStrictEqual(await page.$$eval('nav [data-nav]', bs => bs.map(b => b.getAttribute('aria-current'))), [null, null, 'page', null]);
+    await page.click('nav button[data-nav="home"]');
+  });
+  await step('after a reload with a sheet open over a tab (Sign out reloads), the first Back is not wasted', async () => {
+    const { ctx: c4, page: p4 } = await open(phone);
+    try {
+      await p4.click('nav button[data-nav="budgets"]');
+      await p4.click('nav button[aria-label="Add transaction"]');
+      assert.strictEqual(await p4.evaluate(() => history.state.pfDepth), 2);
+      await p4.reload();
+      await p4.waitForFunction(() => typeof setView === 'function' && window.MOCK && MOCK.calls.length > 0 && !historyMoving);
+      assert.strictEqual(await p4.evaluate(() => (history.state && history.state.pfDepth) || 0), 0);
+      await p4.goBack();   // nothing is open, so Back leaves the app at once
+      assert.ok(!p4.url().includes('harness.html'), 'still in the app after Back: ' + p4.url());
+    } finally { await c4.close(); }
+  });
+  await step('a window widened past the phone layout on a tab drops its step, and gets it back when narrowed', async () => {
+    const { ctx: c5, page: p5 } = await open(phone);
+    try {
+      const depth = () => p5.evaluate(() => (history.state && history.state.pfDepth) || 0);
+      await p5.click('nav button[data-nav="activity"]');
+      assert.strictEqual(await depth(), 1);
+      await p5.setViewportSize({ width: 1280, height: 860 });
+      await p5.waitForFunction(() => !historyMoving && !((history.state && history.state.pfDepth) || 0));
+      await p5.setViewportSize({ width: 400, height: 860 });
+      await p5.waitForFunction(() => (history.state && history.state.pfDepth) === 1);
+      await backOn(p5);
+      assert.strictEqual(await p5.evaluate(() => document.body.dataset.view), 'home');
+    } finally { await c5.close(); }
+  });
   await ctx.close();
 
   // ---------------- layout: widths, wrapping, hit areas, contrast ----------------
