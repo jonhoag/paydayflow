@@ -184,7 +184,7 @@
       </div>
 
       <div class="flex items-center gap-1.5 shrink-0">
-        <button onclick="forceSyncSheet()" id="syncBtn" title="Showing saved figures. Tap to sync" aria-label="Showing saved figures. Tap to sync"
+        <button onclick="forceSyncSheet(true)" id="syncBtn" title="Showing saved figures. Tap to sync" aria-label="Showing saved figures. Tap to sync"
                 class="w-10 h-10 lg:w-8 lg:h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
           <span data-icon="refresh" data-class="w-4 h-4"></span>
         </button>
@@ -230,7 +230,7 @@
     <main class="max-w-5xl mx-auto p-3.5 lg:p-6 flex flex-col gap-3.5">   <!-- gap, not space-y: hidden cards (caption, offers) leave no space -->
 
       <!-- Sync status lives in the sync button's colour and label (updateSyncUi). Words show only when a sync failed. -->
-      <button id="syncStatus" onclick="forceSyncSheet()" class="hidden text-xs text-rose-700 dark:text-rose-400 -mb-1 px-1 whitespace-nowrap text-left">
+      <button id="syncStatus" onclick="forceSyncSheet(true)" class="hidden text-xs text-rose-700 dark:text-rose-400 -mb-1 px-1 whitespace-nowrap text-left">
         <span id="syncText"></span>
       </button>
 
@@ -1468,7 +1468,7 @@ async function sendWaitingBeforeSignOut() {
   setSoMessage('');
   renderSignOutModal();
   btn.textContent = 'Sending…';
-  try { await flushOutbox(); } finally {
+  try { await flushOutbox(true); } finally {   // a tap: spends the sheet turned down are tried too
     soBusy = false;
     btn.textContent = 'Send now';
   }
@@ -1574,6 +1574,10 @@ async function signOut(forget) {
   const json = await postToServer({ action, payload, ...auth });
 
   if (!json.ok) {
+    // The server couldn't fetch Google's keys just now: the sign-in wasn't turned down, so keep it and try again later.
+    if (/^AUTH_UNAVAILABLE/.test(String(json.error))) {
+      throw Object.assign(new Error(String(json.error).replace(/^[A-Z_]+: /, '')), { unavailable: true });
+    }
     if (json.authError) {
       const usedSession = !!auth.session;
       if (usedSession) clearSession(); else { lsDel(TOKEN_STORAGE_KEY); stopGoogleAutoSignIn(); }
@@ -1587,8 +1591,9 @@ async function signOut(forget) {
   return json.data;
 }
 
-// No reply, or one that wasn't readable: a connection problem, not a refusal.
-const isConnectionError = err => !!(err && (err.network || err.badReply));
+// No reply, one that wasn't readable, or a server that couldn't check the sign-in just now: worth trying again
+// later, not a refusal.
+const isConnectionError = err => !!(err && (err.network || err.badReply || err.unavailable));
 
 // One POST to the Apps Script web app; resolves with the parsed { ok, data | error, authError } reply.
 // `opts.timeoutMs` shortens the wait; `opts.signal` lets the caller cancel it.
@@ -2129,12 +2134,13 @@ async function postToServer(bodyObj, opts = {}) {
         });
     }
 
-    // The sync button (and the red caption): fetch the sheet afresh, then send anything saved on this phone.
-    function forceSyncSheet() {
+    // The sync button (and the red caption): fetch the sheet afresh, then send anything saved on this phone. A tap
+    // (`byTap`) also tries again any spend the sheet turned down.
+    function forceSyncSheet(byTap) {
       apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
         .then(applyServerState)
         .catch(err => console.error(err))
-        .then(flushOutbox);
+        .then(() => flushOutbox(byTap === true));
     }
 
     function applyServerState(s) {
@@ -2206,15 +2212,17 @@ async function postToServer(bodyObj, opts = {}) {
     // The red caption, the only words the sync status shows (short enough for one line on a 344px phone).
     const SYNC_FAILED = {
       reach: { text: "Couldn't reach your sheet. Tap ↻ to try again.", label: "Couldn't reach your sheet. Tap to try again" },
-      refused: { text: 'Your sheet turned down the last change.', label: 'Your sheet turned down the last change. Tap to sync' }
+      refused: { text: 'Your sheet turned down the last change.', label: 'Your sheet turned down the last change. Tap to sync' },
+      stuck: { text: "A spend couldn't be sent. Tap ↻ to try again.", label: "A spend saved on this phone couldn't be sent. Tap to try again" }
     };
     // The sync button shows the status by its colour (green synced, amber syncing or something waiting to send, grey
     // offline, red failed). Its tooltip and screen-reader label say it in words, including when it last synced.
     function updateSyncUi() {
       const btn = document.getElementById('syncBtn'), note = document.getElementById('syncStatus');
       if (!btn || !note) return;
-      const waiting = loadOutbox().length;
+      const list = loadOutbox(), stuck = list.filter(x => x.stuck).length, waiting = list.length - stuck;
       const offline = !IS_GAS_ENV && navigator.onLine === false;
+      const failed = stuck ? 'stuck' : lastSyncFailed;
       let status, label;
       if (apiInflight > 0) { status = 'busy'; label = 'Syncing…'; }
       else if (waiting) {
@@ -2222,13 +2230,13 @@ async function postToServer(bodyObj, opts = {}) {
         label = waiting + (waiting === 1 ? ' spend' : ' spends') + ' waiting to send. ' + (offline ? (waiting === 1 ? 'It sends' : 'They send') + " when you're back online" : 'Tap to send now');
       }
       else if (offline) { status = 'offline'; label = 'Offline, showing saved figures'; }
-      else if (lastSyncFailed) { status = 'failed'; label = SYNC_FAILED[lastSyncFailed].label; }
+      else if (failed) { status = 'failed'; label = SYNC_FAILED[failed].label; }
       else if (lastSyncAt) { status = 'synced'; label = 'Synced ' + relTime(lastSyncAt) + '. Tap to sync now'; }
       else { status = 'saved'; label = 'Showing saved figures. Tap to sync'; }
       btn.dataset.sync = status;
       btn.title = label;
       btn.setAttribute('aria-label', label);
-      document.getElementById('syncText').textContent = status === 'failed' ? SYNC_FAILED[lastSyncFailed].text : '';
+      document.getElementById('syncText').textContent = status === 'failed' ? SYNC_FAILED[failed].text : '';
       note.classList.toggle('hidden', status !== 'failed');
       const spin = btn.querySelector('svg');
       if (spin) spin.classList.toggle('animate-spin', apiInflight > 0);
@@ -3120,9 +3128,23 @@ async function postToServer(bodyObj, opts = {}) {
     function saveOutbox(list) {
       lsSet(OUTBOX_KEY, JSON.stringify(list));
     }
-    function queueSpend(payload) {
-      saveOutbox(loadOutbox().concat([{ id: payload.clientId, payload }]));
+    function queueSpend(payload, extra) {
+      saveOutbox(loadOutbox().concat([{ id: payload.clientId, payload, ...extra }]));
       updateSyncUi();
+    }
+    // Changes one waiting spend (null removes it).
+    function updateOutboxItem(id, change) {
+      saveOutbox(loadOutbox().flatMap(x => x.id !== id ? [x] : change ? [{ ...x, ...change }] : []));
+    }
+    // The server's own refusals of a spend: sending it again can't help. Any other server error (the sheet busy, a
+    // Google hiccup) is tried again, up to OUTBOX_MAX_TRIES times in a row before the spend is set aside.
+    const SPEND_REFUSALS = /^(Invalid |Unknown account|Sheet not found|This month has no empty rows)/;
+    const OUTBOX_MAX_TRIES = 5;
+    // 'later': no usable reply, or a sign-in is needed first. 'busy': a server error worth trying again.
+    // 'refused': the server turned the spend itself down.
+    function spendFailure(err) {
+      if (!err || isConnectionError(err) || err.auth || err.needsSignIn) return 'later';
+      return SPEND_REFUSALS.test(String(err.message)) ? 'refused' : 'busy';
     }
     function sendNewSpend(payload) {
       if (!IS_GAS_ENV && navigator.onLine === false) {
@@ -3133,31 +3155,54 @@ async function postToServer(bodyObj, opts = {}) {
       apiCall('addTransactionBundle', payload)
         .then(applyStateIfViewing(payload.sheetName))
         .catch(err => {
-          if (err && err.network && !IS_GAS_ENV) {
+          if (IS_GAS_ENV) return handleSaveError('the transaction', err);
+          // Kept on this phone either way, so a spend is never just lost. Unless it was turned down, it is sent again
+          // later (the server ignores a repeat of a spend it already saved, in case only the reply was lost).
+          if (spendFailure(err) === 'refused') {
+            queueSpend(payload, { tries: 1, stuck: String(err.message) });
+            showSpendSetAside(payload.clientId, payload, err);
+            forceSyncSheet();   // the screen shows the sheet as it is
+          } else {
             queueSpend(payload);
-            showToast("No connection - saved on this phone, it will send when you're back online.", { kind: 'info' });
-          } else handleSaveError('the transaction', err);
+            showToast(err && err.network ? "No connection - saved on this phone, it will send when you're back online."
+              : "Couldn't save it just now - kept on this phone, it will send again shortly.", { kind: 'info' });
+          }
         });
     }
-    async function flushOutbox() {
-      if (outboxFlushing || IS_GAS_ENV || !loadOutbox().length || navigator.onLine === false) return;
+    // A spend the server turned down stays on this phone (the sync status shows it in red) until it is sent, or
+    // removed with this toast's button.
+    function showSpendSetAside(id, p, err) {
+      const what = String(p.merchant || 'a spend') + (p.grossAmount ? ' ' + fmtGBP(p.grossAmount) : '');
+      showToast("Couldn't send " + what + ': ' + String((err && err.message) || 'unknown error').replace(/^[A-Z_]+: /, ''), {
+        actionLabel: 'Remove', actionIcon: 'trash', duration: 9000,
+        onAction: () => { updateOutboxItem(id, null); forceSyncSheet(); }
+      });
+    }
+    // Sends the waiting spends, oldest first. One set aside (`stuck`) is tried again only when asked (a tap on sync).
+    async function flushOutbox(retryStuck) {
+      const due = x => retryStuck === true || !x.stuck;
+      if (outboxFlushing || IS_GAS_ENV || !loadOutbox().some(due) || navigator.onLine === false) return;
       // Signed out or locked: wait. Asking now would redraw the lock screen and overwrite what it says.
       if (!hasValidToken() || lockScreenShowing()) return;
       outboxFlushing = true;
       try {
-        let list = loadOutbox();
-        while (list.length) {
-          const item = list[0];
+        const tried = new Set();
+        let item;
+        while ((item = loadOutbox().find(x => due(x) && !tried.has(x.id)))) {
+          tried.add(item.id);
           try {
             const s = await apiCall('addTransactionBundle', item.payload);
-            saveOutbox(loadOutbox().filter(x => x.id !== item.id));
+            updateOutboxItem(item.id, null);
             applyStateIfViewing(item.payload.sheetName)(s);
           } catch (err) {
-            if (!err || err.network || err.auth || err.needsSignIn) break;   // try again later
-            saveOutbox(loadOutbox().filter(x => x.id !== item.id));   // the server refused it: don't retry forever
-            showToast('A spend saved offline was rejected (' + item.payload.merchant + '): ' + err.message);
+            const kind = spendFailure(err);
+            if (kind === 'later') break;   // try again later
+            // A tap starts the count again, so a spend set aside while the sheet was busy goes back in the queue.
+            const tries = (item.stuck ? 0 : item.tries || 0) + 1;
+            if (kind === 'busy' && tries < OUTBOX_MAX_TRIES) { updateOutboxItem(item.id, { tries, stuck: undefined }); break; }
+            updateOutboxItem(item.id, { tries, stuck: String((err && err.message) || 'refused') });
+            showSpendSetAside(item.id, item.payload, err);
           }
-          list = loadOutbox();
         }
       } finally {
         outboxFlushing = false;
