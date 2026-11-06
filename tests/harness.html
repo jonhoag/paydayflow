@@ -87,6 +87,7 @@
     nextLatencies: [],    // consumed one per request before falling back to `latency`
     failNext: 0,          // number of upcoming write calls that should fail
     failWith: 'Mock server failure',   // what the server says when it fails one of them
+    failAfterWriteNext: 0,   // number of upcoming write calls that do their work, then reply with an error
     badReplyNext: 0,      // number of upcoming calls that get a page that isn't JSON (like Google's error page)
     dropNext: 0,          // number of upcoming calls of any kind that get no reply (like a lost connection)
     authError: null,      // set to an error text and the server turns down every request as a sign-in problem
@@ -178,6 +179,7 @@
       const name = dbs[p.sheetName || p.sourceSheetName] ? (p.sheetName || p.sourceSheetName) : MONTH;
       try { reply = { ok: true, data: handlers[body.action](p, dbs[name], name) }; }
       catch (e) { reply = { ok: false, error: e.message }; }
+      if (isWrite && reply.ok && MOCK.failAfterWriteNext > 0) { MOCK.failAfterWriteNext--; reply = { ok: false, error: MOCK.failWith }; }
     }
     // ...but the reply reaches the browser only after its latency.
     await new Promise(r => setTimeout(r, wait));
