@@ -1663,32 +1663,34 @@ const contrastOf = (page, sel) => page.evaluate(s => {
 
   // ---------------- awkward text ----------------
   ({ ctx, page } = await open(phone, 'evil=1'));
-  await step('awkward text (quotes, <tags>, &) shows as text everywhere and injects nothing', async () => {
-    await page.click('nav [data-nav="pending"]');
-    const injected = await page.evaluate(() => document.querySelectorAll('main b').length);
-    assert.strictEqual(injected, 0, 'a <b> tag from sheet text was turned into markup');
-    const text = await page.textContent('main');
-    assert.ok(text.includes('<b>bold</b>'), 'sheet text should appear literally');
-    await page.click('nav [data-nav="activity"]');
-    assert.strictEqual(await page.evaluate(() => document.querySelectorAll('main b').length), 0);
-  });
   // Hostile text in every account, a bill, an Owed entry, a month name and a fingerprint device (id and label):
   // every screen that shows it is opened, and nothing may run, add an element, or add a handler.
+  // The page's own handlers are onclick, oninput and onchange; any other, or one mentioning __pwned, came from text.
   const hostile = () => page.evaluate(() => ({
     pwned: window.__pwned || null,
     imgs: document.querySelectorAll('img').length,
     bolds: document.querySelectorAll('b').length,
-    handlers: [...document.querySelectorAll('*')].flatMap(el => [...el.attributes].filter(a => /^on/i.test(a.name) && (/pwned/.test(a.value) || !/^on(click|input|change)$/i.test(a.name))).map(a => el.tagName + ' ' + a.name + '=' + a.value.slice(0, 40)))
+    protoTouched: 'total' in {} || 'count' in {},
+    handlers: [...document.querySelectorAll('*')].flatMap(el => [...el.attributes]
+      .filter(a => /^on/i.test(a.name) && (/pwned/.test(a.value) || !/^on(click|input|change)$/i.test(a.name)))
+      .map(a => el.tagName + ' ' + a.name + '=' + a.value.slice(0, 40)))
   }));
-  const CLEAN = { pwned: null, imgs: 0, bolds: 0, handlers: [] };
+  const CLEAN = { pwned: null, imgs: 0, bolds: 0, protoTouched: false, handlers: [] };
   await step('hostile text (attribute and handler break-outs) on every screen, the month list and the device list: nothing runs', async () => {
-    for (const v of ['home', 'budgets', 'pending', 'activity']) {
+    // Each screen must really show the hostile text (as text), or this would prove nothing.
+    const shows = { home: 'onmouseover', budgets: 'onmouseover', pending: '<b>bold</b>', activity: 'onmouseover' };
+    for (const v of Object.keys(shows)) {
       await page.click('nav [data-nav="' + v + '"]');
       await page.evaluate(() => document.querySelectorAll('button[aria-expanded="false"]').forEach(b => { if (/Show all|Paid \(/.test(b.textContent)) b.click(); }));
-      await page.hover('main');
+      assert.ok((await page.textContent('main')).includes(shows[v]), v + ' should show the hostile text');
       assert.deepStrictEqual(await hostile(), CLEAN, 'on ' + v);
     }
+    await page.click('nav [data-nav="pending"]');
+    assert.ok(/Constructor/.test(await page.textContent('main')) && /__proto__/i.test(await page.textContent('main')), 'Owed shows people called "constructor" and "__proto__"');
     await page.evaluate(() => openSpendModal());
+    await page.click('#spendModal button:has-text("purchases")');   // the category opens to list its shops
+    const shops = await page.textContent('#spendModal');
+    assert.ok(shops.includes('onmouseover') && /__proto__/i.test(shops) && /constructor/i.test(shops), 'Spending details should list the hostile shops');
     assert.deepStrictEqual(await hostile(), CLEAN, 'Spending details');
     await page.evaluate(() => closeSpendModal());
     const months = await page.$$eval('#monthSelector option', os => os.map(o => o.textContent));

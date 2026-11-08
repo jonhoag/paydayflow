@@ -60,6 +60,9 @@
     db.marcus.push({ row: 5, desc: EVIL2, amount: 6 });
     db.checking.push({ row: 6, desc: 'kim ' + EVIL, amount: 3, need: true }, { row: 7, desc: 'kim ' + EVIL2, amount: 2, need: true }, { row: 8, desc: EVIL2, amount: -1 });
     db.budgets.push({ row: 5, name: EVIL, amount: -7, originalBudget: -7, isRecurring: false }, { row: 6, name: EVIL2, amount: -8, originalBudget: -8, isRecurring: true });
+    // Names every object has, as an Owed person and as card spends.
+    db.checking.push({ row: 9, desc: 'constructor Lunch', amount: 4, need: true }, { row: 10, desc: '__proto__ Taxi', amount: 5, need: true });
+    db.amex.push({ row: 7, desc: '__proto__', amount: -6 }, { row: 8, desc: 'constructor', amount: -7 });
   }
   const MONTH_LIST = q.get('evil') ? [MONTH, MONTH2, EVIL_MONTH] : [MONTH, MONTH2];
   // The names the backend sends with every reply (the real ones live only in the private backend).
