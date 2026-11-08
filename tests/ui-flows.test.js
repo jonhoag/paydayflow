@@ -1238,6 +1238,24 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     const d = document.querySelector('#addModal [role="dialog"]');
     return [d.scrollHeight, ...[d, ...d.querySelectorAll('*')].map(e => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(v => Math.round(v * 10) / 10).join(','); })];
   });
+  // Where two screenshots of the Add sheet differ: how many pixels, the box round them (page px), the biggest colour
+  // difference, and what is drawn there.
+  const pictureDiff = (page, a, b) => page.evaluate(async ([a, b]) => {
+    const load = src => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = 'data:image/png;base64,' + src; });
+    const [ia, ib] = await Promise.all([load(a), load(b)]);
+    const px = i => { const c = document.createElement('canvas'); c.width = i.width; c.height = i.height; const g = c.getContext('2d'); g.drawImage(i, 0, 0); return g.getImageData(0, 0, i.width, i.height).data; };
+    const da = px(ia), db = px(ib), d = document.querySelector('#addModal [role="dialog"]').getBoundingClientRect();
+    let n = 0, max = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+    for (let p = 0; p < da.length; p += 4) {
+      const m = Math.max(Math.abs(da[p] - db[p]), Math.abs(da[p + 1] - db[p + 1]), Math.abs(da[p + 2] - db[p + 2]));
+      if (!m) continue;
+      const x = (p / 4) % ia.width, y = Math.floor(p / 4 / ia.width);
+      n++; max = Math.max(max, m); x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+    }
+    if (!n) return '';
+    const at = document.elementFromPoint(d.left + (x0 + x1) / 2, d.top + (y0 + y1) / 2);
+    return n + ' px differ (max ' + max + ') in ' + [x0 + d.left, y0 + d.top, x1 + d.left, y1 + d.top].map(Math.round).join(',') + ' at ' + (at ? at.tagName + '#' + at.id + '.' + String(at.className).slice(0, 30) : 'nothing');
+  }, [a.toString('base64'), b.toString('base64')]);
   for (const w of [411, 344]) {
     await step(`${w}px Add sheet, group split: the small split controls have tap areas of 24px+ that reach only them`, async () => {
       const { ctx: c9, page: p9 } = await open({ viewport: { width: w, height: 960 }, isMobile: true, hasTouch: true, colorScheme: 'dark' });
@@ -1283,7 +1301,8 @@ const contrastOf = (page, sel) => page.evaluate(s => {
         await p9.evaluate(sels => Object.values(sels).forEach(sel => document.querySelectorAll(sel).forEach(el => el.classList.remove('hit', 'hit-36', 'hit-32'))), SMALL_TAPS);
         assert.ok(/x16$/.test((await smallTaps(p9)).sizes.owed0), 'the tap areas were not taken away');
         assert.deepStrictEqual(await addSheetLayout(p9), withTaps[0], 'the tap areas move something in the Add sheet');
-        assert.ok((await sheet.screenshot()).equals(withTaps[1]), 'the tap areas change how the Add sheet looks');
+        const diff = await pictureDiff(p9, withTaps[1], await sheet.screenshot());
+        assert.ok(!diff, 'the tap areas change how the Add sheet looks: ' + diff);
       } finally { await c9.close(); }
     });
   }
