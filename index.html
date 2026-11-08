@@ -1751,13 +1751,6 @@ async function postToServer(bodyObj, opts = {}) {
 
     // Segmented buttons: the chosen one gets the `on` classes, the rest `off`. `on` can be a function of the key, for
     // the buttons that colour their chosen state differently.
-    // The sheets' buttons, 44px tall everywhere: two-way toggles (TOGGLE_IN for a chosen "money in" side) and the card
-    // picker. markToggle marks a toggle whose `inKey` choice is money in.
-    const TOGGLE_ON = 'min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white';
-    const TOGGLE_IN = 'min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400';
-    const TOGGLE_OFF = 'min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400';
-    const CARD_ON = 'min-h-[44px] rounded-xl bg-emerald-500 text-slate-950', CARD_OFF = 'min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
-    const markToggle = (prefix, keys, chosen, inKey) => markChoice(prefix, keys, chosen, k => k === inKey ? TOGGLE_IN : TOGGLE_ON, TOGGLE_OFF);
     function markChoice(prefix, keys, chosen, on, off) {
       keys.forEach(k => {
         const el = document.getElementById(prefix + k);
@@ -1766,6 +1759,14 @@ async function postToServer(bodyObj, opts = {}) {
         el.setAttribute('aria-pressed', String(k === chosen));   // for screen readers, which can't see the colour
       });
     }
+    // The sheets' buttons, 44px tall everywhere: two-way toggles (TOGGLE_IN for a chosen "money in" side) and the card
+    // picker. markToggle marks a toggle whose `inKey` choice is money in.
+    const TOGGLE_ON = 'min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white';
+    const TOGGLE_IN = 'min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400';
+    const TOGGLE_OFF = 'min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400';
+    const CARD_ON = 'min-h-[44px] rounded-xl bg-emerald-500 text-slate-950';
+    const CARD_OFF = 'min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
+    const markToggle = (prefix, keys, chosen, inKey) => markChoice(prefix, keys, chosen, k => k === inKey ? TOGGLE_IN : TOGGLE_ON, TOGGLE_OFF);
 
     // ---- Overflow menu (phone header) ----
     function toggleMenu(e) {
