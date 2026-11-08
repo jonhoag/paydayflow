@@ -1,7 +1,7 @@
 // Runs every automated check:  node tests/run-all.js
 //   --quick             Node checks only, even when PW_PATH is set (deploy-backend.ps1 uses this)
 //   --require-private   fail if the backend checks are missing (deploy-backend.ps1 uses this too)
-//   - the page's own checks: spending summary, tailwind.css freshness, and in real Chrome (playwright-core from
+//   - the page's own checks: spending summary, tailwind.css and sw.js hash freshness, and in real Chrome (playwright-core from
 //     PW_PATH, or from npm ci --ignore-scripts) the service worker and the screens
 //   - the backend checks, listed in tests/private/suites.js. They need the private backend files, so they are kept
 //     out of the public repo with them; where that folder is missing they are skipped, and the summary says so.
@@ -23,6 +23,7 @@ const suites = [
   ['spending summary', ['tests/spending.test.js']],
   ...backend.slice(1),
   ['tailwind.css is current', ['build-css.js', '--check']],
+  ['sw.js file hashes are current', ['build-sw.js', '--check']],
 ];
 if (chrome) {
   suites.push(...(privateSuites || []).filter(s => s[2]));

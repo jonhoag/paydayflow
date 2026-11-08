@@ -4,7 +4,8 @@
 //   node build-css.js           build tailwind.css and update the hash in index.html
 //   node build-css.js --check   exit 1 if tailwind.css is out of date (does not change any files)
 //
-// Run it after any change to index.html that adds or changes Tailwind classes. It uses the Tailwind version pinned in
+// Run it after any change to index.html that adds or changes Tailwind classes. It also updates the file hashes in
+// sw.js (build-sw.js); after any other change to a site file, run node build-sw.js. It uses the Tailwind version pinned in
 // package-lock.json, installed once with: npm ci --ignore-scripts
 const { execSync } = require('child_process');
 const crypto = require('crypto');
@@ -51,4 +52,6 @@ if (check) {
 } else {
   fs.writeFileSync(htmlPath, html.replace(linkRe, `href="tailwind.css?v=${hash}"`));
   console.log(`built tailwind.css (${fs.statSync(outFile).size} bytes, v=${hash})`);
+  // index.html has changed, so the service worker's record of it must too.
+  require('./build-sw.js').stampServiceWorker();
 }
