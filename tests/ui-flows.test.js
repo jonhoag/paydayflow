@@ -1417,6 +1417,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.click('#clearedBudgetsList > div:has-text("No amount bill") button:has-text("Restore")');
     assert.ok(await visible(page, '#budgetModal'), 'the edit form should open');
     assert.strictEqual(await page.inputValue('#inpBudName'), 'No amount bill');
+    assert.strictEqual(await page.evaluate(() => document.activeElement.id), 'inpBudAmt', 'the cursor should be in Amount, ready for it');
     assert.strictEqual((await calls(page, 'updateBudgetRow')).length, before, 'should not save a guessed amount');
     await page.click('#budgetModal button[aria-label="Close"]');
   });
