@@ -1096,6 +1096,19 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.strictEqual(await p7.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'scrolls sideways');
     } finally { await c7.close(); }
   });
+  await step('Add and Edit spend sheets: toggles, cards, Save and Delete are 44px like the bill sheet, and fit at 344px', async () => {
+    const { ctx: c8, page: p8 } = await open({ viewport: { width: 344, height: 740 }, isMobile: true, hasTouch: true });
+    try {
+      const sizesOk = async sel => { const h = await hitAreas(p8, sel); return [h.count, h.bad.filter(x => / is \d/.test(x))]; };
+      await p8.evaluate(() => openAddModal());
+      assert.deepStrictEqual(await sizesOk('#addModal [id^="dir_"], #addModal [id^="acct_"], #btnSubmitTx'), [7, []]);
+      let lines = await lineCounts(p8, ['#dir_spend', '#dir_refund', '#acct_checking', '#btnSubmitTx']);
+      await p8.evaluate(() => { closeAddModal(); const r = state.amex.find(x => !x.pending && x.desc !== 'start') || state.checking.find(x => x.desc !== 'start'); openEditTxModal(state.amex.includes(r) ? 'amex' : 'checking', r.row, r.desc, r.amount); });
+      assert.deepStrictEqual(await sizesOk('#editTxModal [id^="etsign_"], #editTxModal [id^="etx_"], #btnSaveEditTx, #editTxModal button[onclick="deleteCurrentTx()"]'), [8, []]);
+      lines = lines.concat(await lineCounts(p8, ['#etsign_neg', '#etsign_pos', '#etx_checking', '#btnSaveEditTx']));
+      assert.deepStrictEqual(lines.filter(x => !/:1$/.test(x)), [], lines.join(' '));
+    } finally { await c8.close(); }
+  });
   await step('bills: a tap outside the sheet does not close it (what was typed is kept)', async () => {
     try {
       await page.click('#btnAddBill');

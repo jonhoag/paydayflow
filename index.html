@@ -505,10 +505,10 @@
 
       <!-- Spend (-) vs Refund / Money In (+) Toggle -->
       <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
-        <button type="button" onclick="setTxDirection('spend')" id="dir_spend" class="py-2 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+        <button type="button" onclick="setTxDirection('spend')" id="dir_spend" class="min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-up-right" data-class="w-3.5 h-3.5"></span>Spend (−)</span>
         </button>
-        <button type="button" onclick="setTxDirection('refund')" id="dir_refund" class="py-2 rounded-lg text-slate-500 dark:text-slate-400">
+        <button type="button" onclick="setTxDirection('refund')" id="dir_refund" class="min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-down-left" data-class="w-3.5 h-3.5"></span>Refund / in (+)</span>
         </button>
       </div>
@@ -532,10 +532,10 @@
       <div>
         <p id="lblAcct" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Card / Account</p>
         <div role="group" aria-labelledby="lblAcct" class="grid grid-cols-4 gap-1.5 text-xs font-semibold">
-          <button type="button" onclick="selectAcct('amex')" id="acct_amex" class="py-2 rounded-xl bg-emerald-500 text-slate-950">Amex</button>
-          <button type="button" onclick="selectAcct('barclays')" id="acct_barclays" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
-          <button type="button" onclick="selectAcct('checking')" id="acct_checking" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Nationwide</button>
-          <button type="button" onclick="selectAcct('marcus')" id="acct_marcus" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Marcus</button>
+          <button type="button" onclick="selectAcct('amex')" id="acct_amex" class="min-h-[44px] rounded-xl bg-emerald-500 text-slate-950">Amex</button>
+          <button type="button" onclick="selectAcct('barclays')" id="acct_barclays" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
+          <button type="button" onclick="selectAcct('checking')" id="acct_checking" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Nationwide</button>
+          <button type="button" onclick="selectAcct('marcus')" id="acct_marcus" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Marcus</button>
         </div>
       </div>
 
@@ -587,7 +587,7 @@
         </label>
       </div>
 
-      <button id="btnSubmitTx" onclick="submitExpense()" class="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
+      <button id="btnSubmitTx" onclick="submitExpense()" class="w-full min-h-[44px] rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
         Save Spend
       </button>
     </div>
@@ -609,10 +609,10 @@
 
       <!-- Sign Toggle for Edit Modal -->
       <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
-        <button type="button" onclick="setEditTxSign(-1)" id="etsign_neg" class="py-1.5 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+        <button type="button" onclick="setEditTxSign(-1)" id="etsign_neg" class="min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="minus" data-class="w-3.5 h-3.5"></span>Spend / out (−)</span>
         </button>
-        <button type="button" onclick="setEditTxSign(1)" id="etsign_pos" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
+        <button type="button" onclick="setEditTxSign(1)" id="etsign_pos" class="min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="plus" data-class="w-3.5 h-3.5"></span>Credit / in (+)</span>
         </button>
       </div>
@@ -635,18 +635,18 @@
       <div>
         <p id="lblEditAcct" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Card / Account</p>
         <div role="group" aria-labelledby="lblEditAcct" class="grid grid-cols-4 gap-1.5 text-xs font-semibold">
-          <button type="button" onclick="selectEditTxAcct('amex')" id="etx_amex" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Amex</button>
-          <button type="button" onclick="selectEditTxAcct('barclays')" id="etx_barclays" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
-          <button type="button" onclick="selectEditTxAcct('checking')" id="etx_checking" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Nationwide</button>
-          <button type="button" onclick="selectEditTxAcct('marcus')" id="etx_marcus" class="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Marcus</button>
+          <button type="button" onclick="selectEditTxAcct('amex')" id="etx_amex" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Amex</button>
+          <button type="button" onclick="selectEditTxAcct('barclays')" id="etx_barclays" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
+          <button type="button" onclick="selectEditTxAcct('checking')" id="etx_checking" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Nationwide</button>
+          <button type="button" onclick="selectEditTxAcct('marcus')" id="etx_marcus" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Marcus</button>
         </div>
       </div>
 
       <div class="flex gap-2 pt-1">
-        <button type="button" onclick="deleteCurrentTx()" class="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 font-bold text-xs transition">
+        <button type="button" onclick="deleteCurrentTx()" class="min-h-[44px] px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 font-bold text-xs transition">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="trash" data-class="w-3.5 h-3.5"></span>Delete</span>
         </button>
-        <button type="button" id="btnSaveEditTx" onclick="saveEditedTx()" class="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
+        <button type="button" id="btnSaveEditTx" onclick="saveEditedTx()" class="min-h-[44px] flex-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
           Save Changes
         </button>
       </div>
@@ -1751,6 +1751,13 @@ async function postToServer(bodyObj, opts = {}) {
 
     // Segmented buttons: the chosen one gets the `on` classes, the rest `off`. `on` can be a function of the key, for
     // the buttons that colour their chosen state differently.
+    // The sheets' buttons, 44px tall everywhere: two-way toggles (TOGGLE_IN for a chosen "money in" side) and the card
+    // picker. markToggle marks a toggle whose `inKey` choice is money in.
+    const TOGGLE_ON = 'min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white';
+    const TOGGLE_IN = 'min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400';
+    const TOGGLE_OFF = 'min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400';
+    const CARD_ON = 'min-h-[44px] rounded-xl bg-emerald-500 text-slate-950', CARD_OFF = 'min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
+    const markToggle = (prefix, keys, chosen, inKey) => markChoice(prefix, keys, chosen, k => k === inKey ? TOGGLE_IN : TOGGLE_ON, TOGGLE_OFF);
     function markChoice(prefix, keys, chosen, on, off) {
       keys.forEach(k => {
         const el = document.getElementById(prefix + k);
@@ -2385,18 +2392,14 @@ async function postToServer(bodyObj, opts = {}) {
       renderBudgets();
     }
 
-    // The bill sheet's toggles (44px tall; the spend sheets' toggles are smaller so far).
-    const BUD_TOGGLE_ON = 'min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white', BUD_TOGGLE_OFF = 'min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400';
     function setBudFormType(isRec) {
       budFormIsRecurring = Boolean(isRec);
-      markChoice('btype_', ['bill', 'event'], budFormIsRecurring ? 'bill' : 'event', BUD_TOGGLE_ON, BUD_TOGGLE_OFF);
+      markChoice('btype_', ['bill', 'event'], budFormIsRecurring ? 'bill' : 'event', TOGGLE_ON, TOGGLE_OFF);
     }
 
     function setBudFormSign(sign) {
       budFormSign = sign < 0 ? -1 : 1;
-      markChoice('bsign_', ['neg', 'pos'], budFormSign < 0 ? 'neg' : 'pos',
-        k => k === 'pos' ? BUD_TOGGLE_ON.replace('text-slate-900 dark:text-white', 'text-emerald-600 dark:text-emerald-400') : BUD_TOGGLE_ON,
-        BUD_TOGGLE_OFF);
+      markToggle('bsign_', ['neg', 'pos'], budFormSign < 0 ? 'neg' : 'pos', 'pos');
     }
 
     function toggleWhatIf(row) {
@@ -3043,9 +3046,7 @@ async function postToServer(bodyObj, opts = {}) {
     function setTxDirection(dir) {
       txDirection = dir;
       const isRefund = dir === 'refund';
-      markChoice('dir_', ['spend', 'refund'], dir,
-        k => k === 'refund' ? 'py-2 rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400' : 'py-2 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white',
-        'py-2 rounded-lg text-slate-500 dark:text-slate-400');
+      markToggle('dir_', ['spend', 'refund'], dir, 'refund');
 
       document.getElementById('needToggleWrap').classList.toggle('hidden', formSplit === '100_me');
       document.getElementById('btnSubmitTx').textContent = isRefund ? 'Save Refund / Money In (+)' : 'Save Spend';
@@ -3054,7 +3055,7 @@ async function postToServer(bodyObj, opts = {}) {
 
     function selectAcct(a) {
       formAcct = a;
-      markChoice('acct_', ACCTS, a, 'py-2 rounded-xl bg-emerald-500 text-slate-950', 'py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300');
+      markChoice('acct_', ACCTS, a, CARD_ON, CARD_OFF);
     }
 
     function selectSplit(s) {
@@ -3398,9 +3399,7 @@ async function postToServer(bodyObj, opts = {}) {
     // ================= EDIT OR MOVE TRANSACTION MODAL =================
     function setEditTxSign(sign) {
       editTxSign = sign < 0 ? -1 : 1;
-      markChoice('etsign_', ['neg', 'pos'], editTxSign < 0 ? 'neg' : 'pos',
-        k => k === 'pos' ? 'py-1.5 rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400' : 'py-1.5 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white',
-        'py-1.5 rounded-lg text-slate-500 dark:text-slate-400');
+      markToggle('etsign_', ['neg', 'pos'], editTxSign < 0 ? 'neg' : 'pos', 'pos');
     }
 
     // What the edit form showed when it opened (see budFormExpect).
@@ -3425,7 +3424,7 @@ async function postToServer(bodyObj, opts = {}) {
 
     function selectEditTxAcct(a) {
       editTxNewAcct = a;
-      markChoice('etx_', ACCTS, a, 'py-2 rounded-xl bg-emerald-500 text-slate-950', 'py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300');
+      markChoice('etx_', ACCTS, a, CARD_ON, CARD_OFF);
     }
 
     function updateSummaryBalance(acct, delta) {
