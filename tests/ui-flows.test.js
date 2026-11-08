@@ -1672,6 +1672,40 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.click('nav [data-nav="activity"]');
     assert.strictEqual(await page.evaluate(() => document.querySelectorAll('main b').length), 0);
   });
+  // Hostile text in every account, a bill, an Owed entry, a month name and a fingerprint device (id and label):
+  // every screen that shows it is opened, and nothing may run, add an element, or add a handler.
+  const hostile = () => page.evaluate(() => ({
+    pwned: window.__pwned || null,
+    imgs: document.querySelectorAll('img').length,
+    bolds: document.querySelectorAll('b').length,
+    handlers: [...document.querySelectorAll('*')].flatMap(el => [...el.attributes].filter(a => /^on/i.test(a.name) && (/pwned/.test(a.value) || !/^on(click|input|change)$/i.test(a.name))).map(a => el.tagName + ' ' + a.name + '=' + a.value.slice(0, 40)))
+  }));
+  const CLEAN = { pwned: null, imgs: 0, bolds: 0, handlers: [] };
+  await step('hostile text (attribute and handler break-outs) on every screen, the month list and the device list: nothing runs', async () => {
+    for (const v of ['home', 'budgets', 'pending', 'activity']) {
+      await page.click('nav [data-nav="' + v + '"]');
+      await page.evaluate(() => document.querySelectorAll('button[aria-expanded="false"]').forEach(b => { if (/Show all|Paid \(/.test(b.textContent)) b.click(); }));
+      await page.hover('main');
+      assert.deepStrictEqual(await hostile(), CLEAN, 'on ' + v);
+    }
+    await page.evaluate(() => openSpendModal());
+    assert.deepStrictEqual(await hostile(), CLEAN, 'Spending details');
+    await page.evaluate(() => closeSpendModal());
+    const months = await page.$$eval('#monthSelector option', os => os.map(o => o.textContent));
+    assert.ok(months.includes('Evil "Month" <img src=x onerror=window.__pwned=4> 2026'), 'the month name shows as text: ' + months.join(' | '));
+    await page.evaluate(() => openPasskeyModal());
+    await page.waitForFunction(() => document.getElementById('pkDevices').textContent.includes('onmouseover'));
+    assert.deepStrictEqual(await hostile(), CLEAN, 'fingerprint device list');
+    assert.deepStrictEqual(await page.$$eval('#pkDevices button', bs => bs.map(b => b.dataset.id)), await page.evaluate(() => pkDevices.map(d => d.id)), 'each id reaches its button as data');
+    await page.evaluate(() => closePasskeyModal());
+  });
+  await step('hostile text in a row: its edit sheet shows it exactly, as a value', async () => {
+    const t = await page.evaluate(() => state.barclays.find(x => /onerror/.test(x.desc)));
+    await page.evaluate(x => openEditTxModal('barclays', x.row, x.desc, x.amount), t);
+    assert.strictEqual(await page.inputValue('#editTxDesc'), t.desc);
+    assert.deepStrictEqual(await hostile(), CLEAN);
+    await page.evaluate(() => closeEditTxModal());
+  });
   await ctx.close();
 
   // ---------------- desktop ----------------
