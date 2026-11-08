@@ -8,6 +8,7 @@
 //               ?latency=400 -> mock server delay in ms (default 300)
 //               ?evil=1      -> seed rows with quotes, angle brackets, backslash, ampersand
 //               ?noconfig=1  -> the server sends no names (like an older backend)
+//               ?gas=1       -> run as the copy of the page Apps Script serves (google.script.run), same mock server
 // Every name, shop and figure here is invented.
 // The mock "server" runs each request the moment it arrives, then replies after its latency, so
 // replies can overtake each other exactly like real Apps Script. MOCK.nextLatencies = [1500, 100]
@@ -204,6 +205,22 @@
     },
     disableAutoSelect: () => { MOCK.gsi.disableAutoSelect++; gsiAutoOff = true; }
   } } };
+
+  // ?gas=1: google.script.run goes to the same mock server. A failure reaches the page as an Error, as in Apps Script;
+  // a lost connection says "NetworkError: ...".
+  if (q.get('gas')) window.google.script = { get run() {
+    let ok = () => {}, fail = () => {};
+    const r = {
+      withSuccessHandler: f => { ok = f; return r; },
+      withFailureHandler: f => { fail = f; return r; },
+      gasCall: (action, payload) => {
+        window.fetch('gas', { body: JSON.stringify({ action, payload }) })
+          .then(res => res.text()).then(t => { const j = JSON.parse(t); if (j.ok) ok(j.data); else fail(new Error(j.error)); })
+          .catch(e => fail(new Error(e instanceof TypeError ? 'NetworkError: Connection failure due to HTTP 0' : e.message)));
+      }
+    };
+    return r;
+  } };
 
   // ---------- load timing: ms from harness start until styles apply / first data renders ----------
   const perf = window.__perf = { t0: performance.now(), styled: null, data: null };
