@@ -1187,6 +1187,106 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.deepStrictEqual(lines.filter(x => !/:1$/.test(x)), [], lines.join(' '));
     } finally { await c8.close(); }
   });
+  // The Add sheet's small split controls (Jon kept their look, 2026-11-08): each has a hidden tap area of at least
+  // 24px (as big as it can be, up to 44px, without reaching a neighbour), and adding it changes nothing on screen.
+  const SMALL_TAPS = { equal: '#customSplitBox button[onclick="applyEqualGroupSplit()"]', includeMe: '#customSplitBox label:has(#chkEqualIncludeMe)',
+    remove: '#dynamicSplitRows button[onclick^="removePersonRow"]', owed: '#needToggleWrap' };
+  // Where each one's tap area is (from its ::after), and every way it could go wrong: too small, a point in it that
+  // doesn't reach it, overlapping another control, or taking a tap from one.
+  const smallTaps = page => page.evaluate(sels => {
+    const out = { sizes: {}, bad: [], boxes: {} };
+    const controls = Object.entries(sels).flatMap(([k, sel]) => [...document.querySelectorAll(sel)].map((el, i) => [k + i, el]));
+    const others = [...document.querySelectorAll('#addModal :is(button, input, label, select, textarea, a)')]
+      .filter(el => el.getClientRects().length && !controls.some(([, c]) => c === el || c.contains(el) || el.contains(c)));
+    const overlap = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    const tapBoxes = controls.map(([k, el]) => {
+      const b = el.getBoundingClientRect(), a = getComputedStyle(el, '::after');
+      const w = Math.max(b.width, a.content !== 'none' ? parseFloat(a.width) : 0), h = Math.max(b.height, a.content !== 'none' ? parseFloat(a.height) : 0);
+      const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+      const box = { left: cx - w / 2, right: cx + w / 2, top: cy - h / 2, bottom: cy + h / 2 };
+      out.sizes[k] = Math.round(w) + 'x' + Math.round(h);
+      out.boxes[k] = box;
+      if (w < 24 || h < 24) out.bad.push(k + ' is only ' + out.sizes[k]);
+      sample: for (let i = 0; i <= 6; i++) for (let j = 0; j <= 6; j++) {
+        const x = box.left + 0.5 + (w - 1) * i / 6, y = box.top + 0.5 + (h - 1) * j / 6, hit = document.elementFromPoint(x, y);
+        if (!hit || !el.contains(hit)) { out.bad.push(k + ' misses at ' + Math.round(x) + ',' + Math.round(y) + ' (hits ' + (hit ? hit.tagName + '#' + hit.id : 'nothing') + ')'); break sample; }
+      }
+      return [k, el, box];
+    });
+    for (const [k, , box] of tapBoxes) {
+      for (const [k2, , box2] of tapBoxes) if (k < k2 && overlap(box, box2)) out.bad.push(k + ' overlaps ' + k2);
+      for (const o of others) if (overlap(box, o.getBoundingClientRect())) out.bad.push(k + ' overlaps ' + o.tagName + '#' + o.id + '.' + String(o.className).slice(0, 20));
+    }
+    // A tick box inside one of them still takes a tap on itself (not the label's area drawn over it).
+    for (const [k, el] of controls) for (const box of el.querySelectorAll('input')) {
+      const r = box.getBoundingClientRect();
+      if (document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) !== box) out.bad.push(k + ' covers its own tick box');
+    }
+    // Every other control still gets every tap on itself (sampled over its own box).
+    for (const o of others) {
+      const r = o.getBoundingClientRect();
+      sample: for (let i = 0; i <= 4; i++) for (let j = 0; j <= 4; j++) {
+        const x = r.left + 1 + (r.width - 2) * i / 4, y = r.top + 1 + (r.height - 2) * j / 4, hit = document.elementFromPoint(x, y);
+        const thief = hit && tapBoxes.find(([, el]) => el.contains(hit));
+        if (thief) { out.bad.push(thief[0] + ' takes a tap meant for ' + o.tagName + '#' + o.id); break sample; }
+      }
+    }
+    return out;
+  }, SMALL_TAPS);
+  // Every element's place in the Add sheet, to compare with and without the tap areas.
+  const addSheetLayout = page => page.evaluate(() => {
+    const d = document.querySelector('#addModal [role="dialog"]');
+    return [d.scrollHeight, ...[d, ...d.querySelectorAll('*')].map(e => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(v => Math.round(v * 10) / 10).join(','); })];
+  });
+  for (const w of [411, 344]) {
+    await step(`${w}px Add sheet, group split: the small split controls have tap areas of 24px+ that reach only them`, async () => {
+      const { ctx: c9, page: p9 } = await open({ viewport: { width: w, height: 960 }, isMobile: true, hasTouch: true, colorScheme: 'dark' });
+      // The Add sheet with £30 split between Kim and Lee (and me).
+      const openSplit = async () => {
+        await p9.evaluate(() => { closeAddModal(); openAddModal(); document.getElementById('inpAmount').value = '30'; selectSplit('custom'); });
+        await p9.click('#chip_lee');
+        await p9.evaluate(() => document.activeElement.blur());
+      };
+      try {
+        await openSplit();
+        const t = await smallTaps(p9);
+        assert.deepStrictEqual(t.bad, [], JSON.stringify(t.sizes));
+        // The heights each one is given (widths follow the wording; the ✕ is 32px both ways).
+        assert.deepStrictEqual(Object.entries(t.sizes).map(([k, v]) => k + ' ' + (k.startsWith('remove') ? v : v.split('x')[1])),
+          ['equal0 36', 'includeMe0 36', 'remove0 32x32', 'remove1 32x32', 'owed0 44']);
+
+        // A tap at the very edge of each tap area (outside the control as drawn) does that control's job.
+        const edge = async (k, where) => {
+          const { boxes } = await smallTaps(p9), b = boxes[k];
+          const pt = { top: [(b.left + b.right) / 2, b.top + 1], bottom: [(b.left + b.right) / 2, b.bottom - 1], left: [b.left + 1, (b.top + b.bottom) / 2] }[where];
+          await p9.touchscreen.tap(pt[0], pt[1]);
+        };
+        await p9.fill('#dynamicSplitRows .split-amt', '5');
+        assert.strictEqual(await p9.inputValue('#dynamicSplitRows .split-amt'), '5');
+        await edge('equal0', 'top');
+        assert.deepStrictEqual(await p9.$$eval('#dynamicSplitRows .split-amt', i => i.map(x => x.value)), ['10', '10'], 'Split Equally');
+        const tick = id => p9.evaluate(i => document.getElementById(i).checked, id);
+        const me = await tick('chkEqualIncludeMe');
+        await edge('includeMe0', 'bottom');
+        assert.strictEqual(await tick('chkEqualIncludeMe'), !me, 'Include me');
+        const owed = await tick('chkNeed');
+        await edge('owed0', 'top');
+        assert.strictEqual(await tick('chkNeed'), !owed, 'Add to "Owed"');
+        await edge('remove1', 'left');
+        assert.deepStrictEqual(await p9.$$eval('#dynamicSplitRows .split-name', i => i.map(x => x.value)), ['kim'], 'the ✕ by Lee');
+
+        // Nothing on screen changes: the same layout and the same picture with the tap areas taken away (last, as the
+        // controls written into the page keep their classes off until it reloads).
+        await openSplit();
+        const sheet = p9.locator('#addModal [role="dialog"]');
+        const withTaps = [await addSheetLayout(p9), await sheet.screenshot()];
+        await p9.evaluate(sels => Object.values(sels).forEach(sel => document.querySelectorAll(sel).forEach(el => el.classList.remove('hit', 'hit-36', 'hit-32'))), SMALL_TAPS);
+        assert.ok(/x16$/.test((await smallTaps(p9)).sizes.owed0), 'the tap areas were not taken away');
+        assert.deepStrictEqual(await addSheetLayout(p9), withTaps[0], 'the tap areas move something in the Add sheet');
+        assert.ok((await sheet.screenshot()).equals(withTaps[1]), 'the tap areas change how the Add sheet looks');
+      } finally { await c9.close(); }
+    });
+  }
   await step('bills: a tap outside the sheet does not close it (what was typed is kept)', async () => {
     try {
       await page.click('#btnAddBill');
