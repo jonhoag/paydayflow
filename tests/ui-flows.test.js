@@ -454,7 +454,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   });
   const syncSettled = sync => page.waitForFunction(v => apiInflight === 0 && document.getElementById('syncBtn').dataset.sync === v, sync, { timeout: 8000 });
   // Requests this test fails on purpose are logged by the page; take just those back out of the error list.
-  const dropExpectedSyncErrors = from => { for (let i = errors.length - 1; i >= from; i--) if (/Failed to fetch|Mock server failure|something unexpected|Lock timeout|Invalid amount|check the Google sign-in/.test(errors[i])) errors.splice(i, 1); };
+  const dropExpectedSyncErrors = from => { for (let i = errors.length - 1; i >= from; i--) if (/Failed to fetch|Mock server failure|something unexpected|Lock timeout|Invalid amount|check the Google sign-in|SAVED_NO_STATE|NetworkError/.test(errors[i])) errors.splice(i, 1); };
   await step('sync status: green when synced, with when in its label; no words on the page', async () => {
     await syncSettled('synced');
     const v = await syncShown();
@@ -645,9 +645,39 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       dropExpectedSyncErrors(from);
     }
   });
+  // The server saved it, then couldn't read the month's figures back (SAVED_NO_STATE): saved, so never kept or sent again.
+  const SAVED_NO_STATE = 'SAVED_NO_STATE: saved, but the figures could not be read just now.';
+  await step('saved, but the figures could not be read back: not kept or shown in red; the screen is fetched afresh; in the sheet once', async () => {
+    const from = errors.length;
+    try {
+      const syncs = (await calls(page, 'getCachedSheetState')).length;
+      await page.evaluate(t => { MOCK.failWith = t; MOCK.failAfterWriteNext = 1; document.querySelector('#toast span').textContent = ''; }, SAVED_NO_STATE);
+      await addSpend('3.80', 'Read back shop');
+      await page.waitForFunction(n => MOCK.calls.filter(c => c.action === 'getCachedSheetState').length > n, syncs);
+      await syncSettled('synced');
+      assert.deepStrictEqual(await outbox(), [], 'nothing kept on this phone');
+      assert.strictEqual(await sentCount('Read back shop'), 1, 'sent once, not again');
+      assert.strictEqual(await rowsNamed('Read back shop'), 1);
+      assert.ok((await page.textContent('#txListContainer')).includes('Read back shop'));
+      assert.ok(!/Couldn't/.test((await toastParts())[0]), 'no failure toast: ' + (await toastParts())[0]);
+      assert.strictEqual((await syncShown()).caption, null);
+    } finally { await page.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failAfterWriteNext = 0; }); dropExpectedSyncErrors(from); }
+  });
+  await step('a waiting spend sent again and saved, but the figures could not be read back: it leaves this phone, saved once', async () => {
+    const from = errors.length;
+    try {
+      const payload = { sheetName: await page.evaluate(() => activeMonth), merchant: 'Resent read back shop', grossAmount: 1.25, isRefund: false, account: 'amex', splits: [], marcusShare: 0, markNeed: false, clientId: 'resent-rb-1' };
+      await page.evaluate(([p, t]) => { saveOutbox([{ id: p.clientId, payload: p }]); MOCK.failWith = t; MOCK.failAfterWriteNext = 1; return flushOutbox(); }, [payload, SAVED_NO_STATE]);
+      await syncSettled('synced');
+      assert.deepStrictEqual(await outbox(), []);
+      assert.strictEqual(await sentCount('Resent read back shop'), 1);
+      assert.strictEqual(await rowsNamed('Resent read back shop'), 1);
+      await page.waitForFunction(() => document.getElementById('txListContainer').textContent.includes('Resent read back shop'));   // fetched afresh
+    } finally { await page.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failAfterWriteNext = 0; }); dropExpectedSyncErrors(from); }
+  });
   await step('outbox: (tidy up) the spends these steps saved are taken back out of the pretend sheet', async () => {
     await page.evaluate(() => {
-      const ours = /^(Bad reply|Busy|Very busy|Half done|Old lost) shop$/;
+      const ours = /^(Bad reply|Busy|Very busy|Half done|Old lost|Read back|Resent read back) shop$/;
       Object.values(MOCK.db).filter(Array.isArray).forEach(a => { for (let i = a.length - 1; i >= 0; i--) if (ours.test(a[i].desc)) a.splice(i, 1); });
     });
     await page.click('#syncBtn');
@@ -1081,6 +1111,24 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     } finally {
       await page.evaluate(() => { closeBudgetForm(); const i = MOCK.db.budgets.findIndex(b => b.name === 'Sheet test bill'); if (i > -1) MOCK.db.budgets.splice(i, 1); forceSyncSheet(); });
       await page.waitForFunction(() => apiInflight === 0);
+    }
+  });
+  await step('bills: saved, but the figures could not be read back: says "Saved", fetches the sheet, and the bill shows', async () => {
+    const from = errors.length;
+    try {
+      await page.evaluate(() => { MOCK.failWith = 'SAVED_NO_STATE: saved, but the figures could not be read just now.'; MOCK.failAfterWriteNext = 1; });
+      await page.click('#btnAddBill');
+      await page.fill('#inpBudAmt', '9.99');
+      await page.fill('#inpBudName', 'Read back bill');
+      await page.click('#budSaveBtn');
+      await page.waitForFunction(() => MOCK.calls.some(c => c.action === 'saveBudgetItem' && c.payload.name === 'Read back bill' && c.end) && apiInflight === 0);
+      assert.strictEqual(await page.textContent('#toast span'), 'Saved. Fetching the latest figures from your sheet.');
+      await page.waitForFunction(() => apiInflight === 0 && state.budgets.some(b => b.name === 'Read back bill' && !b.pending));   // fetched afresh
+      assert.strictEqual(await page.evaluate(() => MOCK.db.budgets.filter(b => b.name === 'Read back bill').length), 1);
+    } finally {
+      await page.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failAfterWriteNext = 0; closeBudgetForm(); const i = MOCK.db.budgets.findIndex(b => b.name === 'Read back bill'); if (i > -1) MOCK.db.budgets.splice(i, 1); forceSyncSheet(); });
+      await page.waitForFunction(() => apiInflight === 0);
+      dropExpectedSyncErrors(from);
     }
   });
   await step('bills: the sheet fits a 344px phone (no label wraps), every button has a 44px hit area, boxes are 44px tall', async () => {
@@ -1523,6 +1571,26 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.waitForTimeout(500);
     assert.ok(/already exists/.test(await page.textContent('#toast')), await page.textContent('#toast'));
     assert.ok((await calls(page, 'getCachedSheetState')).length > syncs, 'should reload the latest months');
+  });
+
+  await step('new month: made, but its figures could not be read back: says so and opens the new month (no "Couldn\'t create")', async () => {
+    const from = errors.length, was = await page.evaluate(() => activeMonth);
+    try {
+      await page.evaluate(() => {
+        MOCK.failWith = 'SAVED_NO_STATE: saved, but the figures could not be read just now.'; MOCK.failAfterWriteNext = 1;
+        openNewMonthModal();
+        document.getElementById('nmName').value = 'Read back Payday 2026';
+        updateNewMonthName();
+      });
+      await page.click('#nmCreateBtn');
+      await page.waitForFunction(() => MOCK.calls.some(c => c.action === 'getCachedSheetState' && c.payload.sheetName === 'Read back Payday 2026'));
+      assert.strictEqual(await page.textContent('#toast span'), 'Made Read back Payday 2026. Loading it now.');
+      assert.strictEqual(await page.evaluate(() => activeMonth), 'Read back Payday 2026');
+    } finally {
+      await page.evaluate(m => { MOCK.failWith = 'Mock server failure'; MOCK.failAfterWriteNext = 0; switchMonth(m); }, was);
+      await page.waitForFunction(m => apiInflight === 0 && activeMonth === m, was);
+      dropExpectedSyncErrors(from);
+    }
   });
 
   await step('saved copies of months no longer in the sheet are cleared from this device', async () => {
@@ -2075,6 +2143,66 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       });
       assert.strictEqual(new Set(srcs).size, 3, 'the shortcuts should not share an icon');
     });
+  }
+
+  // ---------------- the copy of the page Apps Script serves ----------------
+  {
+    const { ctx: cg, page: pg } = await open(phone, 'demo=1&gas=1');
+    const gasOutbox = () => pg.evaluate(() => loadOutbox());
+    const gasRows = m => pg.evaluate(m => Object.values(MOCK.db).filter(Array.isArray).flat().filter(r => r && r.desc === m).length, m);
+    const gasSettled = v => pg.waitForFunction(v => apiInflight === 0 && document.getElementById('syncBtn').dataset.sync === v, v, { timeout: 8000 });
+    const gasAdd = async (amount, merchant) => {
+      await pg.click('nav button[aria-label="Add transaction"]');
+      await pg.fill('#inpAmount', amount);
+      await pg.fill('#inpMerchant', merchant);
+      await pg.click('#btnSubmitTx');
+    };
+    await step('Apps Script copy: starts through google.script.run, with no sign-out', async () => {
+      assert.ok(await pg.evaluate(() => !!IS_GAS_ENV && MOCK.calls.length > 0));
+      assert.ok(await pg.evaluate(() => ['menuSignOutItem', 'sideSignOutBtn'].every(id => document.getElementById(id).classList.contains('hidden'))));
+    });
+    await step('Apps Script copy: a spend the sheet turns down is kept and shown in red (not lost); a tap sends it again', async () => {
+      const from = errors.length;
+      try {
+        await pg.evaluate(() => { MOCK.failWith = 'Invalid amount.'; MOCK.failNext = 1; });
+        await gasAdd('2.75', 'Gas refused shop');
+        await gasSettled('failed');
+        const o = await gasOutbox();
+        assert.ok(o.length === 1 && o[0].setAside === 'Invalid amount.', JSON.stringify(o));
+        assert.ok((await pg.textContent('#toast span')).startsWith("Couldn't send Gas refused shop £2.75"));
+        await pg.click('#syncBtn');
+        await gasSettled('synced');
+        assert.deepStrictEqual(await gasOutbox(), []);
+        assert.strictEqual(await gasRows('Gas refused shop'), 1);
+      } finally { await pg.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; }); dropExpectedSyncErrors(from); }
+    });
+    await step('Apps Script copy: a lost connection (NetworkError) keeps the spend waiting, in amber; a tap sends it, saved once', async () => {
+      const from = errors.length;
+      try {
+        await pg.evaluate(() => { MOCK.dropNext = 1; });
+        await gasAdd('1.95', 'Gas lost shop');
+        await gasSettled('waiting');
+        const o = await gasOutbox();
+        assert.ok(o.length === 1 && !o[0].setAside && o[0].sentAt > 0, JSON.stringify(o));
+        assert.ok((await pg.textContent('#toast span')).startsWith('No connection'), await pg.textContent('#toast span'));
+        await pg.click('#syncBtn');
+        await gasSettled('synced');
+        assert.deepStrictEqual(await gasOutbox(), []);
+        assert.strictEqual(await gasRows('Gas lost shop'), 1);
+      } finally { dropExpectedSyncErrors(from); }
+    });
+    await step('Apps Script copy: saved, but the figures could not be read back: not kept, in the sheet once', async () => {
+      const from = errors.length;
+      try {
+        await pg.evaluate(() => { MOCK.failWith = 'SAVED_NO_STATE: saved, but the figures could not be read just now.'; MOCK.failAfterWriteNext = 1; });
+        await gasAdd('0.85', 'Gas read back shop');
+        await pg.waitForFunction(() => apiInflight === 0 && document.getElementById('txListContainer').textContent.includes('Gas read back shop'));
+        await gasSettled('synced');
+        assert.deepStrictEqual(await gasOutbox(), []);
+        assert.strictEqual(await gasRows('Gas read back shop'), 1);
+      } finally { await pg.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failAfterWriteNext = 0; }); dropExpectedSyncErrors(from); }
+    });
+    await cg.close();
   }
 
   await step('shown inside another website\'s frame, the page stays blank and never starts', async () => {

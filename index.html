@@ -3659,11 +3659,12 @@ async function postToServer(bodyObj, opts = {}) {
         keepBudgetRows,
         replaceExisting
       }).then(applyServerState).catch(err => {
-        // Another device made this month in the meantime: nothing was changed. Load the latest so the warning shows.
+        // Made, but its figures couldn't be read back: open it, which fetches them.
         if (failureKind(err) === 'saved') {
           showToast('Made ' + newMonthName + '. Loading it now.', { kind: 'info' });
           switchMonth(newMonthName);
         } else if (/^EXISTS/.test(String(err && err.message))) {
+          // Another device made this month in the meantime: nothing was changed. Load the latest so the warning shows.
           showToast('"' + newMonthName + '" already exists, so nothing was changed. Open Start New Month again if you want to replace it.');
           forceSyncSheet();
         } else {
