@@ -3,10 +3,11 @@
 // outside it.
 const fs = require('fs');
 const path = require('path');
+const { publishedBytes } = require('../../build-sw');
 
 const root = path.resolve(__dirname, '..', '..');
 const HOST = '127.0.0.1';
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css', '.png': 'image/png', '.woff2': 'font/woff2' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css', '.png': 'image/png', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8' };
 // Keep in step with ALLOWED in tests/private/public-files.test.js and "Collect the site files" in pages.yml.
 const SITE = /^(index\.html|sw\.js|manifest\.json|tailwind\.css|tests\/harness\.html|(icons|fonts)\/[\w-]+\.\w+)$/;
 
@@ -22,12 +23,12 @@ function siteFile(url) {
   return fs.existsSync(file) && fs.statSync(file).isFile() ? file : null;
 }
 
-// Answers a request with the site file it asks for, or a 404.
+// Answers a request with the site file it asks for (as published, so the service worker's hashes match), or a 404.
 function sendSiteFile(req, res) {
   const file = siteFile(req.url);
   if (!file) { res.writeHead(404); return res.end('Not found'); }
   res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
-  fs.createReadStream(file).pipe(res);
+  res.end(publishedBytes(file));
 }
 
-module.exports = { root, HOST, TYPES, siteRel, siteFile, sendSiteFile };
+module.exports = { root, HOST, TYPES, siteRel, siteFile, sendSiteFile, publishedBytes };
