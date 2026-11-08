@@ -267,9 +267,9 @@ const contrastOf = (page, sel) => page.evaluate(s => {
 
   await step('bills: tapping a name opens its edit form; the skip icon still works', async () => {
     await page.click('#upcomingBudgetsList button[aria-label^="Edit"]');
-    assert.ok(await visible(page, '#budgetFormBox'), 'edit form did not open');
+    assert.ok(await visible(page, '#budgetModal'), 'edit form did not open');
     assert.ok(/^Edit /.test(await page.textContent('#budFormTitle')));
-    await page.click('#budgetFormBox button[aria-label="Close"]');
+    await page.click('#budgetModal button[aria-label="Close"]');
     await page.click('#upcomingBudgetsList button[aria-label^="Simulate skipping"]');
     assert.ok(await visible(page, '#simBadge'), 'What-If badge should show');
     await page.click('#upcomingBudgetsList button[aria-label^="Simulate skipping"]');
@@ -999,7 +999,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       return { unlabelled, dialogs, pressed, sameSheets, current: [...document.querySelectorAll('nav [data-nav]')].map(b => b.getAttribute('aria-current')),
         toast: [info, failure] };
     });
-    assert.deepStrictEqual(r, { unlabelled: [], dialogs: ['ok', 'ok', 'ok', 'ok', 'ok', 'ok'], pressed: ['false', 'true', 'false', 'false'],
+    assert.deepStrictEqual(r, { unlabelled: [], dialogs: Array(7).fill('ok'), pressed: ['false', 'true', 'false', 'false'],
       sameSheets: true, current: ['page', null, null, null], toast: ['status/polite', 'alert/assertive'] });
     await page.click('nav button[data-nav="pending"]');
     assert.deepStrictEqual(await page.$$eval('nav [data-nav]', bs => bs.map(b => b.getAttribute('aria-current'))), [null, null, 'page', null]);
@@ -1031,6 +1031,100 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       await backOn(p5);
       assert.strictEqual(await p5.evaluate(() => document.body.dataset.view), 'home');
     } finally { await c5.close(); }
+  });
+  // ---- the bill form is a sheet (like Edit Transaction), so it opens where you are ----
+  await step('bills: a bill far down a long list opens its sheet in sight, and the list stays where it was', async () => {
+    const { ctx: c6, page: p6 } = await open({ viewport: { width: 411, height: 847 }, deviceScaleFactor: 2.63, isMobile: true, hasTouch: true });
+    try {
+      await p6.evaluate(() => {
+        for (let i = 0; i < 16; i++) MOCK.db.budgets.push({ row: 50 + i, name: 'Long list bill ' + i, amount: -(10 + i), originalBudget: -(10 + i), isRecurring: true });
+        forceSyncSheet();
+      });
+      await p6.waitForFunction(() => apiInflight === 0 && state.budgets.some(b => b.name === 'Long list bill 15'));
+      await p6.click('nav button[data-nav="budgets"]');
+      const target = '#upcomingBudgetsList button[aria-label="Edit Long list bill 15"]';
+      await p6.$eval(target, el => el.scrollIntoView({ block: 'center' }));
+      const before = await p6.evaluate(() => scrollY);
+      assert.ok(before > 300, 'the bill should be far down the page: ' + before);
+      await p6.click(target);
+      const r = await p6.evaluate(() => {
+        const sheet = document.querySelector('#budgetModal [role="dialog"]').getBoundingClientRect(), amt = document.getElementById('inpBudAmt').getBoundingClientRect();
+        return { y: scrollY, inSight: sheet.top >= 0 && sheet.bottom <= innerHeight + 1 && amt.top >= 0 && amt.bottom <= innerHeight,
+          title: document.getElementById('budFormTitle').textContent, save: document.getElementById('budSaveBtn').textContent.trim(),
+          del: !document.getElementById('budDeleteBtn').classList.contains('hidden'), amount: document.getElementById('inpBudAmt').value,
+          depth: (history.state && history.state.pfDepth) || 0 };
+      });
+      assert.deepStrictEqual(r, { y: before, inSight: true, title: 'Edit Long list bill 15', save: 'Save Changes', del: true, amount: '25', depth: 2 });
+      await backOn(p6);   // Back closes the sheet; still on the Bills tab, still scrolled where you were
+      assert.deepStrictEqual(await p6.evaluate(() => [document.getElementById('budgetModal').classList.contains('hidden'), document.body.dataset.view, scrollY]), [true, 'budgets', before]);
+    } finally { await c6.close(); }
+  });
+  await step('bills: + Add opens "Add bill" with the cursor in Amount; Enter goes to Name, Enter saves; no name says so', async () => {
+    try {
+      await page.click('#btnAddBill');
+      const f = await page.evaluate(() => ({ title: document.getElementById('budFormTitle').textContent, save: document.getElementById('budSaveBtn').textContent.trim(),
+        del: document.getElementById('budDeleteBtn').classList.contains('hidden'), focus: document.activeElement.id }));
+      assert.deepStrictEqual(f, { title: 'Add bill', save: 'Save Bill', del: true, focus: 'inpBudAmt' });
+      const sent = (await calls(page, 'saveBudgetItem')).length;
+      await page.keyboard.type('12.50');
+      await page.keyboard.press('Enter');
+      assert.strictEqual(await page.evaluate(() => document.activeElement.id), 'inpBudName');
+      await page.keyboard.press('Enter');   // no name yet
+      assert.strictEqual(await page.textContent('#inpBudNameErr'), 'Add a name');
+      assert.strictEqual((await calls(page, 'saveBudgetItem')).length, sent, 'nothing is sent without a name');
+      await page.keyboard.type('Sheet test bill');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(n => MOCK.calls.filter(c => c.action === 'saveBudgetItem').length === n + 1, sent);
+      const sv = (await calls(page, 'saveBudgetItem')).pop();
+      assert.ok(sv.name === 'Sheet test bill' && sv.amount === -12.5 && !sv.row, JSON.stringify(sv));
+      assert.ok(!(await visible(page, '#budgetModal')), 'the sheet closes once saved');
+    } finally {
+      await page.evaluate(() => { closeBudgetForm(); const i = MOCK.db.budgets.findIndex(b => b.name === 'Sheet test bill'); if (i > -1) MOCK.db.budgets.splice(i, 1); forceSyncSheet(); });
+      await page.waitForFunction(() => apiInflight === 0);
+    }
+  });
+  await step('bills: the sheet fits a 344px phone (no label wraps), every button has a 44px hit area, boxes are 44px tall', async () => {
+    const { ctx: c7, page: p7 } = await open({ viewport: { width: 344, height: 740 }, isMobile: true, hasTouch: true });
+    try {
+      await p7.evaluate(() => { const b = state.budgets.find(x => !x.pending); openBudgetFormForRow(b.row); });
+      const lines = await lineCounts(p7, ['#budFormTitle', '#btype_event', '#btype_bill', '#bsign_neg', '#bsign_pos', 'label[for="inpBudAmt"]', 'label[for="inpBudName"]', '#budDeleteBtn', '#budSaveBtn']);
+      assert.deepStrictEqual(lines.filter(x => !/:1$/.test(x)), [], lines.join(' '));
+      const hits = await hitAreas(p7, '#budgetModal button');   // sizes only: the rounded corners don't count as misses
+      assert.ok(hits.count >= 7 && !hits.bad.filter(x => / is \d/.test(x)).length, JSON.stringify(hits));
+      const boxes = await p7.$$eval('#budgetModal input:not([type="hidden"])', els => els.map(e => Math.round(e.getBoundingClientRect().height)));
+      assert.ok(boxes.every(h => h >= 44), 'boxes: ' + boxes);
+      assert.strictEqual(await p7.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'scrolls sideways');
+    } finally { await c7.close(); }
+  });
+  await step('Add and Edit spend sheets: toggles, cards, Save and Delete are 44px like the bill sheet, and fit at 344px', async () => {
+    const { ctx: c8, page: p8 } = await open({ viewport: { width: 344, height: 740 }, isMobile: true, hasTouch: true });
+    try {
+      const sizesOk = async sel => { const h = await hitAreas(p8, sel); return [h.count, h.bad.filter(x => / is \d/.test(x))]; };
+      await p8.evaluate(() => openAddModal());
+      assert.deepStrictEqual(await sizesOk('#addModal [id^="dir_"], #addModal [id^="acct_"], #btnSubmitTx'), [7, []]);
+      let lines = await lineCounts(p8, ['#dir_spend', '#dir_refund', '#acct_checking', '#btnSubmitTx']);
+      await p8.evaluate(() => { closeAddModal(); const r = state.amex.find(x => !x.pending && x.desc !== 'start') || state.checking.find(x => x.desc !== 'start'); openEditTxModal(state.amex.includes(r) ? 'amex' : 'checking', r.row, r.desc, r.amount); });
+      assert.deepStrictEqual(await sizesOk('#editTxModal [id^="etsign_"], #editTxModal [id^="etx_"], #btnSaveEditTx, #editTxModal button[onclick="deleteCurrentTx()"]'), [8, []]);
+      lines = lines.concat(await lineCounts(p8, ['#etsign_neg', '#etsign_pos', '#etx_checking', '#btnSaveEditTx']));
+      assert.deepStrictEqual(lines.filter(x => !/:1$/.test(x)), [], lines.join(' '));
+    } finally { await c8.close(); }
+  });
+  await step('bills: a tap outside the sheet does not close it (what was typed is kept)', async () => {
+    try {
+      await page.click('#btnAddBill');
+      await page.keyboard.type('7');
+      await page.mouse.click(5, 5);   // the dimmed area above the sheet
+      assert.ok(await visible(page, '#budgetModal'), 'the sheet closed');
+      assert.strictEqual(await page.inputValue('#inpBudAmt'), '7');
+    } finally { await page.evaluate(() => closeBudgetForm()); }
+  });
+  await step('bills: Restore of a paid bill with no remembered amount puts the cursor in Amount', async () => {
+    try {
+      await page.evaluate(() => openBudgetForm(4, 'Some bill', 0, true));
+      assert.strictEqual(await page.evaluate(() => document.activeElement.id), 'inpBudAmt');
+      await page.evaluate(() => { closeBudgetForm(); document.activeElement.blur(); openBudgetForm(4, 'Some bill', -20, true); });
+      assert.notStrictEqual(await page.evaluate(() => document.activeElement.id), 'inpBudAmt', 'editing a bill with an amount should not pop the keyboard');
+    } finally { await page.evaluate(() => closeBudgetForm()); }
   });
   await ctx.close();
 
@@ -1120,7 +1214,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
         let bad = [];
         bad = bad.concat(await check('#upcomingBudgetsList button[aria-label^="Mark "]', 6));
         bad = bad.concat(await check('#bf_all, #bf_recurring, #bf_events', 3));
-        bad = bad.concat(await check('#sec_budgets button[onclick="openBudgetForm()"]', 1));
+        bad = bad.concat(await check('#btnAddBill', 1));
         bad = bad.concat(await check('#chevBudgets, #chevPending, #chevActivity', 3));
         await page.evaluate(() => setView('pending'));
         bad = bad.concat(await check('.owed-groups button[aria-label$=" paid back"]', 10));
@@ -1226,7 +1320,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(u && u.expect && u.expect.name === 'Groceries wk 1' && u.expect.amount === -45, JSON.stringify(u));
     await page.click('#upcomingBudgetsList button[aria-label="Edit Fuel wk 2"]');
     await page.fill('#inpBudAmt', '36');
-    await page.click('#budgetFormBox button:has-text("Save to Budgets")');
+    await page.click('#budSaveBtn');
     await page.waitForTimeout(250);
     const sv = (await calls(page, 'saveBudgetItem')).pop();
     assert.ok(sv && sv.amount === -36 && sv.expect && sv.expect.name === 'Fuel wk 2' && sv.expect.amount === -35, JSON.stringify(sv));
@@ -1334,10 +1428,11 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.evaluate(() => { document.querySelector('#clearedBudgetsList').closest('details').open = true; });
     const before = (await calls(page, 'updateBudgetRow')).length;
     await page.click('#clearedBudgetsList > div:has-text("No amount bill") button:has-text("Restore")');
-    assert.ok(await visible(page, '#budgetFormBox'), 'the edit form should open');
+    assert.ok(await visible(page, '#budgetModal'), 'the edit form should open');
     assert.strictEqual(await page.inputValue('#inpBudName'), 'No amount bill');
+    assert.strictEqual(await page.evaluate(() => document.activeElement.id), 'inpBudAmt', 'the cursor should be in Amount, ready for it');
     assert.strictEqual((await calls(page, 'updateBudgetRow')).length, before, 'should not save a guessed amount');
-    await page.click('#budgetFormBox button[aria-label="Close"]');
+    await page.click('#budgetModal button[aria-label="Close"]');
   });
 
   await step('split chips come from the names the server sends (Marcus keeps its own colour)', async () => {
