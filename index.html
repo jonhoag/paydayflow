@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Styles are pre-built into tailwind.css (see build-css.js); the service worker keeps a copy for offline use. -->
-  <link rel="stylesheet" href="tailwind.css?v=84764d9d0e">
+  <link rel="stylesheet" href="tailwind.css?v=ae92c5cffe">
   <style>
     /* Inter, served from this site (SIL Open Font License: fonts/OFL.txt): one variable file per set of characters,
        fetched only when the page uses them. Text shows in the fallback font until it arrives. */
@@ -320,53 +320,6 @@
                 </div>
                 <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                   <div id="budProgressBar" class="bg-emerald-500 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
-                </div>
-              </div>
-
-              <!-- UPGRADED ADD / EDIT BUDGET FORM (With Bill vs Event & Out vs In Toggles) -->
-              <div id="budgetFormBox" class="hidden bg-slate-50 dark:bg-slate-800/70 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2.5">
-                <div class="flex items-center justify-between text-xs font-semibold">
-                  <span id="budFormTitle">Add Bill or Event</span>
-                  <button onclick="closeBudgetForm()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 text-lg font-bold">✕</button>
-                </div>
-                <input type="hidden" id="editBudRow" value="" />
-
-                <!-- 1. Choose Type: Monthly Bill (rolls over) vs One-Off Event -->
-                <div class="grid grid-cols-2 gap-1.5 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-xl text-xs font-semibold">
-                  <button type="button" onclick="setBudFormType(false)" id="btype_event" class="py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
-                    <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="sparkle" data-class="w-3.5 h-3.5"></span>One-off event</span>
-                  </button>
-                  <button type="button" onclick="setBudFormType(true)" id="btype_bill" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
-                    <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="repeat" data-class="w-3.5 h-3.5"></span>Monthly bill</span>
-                  </button>
-                </div>
-
-                <!-- 2. Choose Sign: Expense (-) vs Carry-In (+) (No minus key needed!) -->
-                <div class="grid grid-cols-2 gap-1.5 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-xl text-xs font-semibold">
-                  <button type="button" onclick="setBudFormSign(-1)" id="bsign_neg" class="py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
-                    <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-up-right" data-class="w-3.5 h-3.5"></span>Money out (−)</span>
-                  </button>
-                  <button type="button" onclick="setBudFormSign(1)" id="bsign_pos" class="py-1.5 rounded-lg text-slate-500 dark:text-slate-400">
-                    <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-down-left" data-class="w-3.5 h-3.5"></span>Money in (+)</span>
-                  </button>
-                </div>
-
-                <!-- 3. Name & Positive Amount Input -->
-                <div class="grid grid-cols-12 gap-2">
-                  <input id="inpBudName" type="text" aria-label="Bill name" placeholder="e.g. Comedy, Petrol"
-                         class="col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-xs text-slate-900 dark:text-white" />
-                  <input id="inpBudAmt" type="text" inputmode="decimal" autocomplete="off" aria-label="Amount (£)" placeholder="40.00"
-                         class="col-span-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-2 text-xs tabular-nums font-semibold text-slate-900 dark:text-white" />
-                </div>
-                <p id="inpBudAmtErr" class="hidden -mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
-
-                <div class="flex gap-2">
-                  <button id="budDeleteBtn" onclick="deleteBudgetFromForm()" class="hidden px-3.5 py-2.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-bold inline-flex items-center gap-1.5">
-                    <span data-icon="trash" data-class="w-3.5 h-3.5"></span>Delete
-                  </button>
-                  <button onclick="submitBudgetForm()" class="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold py-2.5 rounded-lg">
-                    Save to Budgets
-                  </button>
                 </div>
               </div>
 
@@ -695,6 +648,62 @@
         </button>
         <button type="button" id="btnSaveEditTx" onclick="saveEditedTx()" class="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
           Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD OR EDIT A BILL / EVENT: a sheet like Edit Transaction, so it opens over the list wherever you are -->
+  <div id="budgetModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeBudgetForm()">
+    <div role="dialog" aria-modal="true" aria-labelledby="budFormTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
+      <div class="flex items-center justify-between gap-2">
+        <h3 id="budFormTitle" class="min-w-0 truncate text-sm font-bold text-slate-900 dark:text-white">Add bill</h3>
+        <button onclick="closeBudgetForm()" aria-label="Close" class="w-11 h-11 -mr-2 shrink-0 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+      </div>
+      <input type="hidden" id="editBudRow" value="" />
+
+      <!-- A monthly bill rolls over to the next month; a one-off event doesn't -->
+      <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
+        <button type="button" onclick="setBudFormType(false)" id="btype_event" class="min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+          <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="sparkle" data-class="w-3.5 h-3.5"></span>One-off event</span>
+        </button>
+        <button type="button" onclick="setBudFormType(true)" id="btype_bill" class="min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400">
+          <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="repeat" data-class="w-3.5 h-3.5"></span>Monthly bill</span>
+        </button>
+      </div>
+
+      <!-- Money out or in, so the amount is always typed without a minus -->
+      <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
+        <button type="button" onclick="setBudFormSign(-1)" id="bsign_neg" class="min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+          <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-up-right" data-class="w-3.5 h-3.5"></span>Money out (−)</span>
+        </button>
+        <button type="button" onclick="setBudFormSign(1)" id="bsign_pos" class="min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400">
+          <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-down-left" data-class="w-3.5 h-3.5"></span>Money in (+)</span>
+        </button>
+      </div>
+
+      <!-- Amount first, like the spend forms -->
+      <div class="space-y-2.5">
+        <div>
+          <label for="inpBudAmt" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
+          <input id="inpBudAmt" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" placeholder="0.00" data-enter="inpBudName"
+                 class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-[28px] leading-9 tabular-nums font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
+          <p id="inpBudAmtErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
+        </div>
+        <div>
+          <label for="inpBudName" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Name</label>
+          <input id="inpBudName" type="text" enterkeyhint="done" placeholder="e.g. Comedy, Petrol" data-enter="budSaveBtn"
+                 class="w-full min-h-[44px] bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
+          <p id="inpBudNameErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
+        </div>
+      </div>
+
+      <div class="flex gap-2 pt-1">
+        <button type="button" id="budDeleteBtn" onclick="deleteBudgetFromForm()" class="hidden min-h-[44px] px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 font-bold text-xs transition">
+          <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="trash" data-class="w-3.5 h-3.5"></span>Delete</span>
+        </button>
+        <button type="button" id="budSaveBtn" onclick="submitBudgetForm()" class="min-h-[44px] flex-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
+          Save Bill
         </button>
       </div>
     </div>
@@ -2039,7 +2048,8 @@ async function postToServer(bodyObj, opts = {}) {
     // even a close that is turned down (Sign out while busy); tabs change only in setView, which calls syncHistory.
     // A new sheet goes in SHEETS (with its close function) and gets the kb-sheet class; a test checks the two match.
     const SHEETS = [['spendModal', closeSpendModal], ['addModal', closeAddModal], ['editTxModal', closeEditTxModal],
-      ['newMonthModal', closeNewMonthModal], ['passkeyModal', closePasskeyModal], ['signOutModal', closeSignOutModal]];
+      ['newMonthModal', closeNewMonthModal], ['passkeyModal', closePasskeyModal], ['signOutModal', closeSignOutModal],
+      ['budgetModal', closeBudgetForm]];
     const sheetOpen = id => !document.getElementById(id).classList.contains('hidden');
     // Closes the first open sheet in SHEETS (two are never open together). True if one was open, even if it stayed
     // open (Sign out while busy), so that Back doesn't go on to change the tab as well.
@@ -2377,14 +2387,14 @@ async function postToServer(bodyObj, opts = {}) {
 
     function setBudFormType(isRec) {
       budFormIsRecurring = Boolean(isRec);
-      markChoice('btype_', ['bill', 'event'], budFormIsRecurring ? 'bill' : 'event', 'py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white', 'py-1.5 rounded-lg text-slate-500 dark:text-slate-400');
+      markChoice('btype_', ['bill', 'event'], budFormIsRecurring ? 'bill' : 'event', 'min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white', 'min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400');
     }
 
     function setBudFormSign(sign) {
       budFormSign = sign < 0 ? -1 : 1;
       markChoice('bsign_', ['neg', 'pos'], budFormSign < 0 ? 'neg' : 'pos',
-        k => k === 'pos' ? 'py-1.5 rounded-lg bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400' : 'py-1.5 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white',
-        'py-1.5 rounded-lg text-slate-500 dark:text-slate-400');
+        k => k === 'pos' ? 'min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400' : 'min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white',
+        'min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400');
     }
 
     function toggleWhatIf(row) {
@@ -2466,8 +2476,9 @@ async function postToServer(bodyObj, opts = {}) {
     // What the bill form showed when it opened: a save or delete from it is checked against this, not against whatever
     // the screen holds by the time you tap (the figures can refresh while the form is open).
     let budFormExpect = null;
+    // The bill sheet: "Add bill" (cursor in Amount, like Add Transaction) or "Edit <name>" with Delete.
     function openBudgetForm(row = '', name = '', amount = '', isRecurring = false) {
-      clearFieldError('inpBudAmt');   // filled in code below, which clears no old message by itself
+      ['inpBudAmt', 'inpBudName'].forEach(clearFieldError);   // filled in code below, which clears no old message by itself
       budFormExpect = row ? { name, amount: Number(amount) } : null;
       document.getElementById('editBudRow').value = row;
       document.getElementById('inpBudName').value = name;
@@ -2475,9 +2486,11 @@ async function postToServer(bodyObj, opts = {}) {
       document.getElementById('inpBudAmt').value = numAmt !== 0 ? Math.abs(numAmt) : '';
       setBudFormType(row ? isRecurring : false);
       setBudFormSign(numAmt > 0 ? 1 : -1);
-      document.getElementById('budFormTitle').textContent = row ? `Edit ${name}` : 'Add Bill or Event';
+      document.getElementById('budFormTitle').textContent = row ? 'Edit ' + displayName(name) : 'Add bill';
+      document.getElementById('budSaveBtn').textContent = row ? 'Save Changes' : 'Save Bill';
       document.getElementById('budDeleteBtn').classList.toggle('hidden', !row);
-      document.getElementById('budgetFormBox').classList.remove('hidden');
+      document.getElementById('budgetModal').classList.remove('hidden');
+      if (!row) document.getElementById('inpBudAmt').focus();   // the number pad comes straight up
     }
 
     function deleteBudgetFromForm() {
@@ -2489,7 +2502,7 @@ async function postToServer(bodyObj, opts = {}) {
     }
 
     function closeBudgetForm() {
-      document.getElementById('budgetFormBox').classList.add('hidden');
+      document.getElementById('budgetModal').classList.add('hidden');
       budFormExpect = null;
     }
 
@@ -2507,9 +2520,9 @@ async function postToServer(bodyObj, opts = {}) {
     function submitBudgetForm() {
       const row = document.getElementById('editBudRow').value;
       const name = document.getElementById('inpBudName').value.trim();
-      if (!name) return;
       const rawAbs = checkedAmount('inpBudAmt', true);
       if (rawAbs === null) return;
+      if (!name) return showFieldError('inpBudName', 'Add a name');
 
       const signedAmt = +(rawAbs * budFormSign).toFixed(2);
 
