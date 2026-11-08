@@ -41,8 +41,15 @@
        44px hit area from being cut off by the scrolling box. */
     .chip-row { scrollbar-width: none; padding: 10px; margin: -10px; }
     .chip-row::-webkit-scrollbar { display: none; }
-    /* Small buttons get a 44x44px hit area (at least their own size) without changing how they look. */
+    /* Small buttons and tick labels get a 44x44px hit area (at least their own size) without changing how they look.
+       Where 44px would reach a neighbour, hit-36 / hit-32 make it 36px / 32px instead (the Add sheet's split box). The
+       size is set on the hit area itself, so it never passes down to a .hit inside. */
     .hit { position: relative; }
+    .hit::after { content: ''; position: absolute; left: 50%; top: 50%; width: max(100%, var(--hit, 44px)); height: max(100%, var(--hit, 44px)); transform: translate(-50%, -50%); }
+    .hit-36::after { --hit: 36px; }
+    .hit-32::after { --hit: 32px; }
+    /* A tick box in a label with a hit area stays on top of that area, so it still takes a tap on itself. */
+    label.hit > input { position: relative; z-index: 1; }
     /* The sync button's colour is the sync status (data-sync, set by updateSyncUi); no dot or badge covers the icon. */
     #syncBtn[data-sync]:not([data-sync="saved"]) { border-color: transparent; }
     #syncBtn[data-sync="synced"] { color: #059669; background: rgba(16, 185, 129, 0.12); }
@@ -55,7 +62,6 @@
     /* The Activity filter button shows when its filters are open (its look follows aria-expanded, see renderTxFilterUi). */
     #txFilterBtn[aria-expanded="true"] { color: #059669; background: rgba(16, 185, 129, 0.12); }
     .dark #txFilterBtn[aria-expanded="true"] { color: #34D399; background: rgba(16, 185, 129, 0.16); }
-    .hit::after { content: ''; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
     /* "Owed": Home on a phone shows a short summary per person; the Owed tab (and desktop) shows every item. */
     .owed-summary, .act-title-tab, #actSpend { display: none; }
     @media (max-width: 1023px) {
@@ -557,7 +563,7 @@
         <div id="customSplitBox" class="hidden bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2.5 text-xs">
           <div class="flex items-center justify-between">
             <span class="text-xs font-semibold text-slate-500 dark:text-slate-300">1. Tap people to include:</span>
-            <button type="button" onclick="applyEqualGroupSplit()" class="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+            <button type="button" onclick="applyEqualGroupSplit()" class="hit hit-36 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
               ÷ Split Equally
             </button>
           </div>
@@ -567,7 +573,7 @@
 
           <!-- Equal Split Option: Include Me -->
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-0.5">
-            <label class="flex items-center gap-1.5 cursor-pointer">
+            <label class="hit hit-36 flex items-center gap-1.5 cursor-pointer">
               <input id="chkEqualIncludeMe" type="checkbox" checked onchange="if(autoEqualActive) applyEqualGroupSplit()" class="rounded text-emerald-500" />
               <span>Include me when splitting equally</span>
             </label>
@@ -581,7 +587,7 @@
       <!-- Summary Pill -->
       <div class="bg-slate-50 dark:bg-slate-800/80 rounded-xl px-3 py-2.5 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
         <div id="cleanSplitPill" class="font-medium text-slate-700 dark:text-slate-200 truncate">Personal spend • <strong>£0.00</strong></div>
-        <label id="needToggleWrap" class="hidden flex items-center gap-1.5 text-slate-500 dark:text-slate-300 cursor-pointer font-medium shrink-0 ml-2">
+        <label id="needToggleWrap" class="hit hidden flex items-center gap-1.5 text-slate-500 dark:text-slate-300 cursor-pointer font-medium shrink-0 ml-2">
           <input id="chkNeed" type="checkbox" checked class="rounded text-emerald-500" />
           <span>Add to "Owed"</span>
         </label>
@@ -3186,7 +3192,7 @@ async function postToServer(bodyObj, opts = {}) {
             <input type="text" inputmode="decimal" autocomplete="off" aria-label="Their share (£)" value="${entry.amount || ''}" placeholder="0.00" oninput="updatePersonRowAmt(${idx}, this.value)"
                    class="split-amt w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-6 pr-2.5 py-1.5 text-xs tabular-nums font-semibold text-slate-900 dark:text-white" />
           </div>
-          <button type="button" onclick="removePersonRow(${idx})" class="text-slate-500 dark:text-slate-400 hover:text-rose-500 px-1.5 font-bold">✕</button>
+          <button type="button" onclick="removePersonRow(${idx})" class="hit hit-32 text-slate-500 dark:text-slate-400 hover:text-rose-500 px-1.5 font-bold">✕</button>
         </div>
       `).join('');
     }
