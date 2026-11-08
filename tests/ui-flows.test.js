@@ -1061,7 +1061,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   });
   await step('bills: + Add opens "Add bill" with the cursor in Amount; Enter goes to Name, Enter saves; no name says so', async () => {
     try {
-      await page.click('#sec_budgets button[onclick="openBudgetForm()"]');
+      await page.click('#btnAddBill');
       const f = await page.evaluate(() => ({ title: document.getElementById('budFormTitle').textContent, save: document.getElementById('budSaveBtn').textContent.trim(),
         del: document.getElementById('budDeleteBtn').classList.contains('hidden'), focus: document.activeElement.id }));
       assert.deepStrictEqual(f, { title: 'Add bill', save: 'Save Bill', del: true, focus: 'inpBudAmt' });
@@ -1083,19 +1083,35 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       await page.waitForFunction(() => apiInflight === 0);
     }
   });
-  await step('bills: the sheet fits a 344px phone (no label wraps) and every control is at least 44px tall', async () => {
+  await step('bills: the sheet fits a 344px phone (no label wraps), every button has a 44px hit area, boxes are 44px tall', async () => {
     const { ctx: c7, page: p7 } = await open({ viewport: { width: 344, height: 740 }, isMobile: true, hasTouch: true });
     try {
       await p7.evaluate(() => { const b = state.budgets.find(x => !x.pending); openBudgetFormForRow(b.row); });
-      const r = await p7.evaluate(() => {
-        const box = document.querySelector('#budgetModal [role="dialog"]');
-        const lines = el => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
-        const wraps = [...box.querySelectorAll('button span.whitespace-nowrap, label, #budSaveBtn')].filter(el => el.scrollWidth > el.clientWidth + 1 || (el.tagName === 'LABEL' && lines(el) > 1)).map(el => el.textContent.trim());
-        const small = [...box.querySelectorAll('button, input:not([type="hidden"])')].filter(el => el.offsetParent && el.getBoundingClientRect().height < 44).map(el => el.id || el.textContent.trim());
-        return { wraps, small, sideways: document.documentElement.scrollWidth > innerWidth };
-      });
-      assert.deepStrictEqual(r, { wraps: [], small: [], sideways: false });
+      const lines = await lineCounts(p7, ['#budFormTitle', '#btype_event', '#btype_bill', '#bsign_neg', '#bsign_pos', 'label[for="inpBudAmt"]', 'label[for="inpBudName"]', '#budDeleteBtn', '#budSaveBtn']);
+      assert.deepStrictEqual(lines.filter(x => !/:1$/.test(x)), [], lines.join(' '));
+      const hits = await hitAreas(p7, '#budgetModal button');   // sizes only: the rounded corners don't count as misses
+      assert.ok(hits.count >= 7 && !hits.bad.filter(x => / is \d/.test(x)).length, JSON.stringify(hits));
+      const boxes = await p7.$$eval('#budgetModal input:not([type="hidden"])', els => els.map(e => Math.round(e.getBoundingClientRect().height)));
+      assert.ok(boxes.every(h => h >= 44), 'boxes: ' + boxes);
+      assert.strictEqual(await p7.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'scrolls sideways');
     } finally { await c7.close(); }
+  });
+  await step('bills: a tap outside the sheet does not close it (what was typed is kept)', async () => {
+    try {
+      await page.click('#btnAddBill');
+      await page.keyboard.type('7');
+      await page.mouse.click(5, 5);   // the dimmed area above the sheet
+      assert.ok(await visible(page, '#budgetModal'), 'the sheet closed');
+      assert.strictEqual(await page.inputValue('#inpBudAmt'), '7');
+    } finally { await page.evaluate(() => closeBudgetForm()); }
+  });
+  await step('bills: Restore of a paid bill with no remembered amount puts the cursor in Amount', async () => {
+    try {
+      await page.evaluate(() => openBudgetForm(4, 'Some bill', 0, true));
+      assert.strictEqual(await page.evaluate(() => document.activeElement.id), 'inpBudAmt');
+      await page.evaluate(() => { closeBudgetForm(); document.activeElement.blur(); openBudgetForm(4, 'Some bill', -20, true); });
+      assert.notStrictEqual(await page.evaluate(() => document.activeElement.id), 'inpBudAmt', 'editing a bill with an amount should not pop the keyboard');
+    } finally { await page.evaluate(() => closeBudgetForm()); }
   });
   await ctx.close();
 
@@ -1185,7 +1201,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
         let bad = [];
         bad = bad.concat(await check('#upcomingBudgetsList button[aria-label^="Mark "]', 6));
         bad = bad.concat(await check('#bf_all, #bf_recurring, #bf_events', 3));
-        bad = bad.concat(await check('#sec_budgets button[onclick="openBudgetForm()"]', 1));
+        bad = bad.concat(await check('#btnAddBill', 1));
         bad = bad.concat(await check('#chevBudgets, #chevPending, #chevActivity', 3));
         await page.evaluate(() => setView('pending'));
         bad = bad.concat(await check('.owed-groups button[aria-label$=" paid back"]', 10));
