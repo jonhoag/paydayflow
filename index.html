@@ -1593,7 +1593,7 @@ async function signOut(forget) {
         // named (or worded) "NetworkError": like no reply on the website, not a refusal.
         const failed = e => {
           const name = String((e && e.name) || ''), text = String((e && e.message) || e);
-          const err = new Error(text.replace(/^(?:Error|Exception|ScriptError): /, ''));
+          const err = new Error(text.replace(/^(?:(?:Error|Exception|ScriptError): )+/, ''));
           if (/NetworkError/.test(name + ' ' + text)) err.network = true;
           return err;
         };
@@ -3345,7 +3345,7 @@ async function postToServer(bodyObj, opts = {}) {
         .then(applyServerState)
         .catch(err => {
           console.error(err);
-          if (again) setTimeout(() => refreshFromSheet(false), REFRESH_AGAIN_MS);
+          if (again && failureKind(err) !== 'signin') setTimeout(() => refreshFromSheet(false), REFRESH_AGAIN_MS);   // signing in fetches them anyway
         });
     }
     // A tap on sync (or Send now when signing out): spends set aside go back in the queue, counted afresh. Offline,
