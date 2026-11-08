@@ -467,7 +467,7 @@
         <div class="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Devices with fingerprint sign-in</div>
         <div id="pkDevices" class="divide-y divide-slate-100 dark:divide-slate-800/70"></div>
       </div>
-      <p class="text-xs text-slate-500 dark:text-slate-400">Your fingerprint never leaves your device. Signing in this way lasts 1 hour, and Google sign-in always still works. Adding a device needs a fresh Google sign-in.</p>
+      <p class="text-xs text-slate-500 dark:text-slate-400">Your fingerprint never leaves your device. Signing in this way lasts 1 hour, and Google sign-in always still works. Adding a device needs a Google sign-in from the last 10 minutes.</p>
     </div>
   </div>
 
@@ -1263,19 +1263,28 @@ async function unlockWithPasskey(auto) {
   }
 }
 
-// Adding a device always needs a fresh Google sign-in. Returns false if it had to ask for one first.
+// Adding a device always needs a fresh Google sign-in: one made in the last few minutes, which the server checks
+// (REAUTH). Returns false if it had to ask for one first; the set-up carries on once you have signed in.
 let pendingPasskeySetup = false;
+function askGoogleForPasskeySetup(msg) {
+  pendingPasskeySetup = true;
+  clearSession();
+  closePasskeyModal();
+  showLockScreen(msg, { noAuto: true });
+  return false;
+}
 async function setUpPasskey() {
   if (!passkeySupported()) throw new Error("This browser can't use fingerprint sign-in.");
   if (!(await platformAuthenticatorAvailable())) throw new Error('This device has no fingerprint, face or screen lock set up.');
-  if (!hasValidGoogleToken()) {
-    pendingPasskeySetup = true;
-    clearSession();
-    closePasskeyModal();
-    showLockScreen('Sign in with Google to set up fingerprint on this device.', { noAuto: true });
-    return false;
+  if (!hasValidGoogleToken()) return askGoogleForPasskeySetup('Sign in with Google to set up fingerprint on this device.');
+  let begin;
+  try {
+    begin = await apiCall('passkeyRegisterBegin', {}, { needGoogle: true });
+  } catch (err) {
+    if (!/^REAUTH/.test(String(err && err.message))) throw err;
+    lsDel(TOKEN_STORAGE_KEY);   // that Google sign-in is too old to add a device: ask for a new one
+    return askGoogleForPasskeySetup('Sign in with Google again to set up fingerprint on this device.');
   }
-  const begin = await apiCall('passkeyRegisterBegin', {}, { needGoogle: true });
   const cred = await navigator.credentials.create({ publicKey: {
     rp: { id: begin.rpId, name: begin.rpName },
     user: { id: b64uToBytes(begin.userId), name: begin.userName, displayName: 'PaydayFlow' },
@@ -1377,7 +1386,7 @@ async function runPasskeySetup() {
     const done = await setUpPasskey();
     if (done) {
       document.getElementById('passkeyOffer').classList.add('hidden');
-      setPkMessage('Set up! Tap "Test it now" to try it.', 'ok');
+      setPkMessage('Set up! Tap "Test it now" to try it. (You\'ll get an email about it too.)', 'ok');
       renderPasskeyModal();
       refreshPasskeyDevices();
     }
@@ -1603,7 +1612,7 @@ async function signOut(forget) {
       }
 
       // Mode 2: Running externally on https://jonhoag.co.uk
-  // `needGoogle` is for adding a fingerprint device, which always needs a fresh Google sign-in.
+  // `needGoogle` is for adding a fingerprint device, which always needs a Google sign-in (the server also checks it is recent).
   const needGoogle = !!opts.needGoogle;
   if (needGoogle ? !hasValidGoogleToken() : !hasValidToken()) {
     showLockScreen(needGoogle ? 'Sign in with Google to continue.' : 'Session expired. Please tap below to unlock.', needGoogle ? { noAuto: true } : undefined);
@@ -1841,7 +1850,7 @@ async function postToServer(bodyObj, opts = {}) {
         const amt = -Number(r.amount || 0);   // spends are negative in the sheet; refunds positive
         if (!amt) return;
         const cat = categoryFor(key, overrides);
-        const c = cats[cat] || (cats[cat] = { cat, total: 0, merchants: {} });
+        const c = cats[cat] || (cats[cat] = { cat, total: 0, merchants: Object.create(null) });   // shops are keyed by sheet text (see groupOwed)
         c.total += amt;
         total += amt;
         const m = c.merchants[key] || (c.merchants[key] = { key, name: String(r.desc).trim(), total: 0, count: 0 });
@@ -2699,7 +2708,7 @@ async function postToServer(bodyObj, opts = {}) {
       return { key: (parts[0] || '').toLowerCase(), name: displayName(parts[0] || ''), what: displayName(parts.slice(1).join(' ')) || displayName(desc) };
     }
     function groupOwed(pending) {
-      const groups = {};
+      const groups = Object.create(null);   // keyed by sheet text: "constructor" is just a name here
       pending.forEach(r => {
         const p = owedPerson(r.desc);
         const g = groups[p.key] || (groups[p.key] = { key: p.key, name: p.name, items: [], total: 0 });

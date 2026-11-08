@@ -6,7 +6,7 @@
 // Loads the real ../index.html with a mocked Apps Script backend and a mocked Google sign-in.
 // Query params: ?token=none  -> start signed out (expired token)
 //               ?latency=400 -> mock server delay in ms (default 300)
-//               ?evil=1      -> seed rows with quotes, angle brackets, backslash, ampersand
+//               ?evil=1      -> seed hostile text (quotes, tags, attribute break-outs) wherever sheet or server text shows
 //               ?noconfig=1  -> the server sends no names (like an older backend)
 //               ?gas=1       -> run as the copy of the page Apps Script serves (google.script.run), same mock server
 // Every name, shop and figure here is invented.
@@ -49,13 +49,22 @@
       .map(([name, amount, isRecurring]) => ({ name, amount, originalBudget: amount, isRecurring })));
   }
   const dbs = { [MONTH]: db, [MONTH2]: db2 };
-  // ?evil=1 seeds awkward text: quotes, angle brackets, backslash, ampersand.
+  // ?evil=1 seeds hostile text: quotes, tags, a backslash, and attempts to break out of an attribute or a handler.
+  // Any of it running sets window.__pwned (the screen tests check it never does).
   const EVIL = `O'Brien "Quote" <b>bold</b> \\back & co`;
+  const EVIL2 = `"><img src=x onerror="window.__pwned=1">' onmouseover='window.__pwned=2' x=');window.__pwned=3;//`;
+  const EVIL_MONTH = 'Evil "Month" <img src=x onerror=window.__pwned=4> 2026';
   if (q.get('evil')) {
-    db.amex.push({ row: 5, desc: EVIL, amount: -3 });
-    db.checking.push({ row: 6, desc: 'kim ' + EVIL, amount: 3, need: true });
-    db.budgets.push({ row: 5, name: EVIL, amount: -7, originalBudget: -7, isRecurring: false });
+    db.amex.push({ row: 5, desc: EVIL, amount: -3 }, { row: 6, desc: EVIL2, amount: -4 });
+    db.barclays.push({ row: 5, desc: EVIL2, amount: -5 });
+    db.marcus.push({ row: 5, desc: EVIL2, amount: 6 });
+    db.checking.push({ row: 6, desc: 'kim ' + EVIL, amount: 3, need: true }, { row: 7, desc: 'kim ' + EVIL2, amount: 2, need: true }, { row: 8, desc: EVIL2, amount: -1 });
+    db.budgets.push({ row: 5, name: EVIL, amount: -7, originalBudget: -7, isRecurring: false }, { row: 6, name: EVIL2, amount: -8, originalBudget: -8, isRecurring: true });
+    // Names every object has, as an Owed person and as card spends.
+    db.checking.push({ row: 9, desc: 'constructor Lunch', amount: 4, need: true }, { row: 10, desc: '__proto__ Taxi', amount: 5, need: true });
+    db.amex.push({ row: 7, desc: '__proto__', amount: -6 }, { row: 8, desc: 'constructor', amount: -7 });
   }
+  const MONTH_LIST = q.get('evil') ? [MONTH, MONTH2, EVIL_MONTH] : [MONTH, MONTH2];
   // The names the backend sends with every reply (the real ones live only in the private backend).
   const CONFIG = q.get('noconfig') ? null
     : { people: ['kim', 'lee', 'robin', 'sam', 'jo'], quickSplit: 'kim', spendWords: { 'Entertainment': ['bowling'] } };
@@ -66,7 +75,7 @@
     const budgetRem = sum(d.budgets);
     return {
       ...(MOCK.config ? { config: JSON.parse(JSON.stringify(MOCK.config)) } : {}),
-      sheetUrl: '#', availableMonths: [MONTH, MONTH2], activeMonth: name,
+      sheetUrl: '#', availableMonths: MONTH_LIST, activeMonth: name,
       checking: rev(d.checking, 'checking'), marcus: rev(d.marcus, 'marcus'),
       barclays: rev(d.barclays, 'barclays'), amex: rev(d.amex, 'amex'),
       budgets: JSON.parse(JSON.stringify(d.budgets)),
@@ -143,7 +152,8 @@
     // Remembered for this tab, because Sign out reloads the page (and with it this pretend server).
     passkeyRemove: p => { try { sessionStorage.setItem('mock_passkey_removed', String(p.credentialId)); } catch (e) {} return { passkeys: [] }; },
     // One pretend device. Its id holds a quote, as a check that ids reach the click handler as data, not as script.
-    passkeyList: () => ({ passkeys: [{ id: "dev'1", label: 'Test phone', created: '2026-11-01T10:00:00Z', lastUsed: null }] }),
+    passkeyList: () => ({ passkeys: [{ id: "dev'1", label: 'Test phone', created: '2026-11-01T10:00:00Z', lastUsed: null }]
+      .concat(q.get('evil') ? [{ id: EVIL2, label: EVIL2, created: '2026-11-02T10:00:00Z', lastUsed: '2026-11-03T10:00:00Z' }] : []) }),
     getCategoryChoices: () => ({ choices: JSON.parse(JSON.stringify(MOCK.categoryChoices)) }),
     setCategoryChoice: p => {
       const k = String(p.merchant || '').trim().toLowerCase();
