@@ -13,7 +13,8 @@ const crypto = require('crypto');
 const { root, HOST, siteRel, sendSiteFile, publishedBytes } = require('./lib/site-files');
 // The test page also gets a stricter script policy than the page's own (which still allows inline script): only this
 // site's files, Google sign-in and the exact inline scripts of the test page and the app (by hash). So an inline
-// handler (onclick="...") anywhere, even one a screen draws later, is refused, and the refusal fails the run.
+// handler (onclick="...") is refused when its event fires, even on a control a screen draws later, and the refusal
+// fails the run. (Only attribute-free <script> tags are hashed: any other inline script is refused too, and fails.)
 const inlineScriptHashes = file => [...publishedBytes(path.join(root, file)).toString('utf8').matchAll(/<script>([\s\S]*?)<\/script>/g)]
   .map(m => `'sha256-${crypto.createHash('sha256').update(m[1], 'utf8').digest('base64')}'`);
 const STRICT_SCRIPTS = ["script-src 'self' https://accounts.google.com/gsi/client",
@@ -1936,7 +1937,9 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   });
   await step('no inline handlers in the page: each control names one of its ACTIONS, and every action is used', async () => {
     const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-    assert.deepStrictEqual(html.match(/(^|[\s"'`])on[a-z]+\s*=\s*["'`$]|setAttribute\(\s*['"`]on/gim) || [], [], 'inline handlers left');
+    // on...= followed by a quote, a ${...} or an unquoted call (but not a const/let/var such as `const online = ()`)
+    const handler = /(?<!\b(?:const|let|var))(^|[\s"'`])on[a-z]+\s*=\s*(["'`$]|[^\s>="'`]*\()|setAttribute\(\s*['"`]on/gim;
+    assert.deepStrictEqual(html.match(handler) || [], [], 'inline handlers left');
     const actions = await page.evaluate(() => Object.keys(ACTIONS));
     // The Activity filter chips are drawn by chip(label, action), so their actions are named in its calls.
     const named = [...html.matchAll(/data-(?:action|input|change)="([^"]*)"/g)].map(m => m[1]).filter(n => n !== '${action}')
@@ -1964,11 +1967,15 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       out.inside = shown('spendModal');
       document.getElementById('spendModal').click();                  // the dark area round it: closes
       out.backdrop = !shown('spendModal');
-      document.getElementById('menuBtn').click();                     // toggleMenu stops the tap, so it stays open
+      document.getElementById('menuBtn').click();                     // its data-stop keeps it open
       out.menuOpen = shown('menuPanel');
       document.querySelector('#sec_budgets h2').click();              // any other tap closes it (and folds Bills)
       out.menuClosed = !shown('menuPanel');
       document.querySelector('#sec_budgets h2').click();
+      // A tap inside a browser add-on's own panel (an open shadow root) passes by quietly (no page error).
+      const host = document.body.appendChild(document.createElement('div'));
+      host.attachShadow({ mode: 'open' }).appendChild(document.createElement('button')).click();
+      host.remove();
       return out;
     });
     assert.deepStrictEqual(s, { addBill: [true, true], group: true, header: true, headerBack: true, inside: true, backdrop: true, menuOpen: true, menuClosed: true });

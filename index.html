@@ -199,7 +199,7 @@
         </button>
         <!-- Overflow menu (phone): theme, fingerprint, Spending, new month, the sheet, sign out. Desktop has these in the sidebar. -->
         <div class="relative lg:hidden">
-          <button data-action="toggleMenu" id="menuBtn" aria-label="More options" aria-haspopup="true" aria-expanded="false"
+          <button data-action="toggleMenu" data-stop id="menuBtn" aria-label="More options" aria-haspopup="true" aria-expanded="false"
                   class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
             <span data-icon="more" data-class="w-5 h-5"></span>
           </button>
@@ -1794,8 +1794,8 @@ async function postToServer(bodyObj, opts = {}) {
     const markToggle = (prefix, keys, chosen, inKey) => markChoice(prefix, keys, chosen, k => k === inKey ? TOGGLE_IN : TOGGLE_ON, TOGGLE_OFF);
 
     // ---- Overflow menu (phone header) ----
-    function toggleMenu(e) {
-      e.stopPropagation();
+    // Its button has data-stop, so the tap that opens the menu doesn't reach the page's close-on-tap below.
+    function toggleMenu() {
       const panel = document.getElementById('menuPanel');
       const open = !panel.classList.toggle('hidden');
       document.getElementById('menuBtn').setAttribute('aria-expanded', String(open));
@@ -3799,17 +3799,18 @@ async function postToServer(bodyObj, opts = {}) {
 
     // ---- What each button and field does ----
     // The page holds no inline handlers (onclick="..."), so its security policy can refuse inline script. A control
-    // names its job instead: data-action (a tap), data-input or data-change (typing, or a pick from a list), each the
-    // name of one of these ACTIONS; data-arg, data-row, data-idx and the like carry what it acts on. Every action is
-    // called as action(element, event).
+    // names its job instead: data-action (a tap or click), data-input or data-change (typing, or a pick from a list),
+    // each the name of one of these ACTIONS; data-arg, data-row, data-idx and the like carry what it acts on. Every
+    // action is called as action(element).
     const rowOf = el => Number(el.dataset.row);
+    const idxOf = el => Number(el.dataset.idx);
     const ACTIONS = {
       // lock screen, header, menu, sidebar
       unlockWithPasskey: () => unlockWithPasskey(false),
       cycleTheme: () => cycleTheme(),
       syncNow: () => { retrySetAside(); forceSyncSheet(); },
       switchMonth: el => switchMonth(el.value),
-      toggleMenu: (el, e) => toggleMenu(e),
+      toggleMenu: () => toggleMenu(),
       closeMenu: () => closeMenu(),
       menuNewMonth: () => { closeMenu(); openNewMonthModal(); },
       jumpToSection: el => jumpToSection(el.dataset.arg),
@@ -3871,9 +3872,9 @@ async function postToServer(bodyObj, opts = {}) {
       selectSplit: el => selectSplit(el.dataset.arg),
       togglePersonChip: el => togglePersonChip(el.dataset.person),
       addBlankPersonRow: () => addBlankPersonRow(),
-      updatePersonRowName: el => updatePersonRowName(Number(el.dataset.idx), el.value),
-      updatePersonRowAmt: el => updatePersonRowAmt(Number(el.dataset.idx), el.value),
-      removePersonRow: el => removePersonRow(Number(el.dataset.idx)),
+      updatePersonRowName: el => updatePersonRowName(idxOf(el), el.value),
+      updatePersonRowAmt: el => updatePersonRowAmt(idxOf(el), el.value),
+      removePersonRow: el => removePersonRow(idxOf(el)),
       applyEqualGroupSplit: () => applyEqualGroupSplit(),
       includeMeChanged: () => { if (autoEqualActive) applyEqualGroupSplit(); },
       submitExpense: () => submitExpense(),
@@ -3892,21 +3893,23 @@ async function postToServer(bodyObj, opts = {}) {
     // One listener per kind of event, on the page itself. It walks out from what was tapped, the way the browser
     // passes an event outwards: each control on the way that names an action for this event runs it (innermost
     // first). data-stop ends the walk there and keeps the tap from going any further (so it doesn't close the
-    // menu); data-backdrop acts only on a tap on the element itself (the dark area round a sheet), not inside it;
-    // an action can end the walk too (toggleMenu stops the tap). A disabled control does nothing. The walk follows
-    // the path the event set out on, so it carries on as before when an action redraws the list it was in.
+    // menu); data-backdrop acts only on a tap on the element itself (the dark area round a sheet), not inside it.
+    // A disabled control does nothing. The walk follows the path the event set out on, so it carries on as before
+    // when an action redraws the list it was in; anything on it that isn't an element (say a browser add-on's own
+    // panel) is passed over.
     const ACTION_ATTRS = { click: 'action', input: 'input', change: 'change' };
     Object.keys(ACTION_ATTRS).forEach(type => document.documentElement.addEventListener(type, e => {
       const key = ACTION_ATTRS[type];
       for (const el of e.composedPath()) {
-        if (el === document.documentElement || e.cancelBubble) break;
+        if (el === document.documentElement) break;
+        if (el.nodeType !== 1) continue;
         if (el.disabled) return;
         const name = el.dataset && el.dataset[key];
         if (name && !(el.hasAttribute('data-backdrop') && e.target !== el)) {
           if (!Object.prototype.hasOwnProperty.call(ACTIONS, name)) throw new Error('No such action: ' + name);
-          ACTIONS[name](el, e);
+          ACTIONS[name](el);
         }
-        if (type === 'click' && el.hasAttribute('data-stop')) e.stopPropagation();
+        if (type === 'click' && el.hasAttribute('data-stop')) { e.stopPropagation(); break; }
       }
     }));
 
