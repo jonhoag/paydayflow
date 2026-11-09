@@ -28,11 +28,11 @@ jobs:
       # the exact versions and hashes in package-lock.json. No install scripts are run.
       - name: Install the build and test tools
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: The stylesheet matches the page
+      - name: The stylesheet matches the page and app.js
         run: node build-css.js --check
       # The service worker only saves and opens files whose hashes it holds. With stale hashes a new version can't
       # install (devices stay on the old one, and new visitors get no offline copy), so they fail the build.
-      - name: The service worker's file hashes match the site files
+      - name: The page's ?v= stamps and the service worker's file hashes match the site files
         run: node build-sw.js --check
       - name: Spending summary
         run: node tests/spending.test.js
@@ -56,15 +56,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Keep in step with SITE in tests/lib/site-files.js, siteFiles() in build-sw.js (and ALLOWED in the private
-      # public-files check).
+      # Exactly the files listed in build-sw.js (siteFiles, plus sw.js and CNAME), nothing else.
       - name: Collect the site files
-        run: |
-          mkdir _site
-          cp index.html sw.js manifest.json tailwind.css CNAME _site/
-          cp -r icons fonts _site/
-          find _site -type f | sort
-      # The very bytes about to be published (line endings included) must match the hashes in the published sw.js.
+        run: node build-sw.js --collect _site
+      # The very bytes about to be published (line endings included) must match the page's ?v= stamps and the hashes
+      # in the published sw.js.
       - name: The collected files match the service worker's hashes
         run: node build-sw.js --published _site
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

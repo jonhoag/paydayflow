@@ -25,6 +25,14 @@ const withMarker = body => Buffer.from(body.toString('utf8').replace('</body>', 
 const sha256 = b => crypto.createHash('sha256').update(b).digest('hex');
 const realPage = publishedBytes(path.join(__dirname, '..', 'index.html'));
 const realCss = publishedBytes(path.join(__dirname, '..', 'tailwind.css')).toString('utf8');
+// prev: the version live just before the scripts moved out (its page held them inline, under 'unsafe-inline', and its
+// sw.js had no app.js or guard.js), rebuilt from today's files the way it was built then.
+const swPublished = publishedBytes(path.join(__dirname, '..', 'sw.js')).toString('utf8');
+const PREV_PAGE = Buffer.from(realPage.toString('utf8')
+  .replace(/<script src="([\w-]+\.js)\?v=[0-9a-f]+"><\/script>/g, (all, f) => '<script>\n' + publishedBytes(path.join(__dirname, '..', f)).toString('utf8') + '</script>')
+  .replace("script-src 'self' ", "script-src 'self' 'unsafe-inline' "));
+const PREV_SW = Buffer.from(swPublished.replace(/(\/\/ <site-hashes>\n)([\s\S]*?)( *\/\/ <\/site-hashes>)/, (all, open, body, close) =>
+  open + body.split('\n').filter(l => l && !/'\/(app|guard)\.js'/.test(l)).map(l => l.startsWith("  '/': ") ? `  '/': '${sha256(PREV_PAGE)}',` : l).join('\n') + '\n' + close));
 let fontHits = 0;   // requests for the font files that reached this server
 let pageHits = 0;   // requests for the page itself that reached this server
 let cssHits = 0;    // requests for the stylesheet that reached this server
@@ -40,6 +48,8 @@ const server = http.createServer((req, res) => {
   if (!file) { res.writeHead(404); return res.end('Not found'); }
   const send = () => {
     let body = publishedBytes(rel === 'sw.js' && mode === 'live' ? LIVE_SW : file);
+    if (mode === 'prev' && isPage) body = PREV_PAGE;
+    if (mode === 'prev' && rel === 'sw.js') body = PREV_SW;
     if (isPage && mode.startsWith('fresh')) body = withMarker(body);
     // The new version's sw.js records the new page; when half-published, the page itself is still the old one.
     if (rel === 'sw.js' && (mode.startsWith('fresh') || mode === 'half')) body = Buffer.from(body.toString('utf8').replace(sha256(realPage), sha256(withMarker(realPage))));
@@ -137,6 +147,17 @@ const { step, finish } = makeSteps();
     const css = await page.evaluate(async v => (await fetch('/tailwind.css?v=' + v)).text(), HASHES['/tailwind.css'].slice(0, 10));
     assert.strictEqual(css, realCss);
     assert.strictEqual(cssHits, before + 1, 'the real stylesheet was not fetched');
+  });
+
+  await step('swapped saved scripts (app.js, guard.js) never run: the real ones run and are saved again', async () => {
+    await plant('/app.js', 'window.__planted = "app"; document.title = "swapped";', { 'Content-Type': 'text/javascript' });
+    await plant('/guard.js', 'window.__planted = "guard";', { 'Content-Type': 'text/javascript' });
+    await reload();
+    await page.waitForFunction(() => typeof ACTIONS === 'object', null, { timeout: 10000 });
+    assert.deepStrictEqual(await page.evaluate(() => [window.__planted || null, document.title]), [null, 'PaydayFlow']);
+    await page.waitForTimeout(300);   // let the real copies be saved again
+    const saved = await page.evaluate(async () => Promise.all(['/app.js', '/guard.js'].map(async p => { const hit = await caches.match(p); return hit ? hit.text() : null; })));
+    assert.ok(saved.every(t => t && !t.includes('__planted')), 'a swapped script is still saved');
   });
 
   await step("a stylesheet version this version doesn't have is fetched, not taken from the saved copy, and not saved", async () => {
@@ -240,10 +261,11 @@ const { step, finish } = makeSteps();
     assert.deepStrictEqual(r, { status: 200, saved: false });
   });
 
-  await step('offline: the saved app opens', async () => {
+  await step('offline: the saved app opens, and its scripts run from the saved copies', async () => {
     mode = 'down';
     await reload();
     assert.strictEqual(await page.title(), 'PaydayFlow');
+    await page.waitForFunction(() => typeof ACTIONS === 'object' && getComputedStyle(document.getElementById('authLockScreen')).display === 'flex', null, { timeout: 10000 });
   });
 
   await step('offline: the font comes from the saved copy too', async () => {
@@ -270,6 +292,38 @@ const { step, finish } = makeSteps();
     await plant('/', FAKE);
     await page.goto(origin + '/', { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {});
     assert.ok(!(await page.$('#swapped-marker').catch(() => null)), 'opened the swapped page');
+  });
+
+  // A device that has the version live just before the scripts moved out (a fresh browser, so nothing else saved).
+  await step('upgrade from the page with inline scripts: the new version installs, and after Reload the app runs from app.js, offline too', async () => {
+    const ctx2 = await browser.newContext({ serviceWorkers: 'allow' });
+    await ctx2.route(url => !String(url).startsWith(origin), r => r.abort());
+    const p = await ctx2.newPage();
+    const open = () => p.goto(origin + '/', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    const appRuns = () => p.waitForFunction(() => typeof ACTIONS === 'object' && getComputedStyle(document.getElementById('authLockScreen')).display === 'flex', null, { timeout: 10000 });
+    try {
+      mode = 'prev';
+      await open();
+      await p.evaluate(() => navigator.serviceWorker.ready);
+      await open();
+      await appRuns();
+      assert.ok(await p.evaluate(() => !!navigator.serviceWorker.controller && !document.querySelector('script[src*="app.js"]')), 'not the inline version, or not controlled');
+      const before = await p.evaluate(() => caches.keys());
+      mode = 'normal';
+      await open();   // the saved inline version opens; the new one installs and offers a reload
+      await p.waitForFunction(() => { const t = document.getElementById('toast'); return !t.classList.contains('hidden') && /new version/i.test(t.textContent); }, null, { timeout: 10000 })
+        .catch(() => { throw new Error('no "new version" offer appeared'); });
+      await open();
+      await appRuns();
+      assert.ok(await p.evaluate(() => !!document.querySelector('script[src^="app.js?v="]')), 'still the inline page after Reload');
+      const names = await p.evaluate(() => caches.keys());
+      assert.ok(names.length === 1 && !before.includes(names[0]), 'caches: ' + before.join(', ') + ' -> ' + names.join(', '));
+      const keys = await p.evaluate(async n => (await (await caches.open(n)).keys()).map(r => new URL(r.url).pathname), names[0]);
+      assert.deepStrictEqual(keys.slice().sort(), SAVED.slice().sort());
+      mode = 'down';
+      await open();
+      await appRuns();
+    } finally { await ctx2.close(); }
   });
 
   await browser.close();

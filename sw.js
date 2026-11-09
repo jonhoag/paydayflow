@@ -8,9 +8,11 @@ const CACHE_NAME = 'paydayflow-v6';
 // changes this list, and so this file, which is how each device picks up a new version.
 const SITE_HASHES = {
   // <site-hashes>
-  '/': '0d60659389968366f0d8bdcf839ddc6a0d8c2ed5602d98f0747b6fb44382452c',
-  '/manifest.json': 'f41e3736fbec8f5861c2d60e992c5b8133e1d06a9afdf527bf753728abb69784',
+  '/': 'b5960c05c24cf3e3e187e0d1b1ff13df2577ab74a689d95bd38dbcfa1c027f6a',
+  '/guard.js': 'f8d4ca9cba1a71963b8f19262e9381ba7743f9a1f8c397ee3cb776437517a7cc',
+  '/app.js': '7ee2c2ea7d9d94c6ee4d5123a68f2145ff8b4da9150734a9e6f5edf2d706ef9d',
   '/tailwind.css': 'ae92c5cffe993f4cca370164fd644a8308d01db01be487c1e47338115464d316',
+  '/manifest.json': 'f41e3736fbec8f5861c2d60e992c5b8133e1d06a9afdf527bf753728abb69784',
   '/icons/icon-192.png': '4d5d98ee6b7399e36c0608ae5214ef8bb0b2b5b6f93f0b2b78a0232a4f615da6',
   '/icons/icon-512.png': 'd0b21f1d59491bc8c691ca4e4a5a7e7323f2abe2c27ccee2bfa44bcfb631e918',
   '/icons/icon-maskable-512.png': '56170699c4dd0e76f5a8f9109122f16eb8f4ca4d47f9d204724fe654dc521be6',
@@ -89,13 +91,14 @@ self.addEventListener('activate', (event) => {
 
 // The app's own files open from the saved copy straight away (so it starts instantly on a weak signal or offline),
 // but only a copy that matches. Anything else goes to the network, and a reply that matches is saved for next time.
-// A home-screen shortcut opens the page as /?go=..., and the stylesheet is asked for as tailwind.css?v=...: each is
-// found under its plain address. Other requests (POSTs, Google, Apps Script, unknown addresses) are left alone.
+// A home-screen shortcut opens the page as /?go=..., and the scripts and the stylesheet are asked for as app.js?v=...
+// (see build-sw.js): each is found under its plain address. Other requests (POSTs, Google, Apps Script, unknown
+// addresses) are left alone.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin || !known(url.pathname)) return;
-  // A request for one exact version (tailwind.css?v=...) that isn't this version's file is left to the network.
+  // A request for one exact version (app.js?v=...) that isn't this version's file is left to the network.
   const v = url.searchParams.get('v');
   if (v && !SITE_HASHES[url.pathname].startsWith(v)) return;
   const key = url.origin + url.pathname;

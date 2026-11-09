@@ -124,7 +124,7 @@ if (($testSettings -contains $true) -and ($testSettings -contains $false)) {
 }
 $isLive = -not $ScriptId
 
-# Fail early if the pre-built stylesheet doesn't match index.html's classes.
+# Fail early if the pre-built stylesheet doesn't match the classes in index.html and app.js.
 $ErrorActionPreference = 'Continue'   # native tools write notices to stderr; judge them by exit code instead
 node "$root\build-css.js" --check
 $cssOk = ($LASTEXITCODE -eq 0)
@@ -157,12 +157,21 @@ try {
   $linkRe = '<link rel="stylesheet" href="tailwind\.css[^"]*"[^>]*>'
   if ($html -notmatch $linkRe) { throw 'index.html has no tailwind.css link to inline.' }
   $html = [regex]::Replace($html, $linkRe, { param($m) '<style>' + $css + '</style>' })
+  # The same goes for the scripts (guard.js, app.js): each one the page asks for goes back inside it, in its place.
+  $scriptRe = '<script src="([\w-]+\.js)\?v=[0-9a-f]+"></script>'
+  if ([regex]::Matches($html, $scriptRe).Count -eq 0) { throw 'index.html asks for no script files to inline. Nothing was pushed.' }
+  $html = [regex]::Replace($html, $scriptRe, {
+    param($m)
+    $code = [IO.File]::ReadAllText((Join-Path $root $m.Groups[1].Value))
+    if ($code -match '</script') { throw "$($m.Groups[1].Value) holds </script, so it can't go inside the page. Nothing was pushed." }
+    "<script>`r`n" + $code + '</script>'
+  })
   # The same goes for the font files: the copy loads them from the website instead.
   $html = $html.Replace("url('fonts/", "url('https://jonhoag.co.uk/fonts/")
   # The page's Content-Security-Policy is for the website. Google serves this copy from its own sandbox, where the
   # policy would get in the way of google.script.run, so the copy goes without it.
   $html = [regex]::Replace($html, '<meta http-equiv="Content-Security-Policy"[^>]*>', '')
-  if ($html -match '<meta http-equiv="Content-Security-Policy"' -or $html -match "url\('fonts/") { throw 'Could not adapt index.html for Apps Script (policy tag or font links). Nothing was pushed.' }
+  if ($html -match '<meta http-equiv="Content-Security-Policy"' -or $html -match "url\('fonts/" -or $html -match '<script src=') { throw 'Could not adapt index.html for Apps Script (policy tag, font links or script files). Nothing was pushed.' }
   [IO.File]::WriteAllText("$stage\Index.html", $html, $utf8NoBom)
 
   if ($ScriptId) {
@@ -176,8 +185,8 @@ try {
   }
 
   if ($StageOnly) {
-    Write-Host "Staged files (not pushed):"
-    Get-ChildItem $stage -Force | Select-Object Name, Length
+    Write-Host "Staged (not pushed); only the page is kept, at $stage\Index.html :"
+    Get-Item "$stage\Index.html" | Select-Object Name, Length
     return
   }
 
@@ -195,6 +204,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'clasp deploy failed: the new code is pushed (and recorded) but the web app still runs the previous version. Run this script again with the same -Description to redeploy.' }
   } finally { Pop-Location }
 } finally {
-  Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+  # With -StageOnly the staged page stays, to look at; the backend files never stay behind in the temp folder.
+  if ($StageOnly -and (Test-Path "$stage\Index.html")) { Get-ChildItem $stage -Force | Where-Object Name -ne 'Index.html' | Remove-Item -Recurse -Force }
+  else { Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue }
 }
 exit 0   # deployed: don't report a leftover exit code from git or clasp notices

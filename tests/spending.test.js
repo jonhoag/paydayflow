@@ -1,13 +1,13 @@
-// Tests the spending-summary maths in index.html (the block between the <spending-core> markers).
+// Tests the spending-summary maths in app.js (the block between the <spending-core> markers).
 // Run: node tests/spending.test.js
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
-const m = html.match(/\/\/ <spending-core>([\s\S]*?)\/\/ <\/spending-core>/);
-if (!m) { console.log('  FAIL  could not find the <spending-core> block in index.html'); process.exit(1); }
+const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+const m = app.match(/\/\/ <spending-core>([\s\S]*?)\/\/ <\/spending-core>/);
+if (!m) { console.log('  FAIL  could not find the <spending-core> block in app.js'); process.exit(1); }
 const sandbox = {};
 vm.createContext(sandbox);
 vm.runInContext(m[1] + '\nthis.api = { guessCategory, categoryFor, summariseSpend, spendKey, setSpendWords, SPEND_CATEGORIES, paydayIn, nextPayday, compareSpend };', sandbox);
