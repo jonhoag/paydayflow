@@ -11,14 +11,17 @@ const { launchChrome, makeSteps, awayAndBack } = require('./lib/runner');
 const PORT = 8129;
 const crypto = require('crypto');
 const { root, HOST, siteRel, sendSiteFile, publishedBytes } = require('./lib/site-files');
-// The test page also gets a stricter script policy than the page's own (which still allows inline script): only this
-// site's files, Google sign-in and the exact inline scripts of the test page and the app (by hash). So an inline
-// handler (onclick="...") is refused when its event fires, even on a control a screen draws later, and the refusal
-// fails the run. (Only attribute-free <script> tags are hashed: any other inline script is refused too, and fails.)
+// The test page is served under the app's own script policy (read from index.html), plus the test page's own inline
+// scripts by hash. So, as on the real site, an inline script or an inline handler (onclick="...") in the app is
+// refused, even on a control a screen draws later (when its event fires), and the refusal fails the run. (Only
+// attribute-free <script> tags are hashed: any other inline script in the test page is refused too, and fails.)
+const PAGE_CSP = fs.readFileSync(path.join(root, 'index.html'), 'utf8').match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)"/)[1];
+const PAGE_SCRIPTS = PAGE_CSP.split(';').map(d => d.trim()).find(d => d.startsWith('script-src '));
 const inlineScriptHashes = file => [...publishedBytes(path.join(root, file)).toString('utf8').matchAll(/<script>([\s\S]*?)<\/script>/g)]
   .map(m => `'sha256-${crypto.createHash('sha256').update(m[1], 'utf8').digest('base64')}'`);
-const STRICT_SCRIPTS = ["script-src 'self' https://accounts.google.com/gsi/client",
-  ...inlineScriptHashes('tests/harness.html'), ...inlineScriptHashes('index.html')].join(' ');
+const STRICT_SCRIPTS = [PAGE_SCRIPTS, ...inlineScriptHashes('tests/harness.html')].join(' ');
+// The app's own code, as the source checks below read it.
+const appSource = () => ['index.html', 'guard.js', 'app.js'].map(f => fs.readFileSync(path.join(root, f), 'utf8')).join('\n');
 const server = http.createServer((req, res) => {
   if (siteRel(req.url) === 'tests/harness.html') res.setHeader('Content-Security-Policy', STRICT_SCRIPTS);
   sendSiteFile(req, res);
@@ -1688,8 +1691,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   });
 
   await step('the page itself holds no email address', async () => {
-    const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-    assert.ok(!/[\w.+-]+@[\w-]+\.[\w.-]+/.test(html), 'found an email address in the page');
+    assert.ok(!/[\w.+-]+@[\w-]+\.[\w.-]+/.test(appSource()), 'found an email address in the page or its scripts');
   });
 
   await step('new month: pay and savings are filled in from this month, not figures baked into the page', async () => {
@@ -1925,18 +1927,28 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     const font = await page.evaluate(async () => { await document.fonts.ready; return { loaded: document.fonts.check('600 16px Inter'), family: getComputedStyle(document.body).fontFamily }; });
     assert.ok(font.loaded, 'Inter did not load');
     assert.ok(/^"?Inter/.test(font.family), font.family);
-    const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-    assert.ok(!/fonts\.(googleapis|gstatic)\.com/.test(html), 'the page still points at Google Fonts');
+    assert.ok(!/fonts\.(googleapis|gstatic)\.com/.test(appSource()), 'the page still points at Google Fonts');
   });
   await step('the page carries its security policy: only this site, the backend and Google sign-in', async () => {
     const csp = await page.evaluate(() => (document.querySelector('meta[http-equiv="Content-Security-Policy"]') || {}).content || '');
     // Requests may go only to the backend's own address, not to any Apps Script project.
-    const exec = fs.readFileSync(path.join(root, 'index.html'), 'utf8').match(/const APPS_SCRIPT_EXEC_URL = '([^']+)'/)[1];
-    ['default-src \'self\'', 'connect-src \'self\' ' + exec + ' https://script.googleusercontent.com https://accounts.google.com/gsi/;',
+    const exec = fs.readFileSync(path.join(root, 'app.js'), 'utf8').match(/const APPS_SCRIPT_EXEC_URL = '([^']+)'/)[1];
+    // Scripts only from this site's own files and Google's sign-in: nothing inline (no 'unsafe-inline').
+    ['default-src \'self\'', 'script-src \'self\' https://accounts.google.com/gsi/client;',
+      'connect-src \'self\' ' + exec + ' https://script.googleusercontent.com https://accounts.google.com/gsi/;',
       'object-src \'none\'', 'form-action \'none\'', 'font-src \'self\''].forEach(d => assert.ok(csp.includes(d), 'missing: ' + d));
+    assert.strictEqual(PAGE_SCRIPTS, 'script-src \'self\' https://accounts.google.com/gsi/client');
+    // So the page itself holds no script: each one is a file of the site's own, asked for by its hash.
+    const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    assert.deepStrictEqual([...html.matchAll(/<script\b[^>]*>/gi)].map(m => m[0].replace(/\?v=[0-9a-f]{10}"/, '?v=HASH"')),
+      ['<script src="guard.js?v=HASH">', '<script src="app.js?v=HASH">']);
+    // The frame guard runs in <head>, before anything is drawn; the app once the page above it is in place.
+    assert.ok(html.indexOf('<script src="guard.js') < html.indexOf('</head>'), 'guard.js is not in <head>');
+    assert.ok(/<script src="app\.js\?v=[0-9a-f]{10}"><\/script>\s*<\/body>/.test(html), 'app.js is not at the end of <body>');
+    assert.ok(await page.evaluate(() => typeof ACTIONS === 'object' && window.PF_FRAMED === undefined), 'the scripts did not run');
   });
   await step('no inline handlers in the page: each control names one of its ACTIONS, and every action is used', async () => {
-    const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    const html = appSource();
     // on...= followed by a quote, a ${...} or an unquoted call (but not a const/let/var such as `const online = ()`)
     const handler = /(?<!\b(?:const|let|var))(^|[\s"'`])on[a-z]+\s*=\s*(["'`$]|[^\s>="'`]*\()|setAttribute\(\s*['"`]on/gim;
     assert.deepStrictEqual(html.match(handler) || [], [], 'inline handlers left');

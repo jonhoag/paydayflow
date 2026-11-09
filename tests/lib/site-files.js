@@ -3,13 +3,13 @@
 // outside it.
 const fs = require('fs');
 const path = require('path');
-const { publishedBytes } = require('../../build-sw');
+const { publishedBytes, siteFiles } = require('../../build-sw');
 
 const root = path.resolve(__dirname, '..', '..');
 const HOST = '127.0.0.1';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css', '.png': 'image/png', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8' };
-// Keep in step with ALLOWED in tests/private/public-files.test.js and "Collect the site files" in pages.yml.
-const SITE = /^(index\.html|sw\.js|manifest\.json|tailwind\.css|tests\/harness\.html|(icons|fonts)\/[\w-]+\.\w+)$/;
+// The website's own files (the one list, in build-sw.js), sw.js, and the test page.
+const SITE = new Set([...siteFiles(root), 'sw.js', 'tests/harness.html']);
 
 // The path a request asks for (the page itself for "/"), or null if it can't be read.
 function siteRel(url) {
@@ -18,7 +18,7 @@ function siteRel(url) {
 // The file a request asks for, or null if it isn't one of the site's files.
 function siteFile(url) {
   const rel = siteRel(url);
-  if (!rel || !SITE.test(rel)) return null;
+  if (!rel || !SITE.has(rel)) return null;
   const file = path.join(root, rel);
   return fs.existsSync(file) && fs.statSync(file).isFile() ? file : null;
 }

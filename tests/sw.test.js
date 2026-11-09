@@ -139,6 +139,17 @@ const { step, finish } = makeSteps();
     assert.strictEqual(cssHits, before + 1, 'the real stylesheet was not fetched');
   });
 
+  await step('swapped saved scripts (app.js, guard.js) never run: the real ones run and are saved again', async () => {
+    await plant('/app.js', 'window.__planted = "app"; document.title = "swapped";', { 'Content-Type': 'text/javascript' });
+    await plant('/guard.js', 'window.__planted = "guard";', { 'Content-Type': 'text/javascript' });
+    await reload();
+    await page.waitForFunction(() => typeof ACTIONS === 'object', null, { timeout: 10000 });
+    assert.deepStrictEqual(await page.evaluate(() => [window.__planted || null, document.title]), [null, 'PaydayFlow']);
+    await page.waitForTimeout(300);   // let the real copies be saved again
+    const saved = await page.evaluate(async () => Promise.all(['/app.js', '/guard.js'].map(async p => { const hit = await caches.match(p); return hit ? hit.text() : null; })));
+    assert.ok(saved.every(t => t && !t.includes('__planted')), 'a swapped script is still saved');
+  });
+
   await step("a stylesheet version this version doesn't have is fetched, not taken from the saved copy, and not saved", async () => {
     await page.waitForTimeout(300);   // let the last step's copy be saved
     const before = cssHits;
@@ -240,10 +251,11 @@ const { step, finish } = makeSteps();
     assert.deepStrictEqual(r, { status: 200, saved: false });
   });
 
-  await step('offline: the saved app opens', async () => {
+  await step('offline: the saved app opens, and its scripts run from the saved copies', async () => {
     mode = 'down';
     await reload();
     assert.strictEqual(await page.title(), 'PaydayFlow');
+    await page.waitForFunction(() => typeof ACTIONS === 'object' && getComputedStyle(document.getElementById('authLockScreen')).display === 'flex', null, { timeout: 10000 });
   });
 
   await step('offline: the font comes from the saved copy too', async () => {

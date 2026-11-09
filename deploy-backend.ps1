@@ -157,12 +157,20 @@ try {
   $linkRe = '<link rel="stylesheet" href="tailwind\.css[^"]*"[^>]*>'
   if ($html -notmatch $linkRe) { throw 'index.html has no tailwind.css link to inline.' }
   $html = [regex]::Replace($html, $linkRe, { param($m) '<style>' + $css + '</style>' })
+  # The same goes for the scripts: guard.js and app.js go back inside the page, where index.html asks for them.
+  foreach ($js in @('guard.js', 'app.js')) {
+    $code = [IO.File]::ReadAllText("$root\$js")
+    if ($code -match '</script') { throw "$js holds </script, so it can't go inside the page. Nothing was pushed." }
+    $scriptRe = '<script src="' + [regex]::Escape($js) + '\?v=[0-9a-f]+"></script>'
+    if ([regex]::Matches($html, $scriptRe).Count -ne 1) { throw "index.html must ask for $js exactly once. Nothing was pushed." }
+    $html = [regex]::Replace($html, $scriptRe, { param($m) "<script>`r`n" + $code + '</script>' })
+  }
   # The same goes for the font files: the copy loads them from the website instead.
   $html = $html.Replace("url('fonts/", "url('https://jonhoag.co.uk/fonts/")
   # The page's Content-Security-Policy is for the website. Google serves this copy from its own sandbox, where the
   # policy would get in the way of google.script.run, so the copy goes without it.
   $html = [regex]::Replace($html, '<meta http-equiv="Content-Security-Policy"[^>]*>', '')
-  if ($html -match '<meta http-equiv="Content-Security-Policy"' -or $html -match "url\('fonts/") { throw 'Could not adapt index.html for Apps Script (policy tag or font links). Nothing was pushed.' }
+  if ($html -match '<meta http-equiv="Content-Security-Policy"' -or $html -match "url\('fonts/" -or $html -match '<script src=') { throw 'Could not adapt index.html for Apps Script (policy tag, font links or script files). Nothing was pushed.' }
   [IO.File]::WriteAllText("$stage\Index.html", $html, $utf8NoBom)
 
   if ($ScriptId) {
@@ -176,7 +184,7 @@ try {
   }
 
   if ($StageOnly) {
-    Write-Host "Staged files (not pushed):"
+    Write-Host "Staged files (not pushed), kept in $stage :"
     Get-ChildItem $stage -Force | Select-Object Name, Length
     return
   }
@@ -195,6 +203,6 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'clasp deploy failed: the new code is pushed (and recorded) but the web app still runs the previous version. Run this script again with the same -Description to redeploy.' }
   } finally { Pop-Location }
 } finally {
-  Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+  if (-not $StageOnly) { Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue }
 }
 exit 0   # deployed: don't report a leftover exit code from git or clasp notices

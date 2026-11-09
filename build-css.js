@@ -1,11 +1,12 @@
-// Regenerates tailwind.css from the class names used in index.html and stamps index.html with the file's
-// content hash (tailwind.css?v=HASH) so browsers can cache it safely.
+// Regenerates tailwind.css from the class names used in index.html and app.js, then runs build-sw.js (which stamps
+// index.html with the file's hash, tailwind.css?v=HASH, and updates sw.js).
 //
-//   node build-css.js           build tailwind.css and update the hash in index.html
-//   node build-css.js --check   exit 1 if tailwind.css is out of date (does not change any files)
+//   node build-css.js           build tailwind.css, then update the stamps and sw.js
+//   node build-css.js --check   exit 1 if tailwind.css is not what a fresh build gives (does not change any files;
+//                               node build-sw.js --check checks the stamp)
 //
-// Run it after any change to index.html that adds or changes Tailwind classes. It also updates the file hashes in
-// sw.js (build-sw.js); after any other change to a site file, run node build-sw.js. It uses the Tailwind version pinned in
+// Run it after any change to index.html or app.js that adds or changes Tailwind classes; after any other change to a
+// site file, run node build-sw.js. It uses the Tailwind version pinned in
 // package-lock.json, installed once with: npm ci --ignore-scripts
 const { execSync } = require('child_process');
 const crypto = require('crypto');
@@ -35,23 +36,16 @@ try {
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 }
 if (!hash) process.exit(1);
-const htmlPath = path.join(root, 'index.html');
-const html = fs.readFileSync(htmlPath, 'utf8');
-const linkRe = /href="tailwind\.css(\?v=[0-9a-f]*)?"/;
-if (!linkRe.test(html)) throw new Error('index.html has no tailwind.css link');
-
 if (check) {
-  const current = (html.match(linkRe)[1] || '').replace('?v=', '');
-  // Both must match a fresh build: the stamp in index.html, and the tailwind.css that is actually published.
+  // The tailwind.css that is actually published must be what a fresh build gives.
   const onDisk = fs.existsSync(cssPath) ? hashOf(cssPath) : 'missing';
-  if (current !== hash || onDisk !== hash) {
-    console.error(`tailwind.css is out of date (index.html says ${current || 'no hash'}, tailwind.css is ${onDisk}, current build is ${hash}). Run: node build-css.js`);
+  if (onDisk !== hash) {
+    console.error(`tailwind.css is out of date (tailwind.css is ${onDisk}, a fresh build is ${hash}). Run: node build-css.js`);
     process.exit(1);
   }
   console.log('tailwind.css is up to date (' + hash + ')');
 } else {
-  fs.writeFileSync(htmlPath, html.replace(linkRe, `href="tailwind.css?v=${hash}"`));
-  console.log(`built tailwind.css (${fs.statSync(outFile).size} bytes, v=${hash})`);
-  // index.html has changed, so the service worker's record of it must too.
-  require('./build-sw.js').stampServiceWorker();
+  console.log(`built tailwind.css (${fs.statSync(outFile).size} bytes, ${hash})`);
+  // Its stamp in index.html, and so the service worker's record of the page, change with it.
+  require('./build-sw.js').build();
 }

@@ -324,6 +324,11 @@
   let html = xhr.responseText;
   // The page is served from /tests/ here, so make its relative links (tailwind.css, sw.js...) resolve from the root.
   html = html.replace(/<head>/i, '<head><base href="/">');
+  // The page's own scripts (guard.js, then app.js) are added straight after it is written, in that order, rather than
+  // written with it: Chrome sometimes drops a script that document.write() asks for (its request is aborted), and the
+  // app would never start. They still load from this site under the page's security policy.
+  const scripts = [];
+  html = html.replace(/<script src="([^"]+)"><\/script>/g, (all, src) => { scripts.push(src); return ''; });
   // Written once this harness has finished parsing. While its own parser is running, document.open() does nothing
   // and the page would land inside the harness's <body>, where the browser ignores the page's security policy tag.
   // Anything a security policy refuses (an inline handler, a script from elsewhere) is reported as an error, which
@@ -333,6 +338,12 @@
     document.addEventListener('securitypolicyviolation', e => console.error('Security policy refused (' + e.effectiveDirective + '): ' + (e.sample || e.blockedURI)));
     document.write(html);
     document.close();
+    for (const src of scripts) {
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = false;   // run in order
+      document.body.appendChild(s);
+    }
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', write); else write();
 })();
