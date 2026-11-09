@@ -8,9 +8,9 @@ const CACHE_NAME = 'paydayflow-v6';
 // changes this list, and so this file, which is how each device picks up a new version.
 const SITE_HASHES = {
   // <site-hashes>
-  '/': '803961c20636731a10bf2383155cb1dfe921f8cb2fb3f5d73e9bd36148326542',
+  '/': 'b5960c05c24cf3e3e187e0d1b1ff13df2577ab74a689d95bd38dbcfa1c027f6a',
   '/guard.js': 'f8d4ca9cba1a71963b8f19262e9381ba7743f9a1f8c397ee3cb776437517a7cc',
-  '/app.js': 'c444e76a042d849bcaafeb1311dc1b25955197d76d7d99eb218e2c40d368a9eb',
+  '/app.js': '7ee2c2ea7d9d94c6ee4d5123a68f2145ff8b4da9150734a9e6f5edf2d706ef9d',
   '/tailwind.css': 'ae92c5cffe993f4cca370164fd644a8308d01db01be487c1e47338115464d316',
   '/manifest.json': 'f41e3736fbec8f5861c2d60e992c5b8133e1d06a9afdf527bf753728abb69784',
   '/icons/icon-192.png': '4d5d98ee6b7399e36c0608ae5214ef8bb0b2b5b6f93f0b2b78a0232a4f615da6',
@@ -92,7 +92,8 @@ self.addEventListener('activate', (event) => {
 // The app's own files open from the saved copy straight away (so it starts instantly on a weak signal or offline),
 // but only a copy that matches. Anything else goes to the network, and a reply that matches is saved for next time.
 // A home-screen shortcut opens the page as /?go=..., and the scripts and the stylesheet are asked for as app.js?v=...
-// (see build-sw.js): each is found under its plain address. Other requests (POSTs, Google, Apps Script, unknown addresses) are left alone.
+// (see build-sw.js): each is found under its plain address. Other requests (POSTs, Google, Apps Script, unknown
+// addresses) are left alone.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);

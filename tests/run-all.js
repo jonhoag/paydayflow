@@ -23,7 +23,7 @@ const suites = [
   ['spending summary', ['tests/spending.test.js']],
   ...backend.slice(1),
   ['tailwind.css is current', ['build-css.js', '--check']],
-  ['sw.js file hashes are current', ['build-sw.js', '--check']],
+  ['?v= stamps and sw.js file hashes are current', ['build-sw.js', '--check']],
 ];
 if (chrome) {
   suites.push(...(privateSuites || []).filter(s => s[2]));

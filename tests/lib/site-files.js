@@ -3,13 +3,13 @@
 // outside it.
 const fs = require('fs');
 const path = require('path');
-const { publishedBytes, siteFiles } = require('../../build-sw');
+const { publishedBytes, publishedFiles } = require('../../build-sw');
 
 const root = path.resolve(__dirname, '..', '..');
 const HOST = '127.0.0.1';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css', '.png': 'image/png', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8' };
-// The website's own files (the one list, in build-sw.js), sw.js, and the test page.
-const SITE = new Set([...siteFiles(root), 'sw.js', 'tests/harness.html']);
+// The website's files as published (the one list, in build-sw.js), and the test page.
+const SITE = new Set([...publishedFiles(root), 'tests/harness.html']);
 
 // The path a request asks for (the page itself for "/"), or null if it can't be read.
 function siteRel(url) {

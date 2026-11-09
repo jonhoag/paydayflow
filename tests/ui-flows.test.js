@@ -11,6 +11,7 @@ const { launchChrome, makeSteps, awayAndBack } = require('./lib/runner');
 const PORT = 8129;
 const crypto = require('crypto');
 const { root, HOST, siteRel, sendSiteFile, publishedBytes } = require('./lib/site-files');
+const { siteFiles } = require('../build-sw');
 // The test page is served under the app's own script policy (read from index.html), plus the test page's own inline
 // scripts by hash. So, as on the real site, an inline script or an inline handler (onclick="...") in the app is
 // refused, even on a control a screen draws later (when its event fires), and the refusal fails the run. (Only
@@ -20,8 +21,8 @@ const PAGE_SCRIPTS = PAGE_CSP.split(';').map(d => d.trim()).find(d => d.startsWi
 const inlineScriptHashes = file => [...publishedBytes(path.join(root, file)).toString('utf8').matchAll(/<script>([\s\S]*?)<\/script>/g)]
   .map(m => `'sha256-${crypto.createHash('sha256').update(m[1], 'utf8').digest('base64')}'`);
 const STRICT_SCRIPTS = [PAGE_SCRIPTS, ...inlineScriptHashes('tests/harness.html')].join(' ');
-// The app's own code, as the source checks below read it.
-const appSource = () => ['index.html', 'guard.js', 'app.js'].map(f => fs.readFileSync(path.join(root, f), 'utf8')).join('\n');
+// The app's own code (the page and every script of the site), as the source checks below read it.
+const appSource = () => siteFiles(root).filter(f => /\.(html|js)$/.test(f)).map(f => fs.readFileSync(path.join(root, f), 'utf8')).join('\n');
 const server = http.createServer((req, res) => {
   if (siteRel(req.url) === 'tests/harness.html') res.setHeader('Content-Security-Policy', STRICT_SCRIPTS);
   sendSiteFile(req, res);
@@ -1937,7 +1938,6 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     ['default-src \'self\'', 'script-src \'self\' https://accounts.google.com/gsi/client;',
       'connect-src \'self\' ' + exec + ' https://script.googleusercontent.com https://accounts.google.com/gsi/;',
       'object-src \'none\'', 'form-action \'none\'', 'font-src \'self\''].forEach(d => assert.ok(csp.includes(d), 'missing: ' + d));
-    assert.strictEqual(PAGE_SCRIPTS, 'script-src \'self\' https://accounts.google.com/gsi/client');
     // So the page itself holds no script: each one is a file of the site's own, asked for by its hash.
     const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     assert.deepStrictEqual([...html.matchAll(/<script\b[^>]*>/gi)].map(m => m[0].replace(/\?v=[0-9a-f]{10}"/, '?v=HASH"')),
@@ -2464,16 +2464,19 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await cg.close();
   }
 
-  await step('shown inside another website\'s frame, the page stays blank and never starts', async () => {
+  await step('shown inside another website\'s frame, the page stays blank and never starts (even if guard.js never arrives)', async () => {
     const c4 = await browser.newContext(desk);
     const p4 = await c4.newPage();
-    await p4.setContent(`<iframe src="http://localhost:${PORT}/tests/harness.html?demo=1&latency=50" style="width:1200px;height:700px"></iframe>`);
-    await p4.waitForFunction(() => document.querySelector('iframe').contentWindow.frames !== undefined);
-    await p4.waitForTimeout(2000);
-    const f = p4.frames().find(x => x.url().includes('harness.html'));
-    const s = await f.evaluate(() => ({ framed: window.PF_FRAMED, display: getComputedStyle(document.documentElement).display,
-      calls: window.MOCK ? MOCK.calls.length : -1, gsi: window.MOCK ? MOCK.gsi.initialize : -1, icons: document.querySelectorAll('svg').length }));
-    assert.deepStrictEqual(s, { framed: true, display: 'none', calls: 0, gsi: 0, icons: 0 });
+    for (const query of ['demo=1', 'demo=1&noguard=1']) {
+      await p4.setContent(`<iframe src="http://localhost:${PORT}/tests/harness.html?${query}&latency=50" style="width:1200px;height:700px"></iframe>`);
+      await p4.waitForFunction(() => document.querySelector('iframe').contentWindow.frames !== undefined);
+      await p4.waitForTimeout(2000);
+      const f = p4.frames().find(x => x.url().includes('harness.html'));
+      const s = await f.evaluate(() => ({ framed: window.PF_FRAMED, display: getComputedStyle(document.documentElement).display,
+        calls: window.MOCK ? MOCK.calls.length : -1, gsi: window.MOCK ? MOCK.gsi.initialize : -1, icons: document.querySelectorAll('svg').length,
+        guard: [...document.scripts].some(x => /guard\.js/.test(x.src)) }));
+      assert.deepStrictEqual(s, { framed: true, display: 'none', calls: 0, gsi: 0, icons: 0, guard: query === 'demo=1' }, query);
+    }
     await c4.close();
   });
   await step('no page errors anywhere (nothing refused by the security policy either)', async () => {

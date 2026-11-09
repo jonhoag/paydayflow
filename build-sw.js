@@ -31,6 +31,9 @@ function publishedBytes(file) {
   return TEXT.test(file) ? Buffer.from(raw.toString('latin1').replace(/\r\n/g, '\n'), 'latin1') : raw;
 }
 const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+// The SHA-256 of a site file: as published, or with raw, its bytes on disk exactly as they are. The ?v= stamp is its
+// first 10 characters, so the stamp and sw.js's record always come from the same hash.
+const fileHash = (root, rel, raw) => sha256(raw ? fs.readFileSync(path.join(root, rel)) : publishedBytes(path.join(root, rel)));
 
 // Every file the service worker may save, relative to the site folder. The test servers (tests/lib/site-files.js)
 // serve these, and --collect publishes these plus NOT_SAVED. Add a new kind of file here (and to ALLOWED in the
@@ -44,10 +47,7 @@ const publishedFiles = (root = __dirname) => [...siteFiles(root), ...NOT_SAVED];
 // { address it is fetched at (the page itself is "/"): SHA-256 }. With raw, the bytes on disk exactly as they are.
 function siteHashes(root = __dirname, raw = false) {
   const out = {};
-  for (const rel of siteFiles(root)) {
-    const file = path.join(root, rel);
-    out[rel === 'index.html' ? '/' : '/' + rel] = sha256(raw ? fs.readFileSync(file) : publishedBytes(file));
-  }
+  for (const rel of siteFiles(root)) out[rel === 'index.html' ? '/' : '/' + rel] = fileHash(root, rel, raw);
   return out;
 }
 
@@ -59,7 +59,7 @@ function stampVersions({ check = false, root = __dirname, raw = false } = {}) {
   let next = html;
   const stale = [];
   for (const rel of STAMPED) {
-    const v = sha256(raw ? fs.readFileSync(path.join(root, rel)) : publishedBytes(path.join(root, rel))).slice(0, 10);
+    const v = fileHash(root, rel, raw).slice(0, 10);
     const re = new RegExp(`((?:src|href)="${rel.replace(/\./g, '\\.')})(\\?v=[0-9a-f]*)?"`, 'g');
     const found = [...next.matchAll(re)];
     if (found.length !== 1) throw new Error(`index.html asks for ${rel} ${found.length} times (it must be exactly once)`);

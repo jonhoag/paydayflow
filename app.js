@@ -1,6 +1,13 @@
 // PaydayFlow: everything the page does. Loaded by index.html at the end of <body> (and put back inside the page for the
 // copy Apps Script serves, by deploy-backend.ps1). Buttons and fields name what they do with data-action and the like
 // (see ACTIONS near the end); nothing is written into the page as an on...= handler or an inline script.
+
+// Backstop for the frame guard (guard.js, the same check): if that file didn't arrive, the app still stays blank and
+// never starts inside another website's frame.
+if (!window.PF_FRAMED && window.top !== window.self && !/\.googleusercontent\.com$/.test(location.hostname)) {
+  window.PF_FRAMED = true;
+  document.documentElement.style.display = 'none';
+}
     // Also written in the Content-Security-Policy at the top of the page (the screen tests check they match).
     const APPS_SCRIPT_EXEC_URL = 'https://script.google.com/macros/s/AKfycbwiuLsruSCA-k2EeMn8bH6AZygi0ISA2WDTB_UJmetDOJdU6S4qLE21WmjyJK1ktCMrUA/exec';
     const GOOGLE_CLIENT_ID = '1074590107449-b3clq41r6un84qma18lomq7ip2f833pk.apps.googleusercontent.com';
