@@ -9,8 +9,19 @@ const assert = require('assert');
 
 const { launchChrome, makeSteps, awayAndBack } = require('./lib/runner');
 const PORT = 8129;
-const { root, HOST, sendSiteFile } = require('./lib/site-files');
-const server = http.createServer(sendSiteFile);
+const crypto = require('crypto');
+const { root, HOST, siteRel, sendSiteFile, publishedBytes } = require('./lib/site-files');
+// The test page also gets a stricter script policy than the page's own (which still allows inline script): only this
+// site's files, Google sign-in and the exact inline scripts of the test page and the app (by hash). So an inline
+// handler (onclick="...") anywhere, even one a screen draws later, is refused, and the refusal fails the run.
+const inlineScriptHashes = file => [...publishedBytes(path.join(root, file)).toString('utf8').matchAll(/<script>([\s\S]*?)<\/script>/g)]
+  .map(m => `'sha256-${crypto.createHash('sha256').update(m[1], 'utf8').digest('base64')}'`);
+const STRICT_SCRIPTS = ["script-src 'self' https://accounts.google.com/gsi/client",
+  ...inlineScriptHashes('tests/harness.html'), ...inlineScriptHashes('index.html')].join(' ');
+const server = http.createServer((req, res) => {
+  if (siteRel(req.url) === 'tests/harness.html') res.setHeader('Content-Security-Policy', STRICT_SCRIPTS);
+  sendSiteFile(req, res);
+});
 
 const { step, finish } = makeSteps();
 // Spending's month bars with six big months: the bars it shows, each label's text, line count and whether it fits
@@ -250,7 +261,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.click('nav [data-nav="pending"]');
     assert.strictEqual(await page.evaluate(() => owedGroupsShown.length), 1, 'test set-up: one person should owe');
     assert.ok(!(await visible(page, '#btnSettleAll')), 'header "All paid back" shows with one person');
-    assert.ok(await visible(page, '.owed-groups button[data-person][onclick^="handleSettlePerson"]'), "that person's own button is missing");
+    assert.ok(await visible(page, '.owed-groups button[data-person][data-action="handleSettlePerson"]'), "that person's own button is missing");
     await page.click('nav [data-nav="home"]');
   });
 
@@ -286,7 +297,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(await visible(page, '.owed-summary'), 'summary hidden');
     assert.ok(!(await visible(page, '.owed-groups')), 'full list should be hidden on Home');
     assert.ok(!(await visible(page, '#owedTabs')), 'Still owed / Paid back tabs should be hidden on Home');
-    const people = await page.$$eval('.owed-summary > button[onclick="setView(\'pending\')"]', bs => bs.length);
+    const people = await page.$$eval('.owed-summary > button[data-action="setView"][data-arg="pending"]', bs => bs.length);
     assert.strictEqual(people, 4, 'one row per person, and no "See everything owed" button');
     assert.ok(!/See everything/.test(await page.textContent('.owed-summary')), 'the "See everything owed" button is back');
     assert.strictEqual(await owedCount(page), 24);
@@ -1182,15 +1193,15 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.deepStrictEqual(await sizesOk('#addModal [id^="dir_"], #addModal [id^="acct_"], #btnSubmitTx'), [7, []]);
       let lines = await lineCounts(p8, ['#dir_spend', '#dir_refund', '#acct_checking', '#btnSubmitTx']);
       await p8.evaluate(() => { closeAddModal(); const r = state.amex.find(x => !x.pending && x.desc !== 'start') || state.checking.find(x => x.desc !== 'start'); openEditTxModal(state.amex.includes(r) ? 'amex' : 'checking', r.row, r.desc, r.amount); });
-      assert.deepStrictEqual(await sizesOk('#editTxModal [id^="etsign_"], #editTxModal [id^="etx_"], #btnSaveEditTx, #editTxModal button[onclick="deleteCurrentTx()"]'), [8, []]);
+      assert.deepStrictEqual(await sizesOk('#editTxModal [id^="etsign_"], #editTxModal [id^="etx_"], #btnSaveEditTx, #editTxModal button[data-action="deleteCurrentTx"]'), [8, []]);
       lines = lines.concat(await lineCounts(p8, ['#etsign_neg', '#etsign_pos', '#etx_checking', '#btnSaveEditTx']));
       assert.deepStrictEqual(lines.filter(x => !/:1$/.test(x)), [], lines.join(' '));
     } finally { await c8.close(); }
   });
   // The Add sheet's small split controls (Jon kept their look, 2026-11-08): each has a hidden tap area of at least
   // 24px (as big as it can be, up to 44px, without reaching a neighbour), and adding it changes nothing on screen.
-  const SMALL_TAPS = { equal: '#customSplitBox button[onclick="applyEqualGroupSplit()"]', includeMe: '#customSplitBox label:has(#chkEqualIncludeMe)',
-    remove: '#dynamicSplitRows button[onclick^="removePersonRow"]', owed: '#needToggleWrap' };
+  const SMALL_TAPS = { equal: '#customSplitBox button[data-action="applyEqualGroupSplit"]', includeMe: '#customSplitBox label:has(#chkEqualIncludeMe)',
+    remove: '#dynamicSplitRows button[data-action="removePersonRow"]', owed: '#needToggleWrap' };
   // Where each one's tap area is (from its ::after), and every way it could go wrong: too small, a point in it that
   // doesn't reach it, overlapping another control, or taking a tap from one.
   const smallTaps = page => page.evaluate(sels => {
@@ -1418,7 +1429,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
         await page.evaluate(() => setView('pending'));
         bad = bad.concat(await check('.owed-groups button[aria-label$=" paid back"]', 10));
         bad = bad.concat(await check('#pill_pending, #pill_settled, #btnSettleAll', 3));
-        bad = bad.concat(await check('.owed-groups button[onclick^="handleSettlePerson"]', 3));
+        bad = bad.concat(await check('.owed-groups button[data-action="handleSettlePerson"]', 3));
         await page.evaluate(() => setView('budgets'));
         await page.evaluate(() => { document.getElementById('paidFold').open = true; });
         bad = bad.concat(await check('#clearedBudgetsList button:not([aria-label])', 1));
@@ -1786,14 +1797,15 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   ({ ctx, page } = await open(phone, 'evil=1'));
   // Hostile text in every account, a bill, an Owed entry, a month name and a fingerprint device (id and label):
   // every screen that shows it is opened, and nothing may run, add an element, or add a handler.
-  // The page's own handlers are onclick, oninput and onchange; any other, or one mentioning __pwned, came from text.
+  // The page has no handlers in its markup (it uses data-action and friends), so any on...= attribute came from text, and
+  // so did any action name the page doesn't know.
   const hostile = () => page.evaluate(() => ({
     pwned: window.__pwned || null,
     imgs: document.querySelectorAll('img').length,
     bolds: document.querySelectorAll('b').length,
     protoTouched: 'total' in {} || 'count' in {},
     handlers: [...document.querySelectorAll('*')].flatMap(el => [...el.attributes]
-      .filter(a => /^on/i.test(a.name) && (/pwned/.test(a.value) || !/^on(click|input|change)$/i.test(a.name)))
+      .filter(a => /^on/i.test(a.name) || (/^data-(action|input|change)$/.test(a.name) && !Object.prototype.hasOwnProperty.call(ACTIONS, a.value)))
       .map(a => el.tagName + ' ' + a.name + '=' + a.value.slice(0, 40)))
   }));
   const CLEAN = { pwned: null, imgs: 0, bolds: 0, protoTouched: false, handlers: [] };
@@ -1861,7 +1873,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.strictEqual(await page.$$eval('header button', bs => bs.filter(b => /Add/.test(b.textContent)).length), 0, 'the top bar still has an Add button');
     for (const w of [1024, 1280, 1600]) {
       await page.setViewportSize({ width: w, height: 800 });
-      assert.ok(await visible(page, 'aside button[onclick="openAddModal()"]'), 'no Add Transaction in the sidebar at ' + w + 'px');
+      assert.ok(await visible(page, 'aside button[data-action="openAddModal"]'), 'no Add Transaction in the sidebar at ' + w + 'px');
     }
     await page.setViewportSize({ width: 1280, height: 800 });
   });
@@ -1921,6 +1933,45 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     const exec = fs.readFileSync(path.join(root, 'index.html'), 'utf8').match(/const APPS_SCRIPT_EXEC_URL = '([^']+)'/)[1];
     ['default-src \'self\'', 'connect-src \'self\' ' + exec + ' https://script.googleusercontent.com https://accounts.google.com/gsi/;',
       'object-src \'none\'', 'form-action \'none\'', 'font-src \'self\''].forEach(d => assert.ok(csp.includes(d), 'missing: ' + d));
+  });
+  await step('no inline handlers in the page: each control names one of its ACTIONS, and every action is used', async () => {
+    const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    assert.deepStrictEqual(html.match(/(^|[\s"'`])on[a-z]+\s*=\s*["'`$]|setAttribute\(\s*['"`]on/gim) || [], [], 'inline handlers left');
+    const actions = await page.evaluate(() => Object.keys(ACTIONS));
+    // The Activity filter chips are drawn by chip(label, action), so their actions are named in its calls.
+    const named = [...html.matchAll(/data-(?:action|input|change)="([^"]*)"/g)].map(m => m[1]).filter(n => n !== '${action}')
+      .concat([...html.matchAll(/chip\([^\n]*?, '(\w+)'\)/g)].map(m => m[1]));
+    assert.deepStrictEqual(named.filter(n => !actions.includes(n)), [], 'controls name actions that do not exist');
+    assert.deepStrictEqual(actions.filter(a => !named.includes(a)), [], 'actions nothing uses');
+  });
+  await step('taps reach the same places as before: data-stop, data-backdrop, and the menu', async () => {
+    const s = await page.evaluate(() => {
+      const out = {};
+      const chev = () => document.getElementById('chevBudgets').getAttribute('aria-expanded');
+      const shown = id => !document.getElementById(id).classList.contains('hidden');
+      const was = chev();
+      document.getElementById('btnAddBill').click();                  // a button inside the header's data-stop group
+      out.addBill = [shown('budgetModal'), chev() === was];
+      closeBudgetForm();
+      document.getElementById('btnAddBill').parentElement.click();    // the group itself: nothing happens
+      out.group = chev() === was;
+      document.querySelector('#sec_budgets h2').click();              // the header: folds the section
+      out.header = chev() !== was;
+      document.querySelector('#sec_budgets h2').click();
+      out.headerBack = chev() === was;
+      openSpendModal();
+      document.getElementById('spendTitle').click();                  // inside the sheet: stays open
+      out.inside = shown('spendModal');
+      document.getElementById('spendModal').click();                  // the dark area round it: closes
+      out.backdrop = !shown('spendModal');
+      document.getElementById('menuBtn').click();                     // toggleMenu stops the tap, so it stays open
+      out.menuOpen = shown('menuPanel');
+      document.querySelector('#sec_budgets h2').click();              // any other tap closes it (and folds Bills)
+      out.menuClosed = !shown('menuPanel');
+      document.querySelector('#sec_budgets h2').click();
+      return out;
+    });
+    assert.deepStrictEqual(s, { addBill: [true, true], group: true, header: true, headerBack: true, inside: true, backdrop: true, menuOpen: true, menuClosed: true });
   });
   await ctx.close();
 
