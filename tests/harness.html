@@ -326,7 +326,14 @@
   html = html.replace(/<head>/i, '<head><base href="/">');
   // Written once this harness has finished parsing. While its own parser is running, document.open() does nothing
   // and the page would land inside the harness's <body>, where the browser ignores the page's security policy tag.
-  const write = () => { document.open(); document.write(html); document.close(); };
+  // Anything a security policy refuses (an inline handler, a script from elsewhere) is reported as an error, which
+  // fails the screen tests. Added after document.open(), which drops the listeners added before it.
+  const write = () => {
+    document.open();
+    document.addEventListener('securitypolicyviolation', e => console.error('Security policy refused (' + e.effectiveDirective + '): ' + (e.sample || e.blockedURI)));
+    document.write(html);
+    document.close();
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', write); else write();
 })();
 </script>

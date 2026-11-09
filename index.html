@@ -117,7 +117,7 @@
       <div style="width:52px; height:52px; border-radius:14px; background:rgba(16,185,129,0.15); color:#10B981; display:flex; align-items:center; justify-content:center; font-size:24px; margin:0 auto 16px;"><span data-icon="lock" data-class="w-6 h-6"></span></div>
       <h2 style="margin:0 0 8px; font-size:20px; font-weight:700;">PaydayFlow Locked</h2>
       <p id="authLockMsg" style="margin:0 0 24px; font-size:13px; color:#94A3B8; line-height:1.5;">Sign in with your authorized Google account to unlock your live ledger.</p>
-      <button id="passkeyUnlockBtn" onclick="unlockWithPasskey(false)" style="display:none; width:100%; min-height:52px; margin:0 0 16px; border:0; border-radius:14px; background:#10B981; color:#052E1F; font-size:15px; font-weight:700; align-items:center; justify-content:center; gap:10px; cursor:pointer;">
+      <button id="passkeyUnlockBtn" data-action="unlockWithPasskey" style="display:none; width:100%; min-height:52px; margin:0 0 16px; border:0; border-radius:14px; background:#10B981; color:#052E1F; font-size:15px; font-weight:700; align-items:center; justify-content:center; gap:10px; cursor:pointer;">
         <span data-icon="fingerprint" data-class="w-6 h-6"></span><span id="passkeyUnlockLabel">Unlock with fingerprint</span>
       </button>
       <div id="passkeyOr" style="display:none; margin:0 0 14px; font-size:12px; color:#64748B;">or use Google</div>
@@ -133,47 +133,47 @@
           <div class="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center font-bold text-slate-950 text-base">£</div>
           <span class="font-bold text-base tracking-tight text-slate-900 dark:text-white">PaydayFlow</span>
         </div>
-        <button onclick="cycleTheme()" id="themeBtnDesktop" title="Theme: Auto / Light / Dark"
+        <button data-action="cycleTheme" id="themeBtnDesktop" title="Theme: Auto / Light / Dark"
                 class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 flex items-center justify-center text-xs font-bold">
           ◐
         </button>
       </div>
 
-      <button onclick="openAddModal()" class="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm transition flex items-center justify-center gap-1.5">
+      <button data-action="openAddModal" class="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm transition flex items-center justify-center gap-1.5">
         <span>＋ Add Transaction</span>
       </button>
 
       <nav class="space-y-1 text-sm">
-        <button onclick="jumpToSection('top')" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl bg-slate-100 text-slate-900 dark:bg-slate-700/70 dark:text-white font-medium">
+        <button data-action="jumpToSection" data-arg="top" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl bg-slate-100 text-slate-900 dark:bg-slate-700/70 dark:text-white font-medium">
           <span data-icon="home" data-class="w-4 h-4"></span> <span>Overview</span>
         </button>
-        <button onclick="jumpToSection('budgets')" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60 font-medium">
+        <button data-action="jumpToSection" data-arg="budgets" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60 font-medium">
           <span data-icon="calendar" data-class="w-4 h-4"></span> <span>Bills &amp; Budgets</span>
         </button>
-        <button onclick="jumpToSection('pending')" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60 font-medium">
+        <button data-action="jumpToSection" data-arg="pending" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60 font-medium">
           <span data-icon="pound" data-class="w-4 h-4"></span> <span>Owed</span>
         </button>
-        <button onclick="jumpToSection('activity')" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60 font-medium">
+        <button data-action="jumpToSection" data-arg="activity" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60 font-medium">
           <span data-icon="card" data-class="w-4 h-4"></span> <span>Activity</span>
         </button>
-        <button onclick="openSpendModal()" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60 font-medium">
+        <button data-action="openSpendModal" class="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/60 font-medium">
           <span data-icon="chart" data-class="w-4 h-4"></span> <span>Spending</span>
         </button>
       </nav>
     </div>
 
     <div class="space-y-2 pt-4 border-t border-slate-200 dark:border-slate-700/70">
-      <button id="sidePasskeyBtn" onclick="openPasskeyModal()" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 text-xs font-medium inline-flex items-center justify-center gap-1.5">
+      <button id="sidePasskeyBtn" data-action="openPasskeyModal" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 text-xs font-medium inline-flex items-center justify-center gap-1.5">
         <span data-icon="fingerprint" data-class="w-3.5 h-3.5"></span> Fingerprint sign-in
       </button>
-      <button onclick="openNewMonthModal()" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 text-xs font-medium inline-flex items-center justify-center gap-1.5">
+      <button data-action="openNewMonthModal" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 text-xs font-medium inline-flex items-center justify-center gap-1.5">
         <span data-icon="calendar_plus" data-class="w-3.5 h-3.5"></span> Start New Month
       </button>
       <a id="rawSheetBtn" href="#" target="_blank"
          class="w-full py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-slate-800/50 dark:hover:bg-slate-800 dark:text-emerald-400 text-xs font-medium flex items-center justify-center gap-1.5">
         <span data-icon="sheet" data-class="w-3.5 h-3.5"></span><span>Open Sheet</span>
       </a>
-      <button id="sideSignOutBtn" onclick="openSignOutModal()" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 text-xs font-medium inline-flex items-center justify-center gap-1.5">
+      <button id="sideSignOutBtn" data-action="openSignOutModal" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 text-xs font-medium inline-flex items-center justify-center gap-1.5">
         <span data-icon="logout" data-class="w-3.5 h-3.5"></span> Sign out
       </button>
     </div>
@@ -185,7 +185,7 @@
     <!-- Clean Single-Line Header -->
     <header class="sticky top-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3.5 lg:px-8 py-2.5 flex items-center justify-between gap-2">
       <div class="relative flex items-center min-w-0 flex-1 max-w-xs">
-        <select id="monthSelector" aria-label="Month" onchange="switchMonth(this.value)"
+        <select id="monthSelector" aria-label="Month" data-change="switchMonth"
                 class="w-full appearance-none bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold text-xs sm:text-sm rounded-xl pl-3 pr-7 py-2 border border-slate-200 dark:border-slate-700 truncate focus:outline-none cursor-pointer">
           <option value="">—</option>
         </select>
@@ -193,40 +193,40 @@
       </div>
 
       <div class="flex items-center gap-1.5 shrink-0">
-        <button onclick="retrySetAside(); forceSyncSheet()" id="syncBtn" title="Showing saved figures. Tap to sync" aria-label="Showing saved figures. Tap to sync"
+        <button data-action="syncNow" id="syncBtn" title="Showing saved figures. Tap to sync" aria-label="Showing saved figures. Tap to sync"
                 class="w-10 h-10 lg:w-8 lg:h-8 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
           <span data-icon="refresh" data-class="w-4 h-4"></span>
         </button>
         <!-- Overflow menu (phone): theme, fingerprint, Spending, new month, the sheet, sign out. Desktop has these in the sidebar. -->
         <div class="relative lg:hidden">
-          <button onclick="toggleMenu(event)" id="menuBtn" aria-label="More options" aria-haspopup="true" aria-expanded="false"
+          <button data-action="toggleMenu" data-stop id="menuBtn" aria-label="More options" aria-haspopup="true" aria-expanded="false"
                   class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center">
             <span data-icon="more" data-class="w-5 h-5"></span>
           </button>
           <div id="menuPanel" class="hidden absolute right-0 mt-2 w-60 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl py-1.5 z-40 text-sm">
-            <button onclick="cycleTheme()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+            <button data-action="cycleTheme" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
               <span id="themeMenuIcon"><span data-icon="contrast" data-class="w-4 h-4"></span></span>
               <span class="flex-1">Theme</span>
               <span id="themeMenuLabel" class="text-xs text-slate-500 dark:text-slate-400">Auto</span>
             </button>
-            <button id="menuPasskeyItem" onclick="openPasskeyModal()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+            <button id="menuPasskeyItem" data-action="openPasskeyModal" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
               <span data-icon="fingerprint" data-class="w-4 h-4"></span>
               <span class="flex-1">Fingerprint sign-in</span>
             </button>
-            <button onclick="openSpendModal()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+            <button data-action="openSpendModal" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
               <span data-icon="chart" data-class="w-4 h-4"></span>
               <span class="flex-1">Spending</span>
             </button>
-            <button onclick="closeMenu(); openNewMonthModal()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+            <button data-action="menuNewMonth" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
               <span data-icon="calendar_plus" data-class="w-4 h-4"></span>
               <span class="flex-1">Start new month</span>
             </button>
-            <a id="rawSheetMenuBtn" href="#" target="_blank" onclick="closeMenu()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+            <a id="rawSheetMenuBtn" href="#" target="_blank" data-action="closeMenu" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
               <span data-icon="sheet" data-class="w-4 h-4"></span>
               <span class="flex-1">Open Google Sheet</span>
             </a>
             <div id="menuSignOutRule" class="my-1.5 border-t border-slate-200 dark:border-slate-700"></div>
-            <button id="menuSignOutItem" onclick="openSignOutModal()" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+            <button id="menuSignOutItem" data-action="openSignOutModal" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
               <span data-icon="logout" data-class="w-4 h-4"></span>
               <span class="flex-1">Sign out</span>
             </button>
@@ -239,7 +239,7 @@
     <main class="max-w-5xl mx-auto p-3.5 lg:p-6 flex flex-col gap-3.5">   <!-- gap, not space-y: hidden cards (caption, offers) leave no space -->
 
       <!-- Sync status lives in the sync button's colour and label (updateSyncUi). Words show only when a sync failed. -->
-      <button id="syncStatus" onclick="retrySetAside(); forceSyncSheet()" class="hidden text-xs text-rose-700 dark:text-rose-400 -mb-1 px-1 whitespace-nowrap text-left">
+      <button id="syncStatus" data-action="syncNow" class="hidden text-xs text-rose-700 dark:text-rose-400 -mb-1 px-1 whitespace-nowrap text-left">
         <span id="syncText"></span>
       </button>
 
@@ -250,8 +250,8 @@
           <div class="text-xs font-bold text-slate-900 dark:text-white">Unlock faster with your fingerprint</div>
           <div class="text-xs text-slate-500 dark:text-slate-400">Skip the Google sign-in pages next time.</div>
         </div>
-        <button onclick="openPasskeyModal()" class="h-10 px-3 rounded-lg bg-emerald-500 text-slate-950 text-xs font-bold whitespace-nowrap">Set up</button>
-        <button onclick="dismissPasskeyOffer()" aria-label="Not now" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 text-lg font-bold">✕</button>
+        <button data-action="openPasskeyModal" class="h-10 px-3 rounded-lg bg-emerald-500 text-slate-950 text-xs font-bold whitespace-nowrap">Set up</button>
+        <button data-action="dismissPasskeyOffer" aria-label="Not now" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 text-lg font-bold">✕</button>
       </div>
 
       <!-- 1. HERO BANNER AT VERY TOP: MONEY LEFT -->
@@ -304,16 +304,16 @@
         <!-- SECTION A: BILLS & BUDGETS -->
         <div id="sec_budgets">
           <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-            <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('budgets')">
+            <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" data-action="toggleSection" data-arg="budgets">
               <div class="sec-head min-w-0 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
                 <h2 class="text-base font-semibold text-slate-900 dark:text-white whitespace-nowrap">Bills &amp; Budgets</h2>
                 <span id="budLeftVal" class="text-sm tabular-nums text-slate-500 dark:text-slate-400 whitespace-nowrap">£—</span>
               </div>
-              <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation()">
-                <button id="btnAddBill" onclick="openBudgetForm()" class="hit text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 rounded-lg whitespace-nowrap">
+              <div class="flex items-center gap-2 shrink-0" data-stop>
+                <button id="btnAddBill" data-action="openBudgetForm" class="hit text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 rounded-lg whitespace-nowrap">
                   ＋ Add
                 </button>
-                <button onclick="toggleSection('budgets')" id="chevBudgets" aria-label="Bills &amp; Budgets" aria-controls="budgetsBody" aria-expanded="true" class="hit w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
+                <button data-action="toggleSection" data-arg="budgets" id="chevBudgets" aria-label="Bills &amp; Budgets" aria-controls="budgetsBody" aria-expanded="true" class="hit w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
                   ▾
                 </button>
               </div>
@@ -331,9 +331,9 @@
 
               <!-- Filter Chips -->
               <div><div class="chip-row flex gap-1.5 text-xs font-semibold overflow-x-auto">
-                <button onclick="setBudFilter('all')" id="bf_all" class="hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900">All</button>
-                <button onclick="setBudFilter('recurring')" id="bf_recurring" class="hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><span class="inline-flex items-center gap-1"><span data-icon="repeat" data-class="w-3 h-3"></span>Monthly</span></button>
-                <button onclick="setBudFilter('events')" id="bf_events" class="hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><span class="inline-flex items-center gap-1"><span data-icon="sparkle" data-class="w-3 h-3"></span>One-off</span></button>
+                <button data-action="setBudFilter" data-arg="all" id="bf_all" class="hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900">All</button>
+                <button data-action="setBudFilter" data-arg="recurring" id="bf_recurring" class="hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><span class="inline-flex items-center gap-1"><span data-icon="repeat" data-class="w-3 h-3"></span>Monthly</span></button>
+                <button data-action="setBudFilter" data-arg="events" id="bf_events" class="hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"><span class="inline-flex items-center gap-1"><span data-icon="sparkle" data-class="w-3 h-3"></span>One-off</span></button>
               </div></div>
 
               <!-- Active Unpaid Budgets -->
@@ -353,17 +353,17 @@
 
         <!-- SECTION B: OWED -->
         <div id="sec_pending" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-          <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('pending')">
+          <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" data-action="toggleSection" data-arg="pending">
             <div class="sec-head flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2 min-w-0">
               <h2 class="text-base font-semibold text-slate-900 dark:text-white whitespace-nowrap">Owed to you</h2>
               <span id="sumPending" class="text-sm tabular-nums text-slate-500 dark:text-slate-400 whitespace-nowrap">£—</span>
             </div>
-            <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation()">
-              <button id="btnSettleAll" onclick="handleSettleAll()" class="hit h-8 text-xs font-semibold px-3 rounded-full border border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300 whitespace-nowrap">
+            <div class="flex items-center gap-2 shrink-0" data-stop>
+              <button id="btnSettleAll" data-action="handleSettleAll" class="hit h-8 text-xs font-semibold px-3 rounded-full border border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300 whitespace-nowrap">
                 <span class="inline-flex items-center gap-1">
                   <span data-icon="check" data-class="w-3.5 h-3.5"></span>All paid back</span>
               </button>
-              <button onclick="toggleSection('pending')" id="chevPending" aria-label="Owed to you" aria-controls="pendingBody" aria-expanded="true" class="hit w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
+              <button data-action="toggleSection" data-arg="pending" id="chevPending" aria-label="Owed to you" aria-controls="pendingBody" aria-expanded="true" class="hit w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
                 ▾
               </button>
             </div>
@@ -371,10 +371,10 @@
 
           <div id="pendingBody" class="px-4 pb-4 space-y-3 border-t border-slate-100 dark:border-slate-800/80 pt-3">
             <div id="owedTabs" class="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit text-xs font-semibold">
-              <button onclick="setSplitPanel('pending')" id="pill_pending" class="hit px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+              <button data-action="setSplitPanel" data-arg="pending" id="pill_pending" class="hit px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
                 Still owed
               </button>
-              <button onclick="setSplitPanel('settled')" id="pill_settled" class="hit px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400">
+              <button data-action="setSplitPanel" data-arg="settled" id="pill_settled" class="hit px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400">
                 Paid back
               </button>
             </div>
@@ -386,14 +386,14 @@
 
         <!-- SECTION C: RECENT ACTIVITY -->
         <div id="sec_activity" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-          <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" onclick="toggleSection('activity')">
+          <div class="p-4 flex items-center justify-between gap-2 cursor-pointer select-none" data-action="toggleSection" data-arg="activity">
             <h2 class="text-base font-semibold text-slate-900 dark:text-white"><span class="act-title-home">Recent Activity</span><span class="act-title-tab">Activity</span></h2>
-            <div class="flex items-center gap-2 shrink-0" onclick="event.stopPropagation()">
+            <div class="flex items-center gap-2 shrink-0" data-stop>
               <!-- Phone Activity tab: the account filters and search fold away behind this (see toggleTxFilters) -->
-              <button onclick="toggleTxFilters()" id="txFilterBtn" aria-label="Filter activity" aria-controls="txFilterPanel" aria-expanded="false" class="hit w-11 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center">
+              <button data-action="toggleTxFilters" id="txFilterBtn" aria-label="Filter activity" aria-controls="txFilterPanel" aria-expanded="false" class="hit w-11 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center">
                 <span data-icon="filter" data-class="w-[18px] h-[18px]"></span>
               </button>
-              <button onclick="toggleSection('activity')" id="chevActivity" aria-label="Recent Activity" aria-controls="activityBody" aria-expanded="true" class="hit w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
+              <button data-action="toggleSection" data-arg="activity" id="chevActivity" aria-label="Recent Activity" aria-controls="activityBody" aria-expanded="true" class="hit w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 flex items-center justify-center text-xs">
                 ▾
               </button>
             </div>
@@ -405,14 +405,14 @@
             <div id="txFilterPanel" class="hidden space-y-3">
             <div id="txFilters"><div class="chip-row overflow-x-auto">
               <div class="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold w-max">
-                <button onclick="setTxFilter('all')" id="txf_all" class="hit px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">All</button>
-                <button onclick="setTxFilter('amex')" id="txf_amex" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Amex</button>
-                <button onclick="setTxFilter('barclays')" id="txf_barclays" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Barclays</button>
-                <button onclick="setTxFilter('checking')" id="txf_checking" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Nationwide</button>
-                <button onclick="setTxFilter('marcus')" id="txf_marcus" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Marcus</button>
+                <button data-action="setTxFilter" data-arg="all" id="txf_all" class="hit px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">All</button>
+                <button data-action="setTxFilter" data-arg="amex" id="txf_amex" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Amex</button>
+                <button data-action="setTxFilter" data-arg="barclays" id="txf_barclays" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Barclays</button>
+                <button data-action="setTxFilter" data-arg="checking" id="txf_checking" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Nationwide</button>
+                <button data-action="setTxFilter" data-arg="marcus" id="txf_marcus" class="hit px-2.5 py-1 rounded-lg text-slate-500 dark:text-slate-400">Marcus</button>
               </div>
             </div></div>
-            <input id="txSearch" type="text" aria-label="Search activity" placeholder="Filter merchant..." oninput="renderTransactions()"
+            <input id="txSearch" type="text" aria-label="Search activity" placeholder="Filter merchant..." data-input="renderTransactions"
                    class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none" />
             </div>
             <!-- With the filters folded away, each one still on shows here; tap it to clear it -->
@@ -427,29 +427,29 @@
   <!-- MOBILE BOTTOM NAVIGATION BAR -->
   <nav class="lg:hidden fixed bottom-0 inset-x-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 px-3 py-1.5 flex justify-around items-center z-30 text-xs font-medium text-slate-500 dark:text-slate-400"
        style="padding-bottom: calc(0.375rem + env(safe-area-inset-bottom));">
-    <button onclick="setView('home')" data-nav="home" aria-current="page" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1 text-emerald-500 font-semibold">
+    <button data-action="setView" data-arg="home" data-nav="home" aria-current="page" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1 text-emerald-500 font-semibold">
       <span data-icon="home" data-class="w-5 h-5"></span><span>Home</span>
     </button>
-    <button onclick="setView('budgets')" data-nav="budgets" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1">
+    <button data-action="setView" data-arg="budgets" data-nav="budgets" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1">
       <span data-icon="calendar" data-class="w-5 h-5"></span><span>Bills</span>
     </button>
-    <button onclick="openAddModal()" aria-label="Add transaction" class="w-12 h-12 -mt-5 rounded-full bg-emerald-500 text-slate-950 shadow-lg flex items-center justify-center">
+    <button data-action="openAddModal" aria-label="Add transaction" class="w-12 h-12 -mt-5 rounded-full bg-emerald-500 text-slate-950 shadow-lg flex items-center justify-center">
       <span data-icon="plus" data-class="w-6 h-6"></span>
     </button>
-    <button onclick="setView('pending')" data-nav="pending" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1">
+    <button data-action="setView" data-arg="pending" data-nav="pending" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1">
       <span data-icon="pound" data-class="w-5 h-5"></span><span>Owed</span>
     </button>
-    <button onclick="setView('activity')" data-nav="activity" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1">
+    <button data-action="setView" data-arg="activity" data-nav="activity" class="flex flex-col items-center gap-0.5 min-w-[56px] py-1">
       <span data-icon="card" data-class="w-5 h-5"></span><span>Activity</span>
     </button>
   </nav>
 
   <!-- SPENDING SUMMARY DIALOG -->
-  <div id="spendModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeSpendModal()">
+  <div id="spendModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4" data-action="closeSpendModal" data-backdrop>
     <div role="dialog" aria-modal="true" aria-labelledby="spendTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
         <h3 id="spendTitle" class="text-base font-semibold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="chart" data-class="w-4 h-4"></span>Spending</h3>
-        <button onclick="closeSpendModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+        <button data-action="closeSpendModal" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
       <div id="spendBody" class="space-y-4"></div>
     </div>
@@ -460,13 +460,13 @@
     <div role="dialog" aria-modal="true" aria-labelledby="pkTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
         <h3 id="pkTitle" class="text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="fingerprint" data-class="w-4 h-4"></span>Fingerprint sign-in</h3>
-        <button onclick="closePasskeyModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+        <button data-action="closePasskeyModal" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
       <p id="pkStatus" class="text-xs text-slate-600 dark:text-slate-300"></p>
       <div class="flex gap-2">
-        <button id="pkSetupBtn" onclick="runPasskeySetup()" class="hidden flex-1 h-11 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-bold disabled:opacity-50">Set up on this device</button>
-        <button id="pkTestBtn" onclick="testPasskey()" class="hidden flex-1 h-11 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-sm font-bold">Test it now</button>
-        <button id="pkOffBtn" onclick="removePasskeyDevice(lsGet(PASSKEY_ID_KEY))" class="hidden px-4 h-11 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 text-sm font-bold">Turn off</button>
+        <button id="pkSetupBtn" data-action="runPasskeySetup" class="hidden flex-1 h-11 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-bold disabled:opacity-50">Set up on this device</button>
+        <button id="pkTestBtn" data-action="testPasskey" class="hidden flex-1 h-11 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-sm font-bold">Test it now</button>
+        <button id="pkOffBtn" data-action="removeThisPasskey" class="hidden px-4 h-11 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 text-sm font-bold">Turn off</button>
       </div>
       <p id="pkMsg" class="hidden"></p>
       <div>
@@ -478,24 +478,24 @@
   </div>
 
   <!-- SIGN OUT DIALOG -->
-  <div id="signOutModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="if (event.target === this) closeSignOutModal()">
+  <div id="signOutModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4" data-action="closeSignOutModal" data-backdrop>
     <div role="dialog" aria-modal="true" aria-labelledby="soTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
         <h3 id="soTitle" class="text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="logout" data-class="w-4 h-4"></span>Sign out of this device</h3>
-        <button onclick="closeSignOutModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+        <button data-action="closeSignOutModal" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
       <p class="text-xs text-slate-600 dark:text-slate-300">Clears everything this device has saved (figures, bills, Owed, sign-in) and locks the app. Your Google Sheet isn't touched.</p>
       <div id="soWaiting" class="hidden rounded-xl px-3 py-2.5 text-xs bg-amber-500/15 text-amber-700 dark:text-amber-300 flex items-center gap-3">
         <span id="soWaitingText" class="flex-1"></span>
-        <button id="soSendBtn" onclick="sendWaitingBeforeSignOut()" class="h-9 px-3 rounded-lg font-bold whitespace-nowrap disabled:opacity-60" style="background:#F59E0B;color:#0B0F19">Send now</button>
+        <button id="soSendBtn" data-action="sendWaitingBeforeSignOut" class="h-9 px-3 rounded-lg font-bold whitespace-nowrap disabled:opacity-60" style="background:#F59E0B;color:#0B0F19">Send now</button>
       </div>
       <p id="soMsg" class="hidden"></p>
       <div class="space-y-1.5">
-        <button id="soBtn" onclick="signOut(false)" class="w-full h-11 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-bold disabled:opacity-50">Sign out</button>
+        <button id="soBtn" data-action="signOut" class="w-full h-11 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-bold disabled:opacity-50">Sign out</button>
         <p id="soKeepNote" class="text-xs text-slate-500 dark:text-slate-400">Fingerprint sign-in stays on, so you can unlock again with a touch.</p>
       </div>
       <div id="soForgetBlock" class="space-y-1.5">
-        <button id="soForgetBtn" onclick="signOut(true)" class="w-full h-11 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 text-sm font-bold disabled:opacity-50">Sign out and forget this device</button>
+        <button id="soForgetBtn" data-action="signOutAndForget" class="w-full h-11 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 text-sm font-bold disabled:opacity-50">Sign out and forget this device</button>
         <p class="text-xs text-slate-500 dark:text-slate-400">Also turns off fingerprint sign-in here. For a phone you're passing on or a shared computer.</p>
       </div>
     </div>
@@ -506,15 +506,15 @@
     <div role="dialog" aria-modal="true" aria-labelledby="addModalTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
         <h3 id="addModalTitle" class="text-sm font-bold text-slate-900 dark:text-white">Add Transaction</h3>
-        <button onclick="closeAddModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+        <button data-action="closeAddModal" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
 
       <!-- Spend (-) vs Refund / Money In (+) Toggle -->
       <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
-        <button type="button" onclick="setTxDirection('spend')" id="dir_spend" class="min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+        <button type="button" data-action="setTxDirection" data-arg="spend" id="dir_spend" class="min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-up-right" data-class="w-3.5 h-3.5"></span>Spend (−)</span>
         </button>
-        <button type="button" onclick="setTxDirection('refund')" id="dir_refund" class="min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400">
+        <button type="button" data-action="setTxDirection" data-arg="refund" id="dir_refund" class="min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-down-left" data-class="w-3.5 h-3.5"></span>Refund / in (+)</span>
         </button>
       </div>
@@ -523,7 +523,7 @@
       <div class="space-y-2.5">
         <div>
           <label for="inpAmount" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
-          <input id="inpAmount" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" placeholder="0.00" data-enter="inpMerchant" oninput="onGrossAmountInput()"
+          <input id="inpAmount" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" placeholder="0.00" data-enter="inpMerchant" data-input="onGrossAmountInput"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-[28px] leading-9 tabular-nums font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
           <p id="inpAmountErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
         </div>
@@ -538,10 +538,10 @@
       <div>
         <p id="lblAcct" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Card / Account</p>
         <div role="group" aria-labelledby="lblAcct" class="grid grid-cols-4 gap-1.5 text-xs font-semibold">
-          <button type="button" onclick="selectAcct('amex')" id="acct_amex" class="min-h-[44px] rounded-xl bg-emerald-500 text-slate-950">Amex</button>
-          <button type="button" onclick="selectAcct('barclays')" id="acct_barclays" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
-          <button type="button" onclick="selectAcct('checking')" id="acct_checking" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Nationwide</button>
-          <button type="button" onclick="selectAcct('marcus')" id="acct_marcus" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Marcus</button>
+          <button type="button" data-action="selectAcct" data-arg="amex" id="acct_amex" class="min-h-[44px] rounded-xl bg-emerald-500 text-slate-950">Amex</button>
+          <button type="button" data-action="selectAcct" data-arg="barclays" id="acct_barclays" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
+          <button type="button" data-action="selectAcct" data-arg="checking" id="acct_checking" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Nationwide</button>
+          <button type="button" data-action="selectAcct" data-arg="marcus" id="acct_marcus" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Marcus</button>
         </div>
       </div>
 
@@ -550,12 +550,12 @@
         <div>
           <p id="lblWho" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Who's Paying?</p>
           <div role="group" aria-labelledby="lblWho" class="flex flex-wrap gap-1.5 text-xs font-semibold">
-            <button type="button" onclick="selectSplit('100_me')" id="sp_100_me" class="px-2.5 py-1.5 rounded-xl bg-emerald-500 text-slate-950">Just Me</button>
+            <button type="button" data-action="selectSplit" data-arg="100_me" id="sp_100_me" class="px-2.5 py-1.5 rounded-xl bg-emerald-500 text-slate-950">Just Me</button>
             <!-- "Half w/ ..." and "All ...'s": named from the backend (renderQuickSplit), hidden until it has said who -->
-            <button type="button" onclick="selectSplit('half')" id="sp_half" style="display:none" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"></button>
-            <button type="button" onclick="selectSplit('all')" id="sp_all" style="display:none" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"></button>
-            <button type="button" onclick="selectSplit('custom')" id="sp_custom" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Group / Custom Split</button>
-            <button type="button" onclick="selectSplit('marcus')" id="sp_marcus" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">From Marcus</button>
+            <button type="button" data-action="selectSplit" data-arg="half" id="sp_half" style="display:none" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"></button>
+            <button type="button" data-action="selectSplit" data-arg="all" id="sp_all" style="display:none" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"></button>
+            <button type="button" data-action="selectSplit" data-arg="custom" id="sp_custom" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Group / Custom Split</button>
+            <button type="button" data-action="selectSplit" data-arg="marcus" id="sp_marcus" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">From Marcus</button>
           </div>
         </div>
 
@@ -563,7 +563,7 @@
         <div id="customSplitBox" class="hidden bg-slate-50 dark:bg-slate-800/80 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2.5 text-xs">
           <div class="flex items-center justify-between">
             <span class="text-xs font-semibold text-slate-500 dark:text-slate-300">1. Tap people to include:</span>
-            <button type="button" onclick="applyEqualGroupSplit()" class="hit hit-36 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+            <button type="button" data-action="applyEqualGroupSplit" class="hit hit-36 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
               ÷ Split Equally
             </button>
           </div>
@@ -574,7 +574,7 @@
           <!-- Equal Split Option: Include Me -->
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-0.5">
             <label class="hit hit-36 flex items-center gap-1.5 cursor-pointer">
-              <input id="chkEqualIncludeMe" type="checkbox" checked onchange="if(autoEqualActive) applyEqualGroupSplit()" class="rounded text-emerald-500" />
+              <input id="chkEqualIncludeMe" type="checkbox" checked data-change="includeMeChanged" class="rounded text-emerald-500" />
               <span>Include me when splitting equally</span>
             </label>
           </div>
@@ -593,7 +593,7 @@
         </label>
       </div>
 
-      <button id="btnSubmitTx" onclick="submitExpense()" class="w-full min-h-[44px] rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
+      <button id="btnSubmitTx" data-action="submitExpense" class="w-full min-h-[44px] rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
         Save Spend
       </button>
     </div>
@@ -607,7 +607,7 @@
           <h3 id="editTxTitle" class="text-sm font-bold text-slate-900 dark:text-white">Edit or Move Transaction</h3>
           <p class="text-xs text-slate-500 dark:text-slate-400">Change card, amount, or flip between spend &amp; credit</p>
         </div>
-        <button onclick="closeEditTxModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+        <button data-action="closeEditTxModal" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
 
       <input type="hidden" id="editTxRow" />
@@ -615,10 +615,10 @@
 
       <!-- Sign Toggle for Edit Modal -->
       <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
-        <button type="button" onclick="setEditTxSign(-1)" id="etsign_neg" class="min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+        <button type="button" data-action="setEditTxSign" data-arg="-1" id="etsign_neg" class="min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="minus" data-class="w-3.5 h-3.5"></span>Spend / out (−)</span>
         </button>
-        <button type="button" onclick="setEditTxSign(1)" id="etsign_pos" class="min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400">
+        <button type="button" data-action="setEditTxSign" data-arg="1" id="etsign_pos" class="min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="plus" data-class="w-3.5 h-3.5"></span>Credit / in (+)</span>
         </button>
       </div>
@@ -641,18 +641,18 @@
       <div>
         <p id="lblEditAcct" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Card / Account</p>
         <div role="group" aria-labelledby="lblEditAcct" class="grid grid-cols-4 gap-1.5 text-xs font-semibold">
-          <button type="button" onclick="selectEditTxAcct('amex')" id="etx_amex" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Amex</button>
-          <button type="button" onclick="selectEditTxAcct('barclays')" id="etx_barclays" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
-          <button type="button" onclick="selectEditTxAcct('checking')" id="etx_checking" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Nationwide</button>
-          <button type="button" onclick="selectEditTxAcct('marcus')" id="etx_marcus" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Marcus</button>
+          <button type="button" data-action="selectEditTxAcct" data-arg="amex" id="etx_amex" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Amex</button>
+          <button type="button" data-action="selectEditTxAcct" data-arg="barclays" id="etx_barclays" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Barclays</button>
+          <button type="button" data-action="selectEditTxAcct" data-arg="checking" id="etx_checking" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Nationwide</button>
+          <button type="button" data-action="selectEditTxAcct" data-arg="marcus" id="etx_marcus" class="min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Marcus</button>
         </div>
       </div>
 
       <div class="flex gap-2 pt-1">
-        <button type="button" onclick="deleteCurrentTx()" class="min-h-[44px] px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 font-bold text-xs transition">
+        <button type="button" data-action="deleteCurrentTx" class="min-h-[44px] px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 font-bold text-xs transition">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="trash" data-class="w-3.5 h-3.5"></span>Delete</span>
         </button>
-        <button type="button" id="btnSaveEditTx" onclick="saveEditedTx()" class="min-h-[44px] flex-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
+        <button type="button" id="btnSaveEditTx" data-action="saveEditedTx" class="min-h-[44px] flex-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
           Save Changes
         </button>
       </div>
@@ -664,26 +664,26 @@
     <div role="dialog" aria-modal="true" aria-labelledby="budFormTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between gap-2">
         <h3 id="budFormTitle" class="min-w-0 truncate text-sm font-bold text-slate-900 dark:text-white">Add bill</h3>
-        <button onclick="closeBudgetForm()" aria-label="Close" class="w-11 h-11 -mr-2 shrink-0 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+        <button data-action="closeBudgetForm" aria-label="Close" class="w-11 h-11 -mr-2 shrink-0 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
       <input type="hidden" id="editBudRow" value="" />
 
       <!-- A monthly bill rolls over to the next month; a one-off event doesn't -->
       <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
-        <button type="button" onclick="setBudFormType(false)" id="btype_event" class="min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+        <button type="button" data-action="setBudFormType" data-arg="false" id="btype_event" class="min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="sparkle" data-class="w-3.5 h-3.5"></span>One-off event</span>
         </button>
-        <button type="button" onclick="setBudFormType(true)" id="btype_bill" class="min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400">
+        <button type="button" data-action="setBudFormType" data-arg="true" id="btype_bill" class="min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="repeat" data-class="w-3.5 h-3.5"></span>Monthly bill</span>
         </button>
       </div>
 
       <!-- Money out or in, so the amount is always typed without a minus -->
       <div class="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
-        <button type="button" onclick="setBudFormSign(-1)" id="bsign_neg" class="min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+        <button type="button" data-action="setBudFormSign" data-arg="-1" id="bsign_neg" class="min-h-[44px] rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-up-right" data-class="w-3.5 h-3.5"></span>Money out (−)</span>
         </button>
-        <button type="button" onclick="setBudFormSign(1)" id="bsign_pos" class="min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400">
+        <button type="button" data-action="setBudFormSign" data-arg="1" id="bsign_pos" class="min-h-[44px] rounded-lg text-slate-500 dark:text-slate-400">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="arrow-down-left" data-class="w-3.5 h-3.5"></span>Money in (+)</span>
         </button>
       </div>
@@ -705,10 +705,10 @@
       </div>
 
       <div class="flex gap-2 pt-1">
-        <button type="button" id="budDeleteBtn" onclick="deleteBudgetFromForm()" class="hidden min-h-[44px] px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-bold text-xs transition">
+        <button type="button" id="budDeleteBtn" data-action="deleteBudgetFromForm" class="hidden min-h-[44px] px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-bold text-xs transition">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="trash" data-class="w-3.5 h-3.5"></span>Delete</span>
         </button>
-        <button type="button" id="budSaveBtn" onclick="submitBudgetForm()" class="min-h-[44px] flex-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
+        <button type="button" id="budSaveBtn" data-action="submitBudgetForm" class="min-h-[44px] flex-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
           Save Bill
         </button>
       </div>
@@ -720,13 +720,13 @@
     <div role="dialog" aria-modal="true" aria-labelledby="nmTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
         <h3 id="nmTitle" class="text-sm font-bold text-slate-900 dark:text-white">Start New Month</h3>
-        <button onclick="closeNewMonthModal()" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+        <button data-action="closeNewMonthModal" aria-label="Close" class="w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
 
       <div class="space-y-3 text-xs">
         <div>
           <label for="nmName" class="font-medium text-slate-500 dark:text-slate-400 block mb-1">New Month Name</label>
-          <input id="nmName" type="text" oninput="updateNewMonthName()"
+          <input id="nmName" type="text" data-input="updateNewMonthName"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm font-semibold text-slate-900 dark:text-white" />
           <p id="nmExistsWarn" class="hidden mt-1.5 rounded-lg px-2.5 py-2 bg-rose-500/10 text-rose-600 dark:text-rose-400"></p>
         </div>
@@ -769,7 +769,7 @@
         </details>
       </div>
 
-      <button id="nmCreateBtn" onclick="confirmStartNewMonth()" class="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
+      <button id="nmCreateBtn" data-action="confirmStartNewMonth" class="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
         Create Month
       </button>
     </div>
@@ -1359,7 +1359,7 @@ function renderPasskeyDevices() {
           <div class="font-medium text-slate-800 dark:text-slate-100 truncate">${esc(d.label)}${d.id === mine ? ' <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">this device</span>' : ''}</div>
           <div class="text-xs text-slate-500 dark:text-slate-400">Added ${esc(new Date(d.created).toLocaleDateString('en-GB'))}${d.lastUsed ? ' · last used ' + esc(relTime(new Date(d.lastUsed).getTime())) : ''}</div>
         </div>
-        <button data-id="${esc(d.id)}" onclick="removePasskeyDevice(this.dataset.id)" class="h-10 px-3 rounded-lg text-xs font-semibold ${pkConfirmId === d.id ? 'bg-rose-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}">${pkConfirmId === d.id ? 'Tap again' : 'Remove'}</button>
+        <button data-id="${esc(d.id)}" data-action="removePasskeyDevice" class="h-10 px-3 rounded-lg text-xs font-semibold ${pkConfirmId === d.id ? 'bg-rose-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}">${pkConfirmId === d.id ? 'Tap again' : 'Remove'}</button>
       </div>`).join('') : '<div class="py-3 text-xs text-slate-500 dark:text-slate-400">No devices yet.</div>';
 }
 async function refreshPasskeyDevices() {
@@ -1794,8 +1794,8 @@ async function postToServer(bodyObj, opts = {}) {
     const markToggle = (prefix, keys, chosen, inKey) => markChoice(prefix, keys, chosen, k => k === inKey ? TOGGLE_IN : TOGGLE_ON, TOGGLE_OFF);
 
     // ---- Overflow menu (phone header) ----
-    function toggleMenu(e) {
-      e.stopPropagation();
+    // Its button has data-stop, so the tap that opens the menu doesn't reach the page's close-on-tap below.
+    function toggleMenu() {
       const panel = document.getElementById('menuPanel');
       const open = !panel.classList.toggle('hidden');
       document.getElementById('menuBtn').setAttribute('aria-expanded', String(open));
@@ -2011,7 +2011,7 @@ async function postToServer(bodyObj, opts = {}) {
         const colour = SPEND_COLOURS[c.cat] || '#94a3b8';
         const n = c.merchants.reduce((a, m) => a + m.count, 0);
         html += '<div>'
-          + '<button data-cat="' + esc(c.cat) + '" onclick="toggleSpendCat(this.dataset.cat)" class="w-full text-left py-2.5 flex items-center gap-3" aria-expanded="' + open + '">'
+          + '<button data-cat="' + esc(c.cat) + '" data-action="toggleSpendCat" class="w-full text-left py-2.5 flex items-center gap-3" aria-expanded="' + open + '">'
           + '<span class="w-9 h-9 rounded-xl shrink-0 inline-flex items-center justify-center" style="background:' + colour + '26;color:' + colour + '">' + icon(CAT_ICON_NAMES[c.cat] || 'cat_other', 'w-[18px] h-[18px]') + '</span>'
           + '<span class="min-w-0 flex-1"><span class="block text-sm font-semibold text-slate-900 dark:text-white">' + esc(c.cat) + '</span>'
           + '<span class="block text-xs text-slate-500 dark:text-slate-400">' + n + (n === 1 ? ' purchase' : ' purchases') + ' · ' + pct + '%'
@@ -2023,7 +2023,7 @@ async function postToServer(bodyObj, opts = {}) {
           c.merchants.forEach(m => {
             html += '<div class="py-2 flex items-center gap-2"><div class="min-w-0 flex-1"><div class="truncate text-slate-700 dark:text-slate-200">' + esc(displayName(m.name)) + (m.count > 1 ? ' <span class="text-slate-500 dark:text-slate-400">×' + m.count + '</span>' : '') + '</div></div>'
               + '<span class="tabular-nums text-slate-700 dark:text-slate-200">' + fmtGBP(m.total) + '</span>'
-              + '<select data-key="' + esc(m.key) + '" onchange="setSpendCategory(this.dataset.key, this.value)" aria-label="Category for ' + esc(m.name) + '" class="h-9 max-w-[7.5rem] rounded-full bg-transparent text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 text-xs px-2">' + opts(overrides[m.key]) + '</select></div>';
+              + '<select data-key="' + esc(m.key) + '" data-change="setSpendCategory" aria-label="Category for ' + esc(m.name) + '" class="h-9 max-w-[7.5rem] rounded-full bg-transparent text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 text-xs px-2">' + opts(overrides[m.key]) + '</select></div>';
           });
           html += '</div>';
         }
@@ -2140,14 +2140,14 @@ async function postToServer(bodyObj, opts = {}) {
     function toggleShowAll(key) { showAll[key] = !showAll[key]; renderAll(); }
     function showMoreBtn(key, total, limit) {
       if (total <= limit) return '';
-      return `<button onclick="toggleShowAll('${key}')" class="w-full h-11 text-xs font-semibold text-emerald-600 dark:text-emerald-400 inline-flex items-center justify-center gap-1">
+      return `<button data-action="toggleShowAll" data-arg="${key}" class="w-full h-11 text-xs font-semibold text-emerald-600 dark:text-emerald-400 inline-flex items-center justify-center gap-1">
         ${showAll[key] ? 'Show fewer ' + icon('chevron_up', 'w-3.5 h-3.5') : 'Show all ' + total + ' ' + icon('chevron_down', 'w-3.5 h-3.5')}
       </button>`;
     }
 
     function seeAllActivityBtn(total) {
       if (total <= HOME_TX_PREVIEW) return '';
-      return `<button onclick="setView('activity')" class="w-full h-11 text-xs font-semibold text-emerald-600 dark:text-emerald-400 inline-flex items-center justify-center">See all</button>`;
+      return `<button data-action="setView" data-arg="activity" class="w-full h-11 text-xs font-semibold text-emerald-600 dark:text-emerald-400 inline-flex items-center justify-center">See all</button>`;
     }
 
     function cycleTheme() {
@@ -2465,7 +2465,7 @@ async function postToServer(bodyObj, opts = {}) {
       // The icon on the left is the "what if I skip this" toggle; Paid is the only button on the right.
       const nameBtn = (b, cls) => b.pending
         ? `<span class="min-w-0 truncate ${cls}">${esc(b.name)}</span>`
-        : `<button onclick="openBudgetFormForRow(${b.row})" aria-label="Edit ${esc(b.name)}" class="min-w-0 flex-1 truncate text-left py-2 ${cls}">${esc(b.name)}</button>`;
+        : `<button data-action="openBudgetFormForRow" data-row="${b.row}" aria-label="Edit ${esc(b.name)}" class="min-w-0 flex-1 truncate text-left py-2 ${cls}">${esc(b.name)}</button>`;
       const pill = 'h-9 px-3 rounded-full border text-xs font-semibold whitespace-nowrap inline-flex items-center gap-1';
       const billsTab = onPhoneTab('budgets');   // the phone's Bills tab lists every unpaid bill; Home the first few
       const shown = showAll.bills || billsTab ? upcoming : upcoming.slice(0, BILLS_PREVIEW);
@@ -2474,7 +2474,7 @@ async function postToServer(bodyObj, opts = {}) {
         return `
           <div class="py-1 flex items-center justify-between gap-2 text-sm ${isSkipped ? 'opacity-40 line-through' : ''}">
             <div class="flex items-center gap-1 min-w-0 flex-1">
-              <button onclick="toggleWhatIf(${b.row})" title="Tap to simulate skipping" aria-label="Simulate skipping ${esc(b.name)}"
+              <button data-action="toggleWhatIf" data-row="${b.row}" title="Tap to simulate skipping" aria-label="Simulate skipping ${esc(b.name)}"
                       class="w-10 h-10 -ml-2 shrink-0 inline-flex items-center justify-center ${b.isRecurring ? 'text-indigo-400' : 'text-amber-400'}">
                 ${isSkipped ? icon('skip', 'w-4 h-4') : icon(b.isRecurring ? 'repeat' : 'sparkle', 'w-4 h-4')}
               </button>
@@ -2483,7 +2483,7 @@ async function postToServer(bodyObj, opts = {}) {
             <div class="flex items-center gap-2 shrink-0">
               <span class="tabular-nums font-semibold whitespace-nowrap ${moneyTone(b.amount)}">${fmtSigned(b.amount)}</span>
               ${b.pending ? SAVING_TAG : `
-              <button onclick="markBudgetPaid(${b.row})" aria-label="Mark ${esc(b.name)} paid"
+              <button data-action="markBudgetPaid" data-row="${b.row}" aria-label="Mark ${esc(b.name)} paid"
                       class="hit ${pill} border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950">
                 ${icon('check', 'w-3.5 h-3.5')} Paid
               </button>`}
@@ -2500,7 +2500,7 @@ async function postToServer(bodyObj, opts = {}) {
             ${nameBtn(b, '')}
             ${b.originalBudget ? `<span class="tabular-nums text-xs shrink-0">(${fmtGBP(b.originalBudget)})</span>` : ''}
           </div>
-          <button onclick="restoreBudget(${b.row})" ${b.pending ? 'disabled' : ''}
+          <button data-action="restoreBudget" data-row="${b.row}" ${b.pending ? 'disabled' : ''}
                   class="hit ${pill} shrink-0 border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Restore</button>
         </div>
       `).join('');
@@ -2697,8 +2697,8 @@ async function postToServer(bodyObj, opts = {}) {
       : 'px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-medium';
     function renderPersonChips() {
       document.getElementById('personChips').innerHTML = PEOPLE.concat('marcus').map(p =>
-        `<button type="button" data-person="${esc(p)}" onclick="togglePersonChip(this.dataset.person)" id="chip_${esc(p)}" class="${chipOff(p)}">＋ ${esc(displayName(p))}</button>`).join('')
-        + '<button type="button" onclick="addBlankPersonRow()" class="px-2.5 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 font-semibold">＋ Other</button>';
+        `<button type="button" data-person="${esc(p)}" data-action="togglePersonChip" id="chip_${esc(p)}" class="${chipOff(p)}">＋ ${esc(displayName(p))}</button>`).join('')
+        + '<button type="button" data-action="addBlankPersonRow" class="px-2.5 py-1 rounded-lg bg-slate-200 dark:bg-slate-700 font-semibold">＋ Other</button>';
       renderDynamicSplitRows();
     }
 
@@ -2766,7 +2766,7 @@ async function postToServer(bodyObj, opts = {}) {
 
       // Phone Home: one line per person; each one opens the Owed tab.
       const summary = `<div class="owed-summary">${groups.map(g => `
-          <button onclick="setView('pending')" class="w-full py-2 flex items-center gap-3 text-left">
+          <button data-action="setView" data-arg="pending" class="w-full py-2 flex items-center gap-3 text-left">
             ${avatar(g)}
             <span class="min-w-0 flex-1"><span class="block text-sm font-semibold text-slate-900 dark:text-white truncate">${esc(g.name)}</span>
               <span class="block text-xs text-slate-600 dark:text-slate-300">${count(g)}</span></span>
@@ -2782,7 +2782,7 @@ async function postToServer(bodyObj, opts = {}) {
               ${avatar(g)}
               <span class="min-w-0 flex-1"><span class="block text-sm font-semibold text-slate-900 dark:text-white truncate">${esc(g.name)}</span>
                 <span class="block text-xs text-slate-600 dark:text-slate-300 tabular-nums">${count(g)} · ${fmtSigned(g.total)}</span></span>
-              ${g.items.length > 1 ? `<button data-person="${esc(g.key)}" onclick="handleSettlePerson(this.dataset.person)" class="hit ${pill}">All paid back</button>` : ''}
+              ${g.items.length > 1 ? `<button data-person="${esc(g.key)}" data-action="handleSettlePerson" class="hit ${pill}">All paid back</button>` : ''}
             </div>
             ${g.items.map(r => `
               <div class="pl-11 py-1.5 flex items-center gap-2 text-sm">
@@ -2790,10 +2790,10 @@ async function postToServer(bodyObj, opts = {}) {
                 <span class="tabular-nums ${amtTone(r.amount)}">${fmtSigned(r.amount)}</span>
                 ${r.pending
                   ? SAVING_TAG
-                  : `<button onclick="toggleSplitNeed(${r.row}, false)" aria-label="Mark ${esc(g.name)} ${esc(r.what)} paid back"
+                  : `<button data-action="markPaidBack" data-row="${r.row}" aria-label="Mark ${esc(g.name)} ${esc(r.what)} paid back"
                             class="hit w-8 h-8 shrink-0 rounded-full border inline-flex items-center justify-center border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950">${icon('check', 'w-3.5 h-3.5')}</button>`}
               </div>`).join('')}
-            ${g.total > 0 ? `<div class="pl-11"><button data-person="${esc(g.key)}" onclick="shareOwed(this.dataset.person)" aria-label="Send ${esc(g.name)} what they owe"
+            ${g.total > 0 ? `<div class="pl-11"><button data-person="${esc(g.key)}" data-action="shareOwed" aria-label="Send ${esc(g.name)} what they owe"
                       class="h-9 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:underline dark:text-emerald-300">${icon('share', 'w-3.5 h-3.5')}Send ${esc(g.name)} what they owe</button></div>` : ''}
           </div>`).join('')}</div>`;
 
@@ -2807,7 +2807,7 @@ async function postToServer(bodyObj, opts = {}) {
             <div class="flex items-center gap-2 shrink-0">
               <span class="tabular-nums ${amtTone(r.amount)}">${fmtSigned(r.amount)}</span>
               ${r.pending ? SAVING_TAG
-                : `<button onclick="toggleSplitNeed(${r.row}, true)" class="h-8 px-3 rounded-full border text-xs font-semibold border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-300">Undo</button>`}
+                : `<button data-action="undoPaidBack" data-row="${r.row}" class="h-8 px-3 rounded-full border text-xs font-semibold border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-300">Undo</button>`}
             </div>
           </div>
         `).join('') + '</div>' + showMoreBtn('settled', settled.length, SETTLED_PREVIEW);
@@ -2876,10 +2876,10 @@ async function postToServer(bodyObj, opts = {}) {
       const btn = document.getElementById('txFilterBtn');
       btn.setAttribute('aria-expanded', String(txFiltersOpen));
       document.getElementById('txFilterPanel').classList.toggle('hidden', !txFiltersOpen);
-      const chip = (label, onclick) => `<button type="button" onclick="${onclick}" aria-label="Clear filter: ${esc(label)}" class="hit h-8 px-3 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">${esc(label)}<span aria-hidden="true">✕</span></button>`;
+      const chip = (label, action) => `<button type="button" data-action="${action}" aria-label="Clear filter: ${esc(label)}" class="hit h-8 px-3 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">${esc(label)}<span aria-hidden="true">✕</span></button>`;
       const chips = txFiltersOpen ? [] : [
-        txFilter !== 'all' ? chip(ACCOUNT_CARDS[txFilter].name + ' only', "setTxFilter('all')") : '',
-        q ? chip('“' + q + '”', 'clearTxSearch()') : ''
+        txFilter !== 'all' ? chip(ACCOUNT_CARDS[txFilter].name + ' only', 'showAllAccounts') : '',
+        q ? chip('“' + q + '”', 'clearTxSearch') : ''
       ].filter(Boolean);
       const box = document.getElementById('txActive');
       box.innerHTML = chips.join('');
@@ -2925,11 +2925,11 @@ async function postToServer(bodyObj, opts = {}) {
             <div class="text-sm text-slate-500 dark:text-slate-400">${sel ? esc(sel.cat) + ' on cards' : 'Spent on cards this month'}</div>
             <div class="text-2xl font-semibold tracking-tight tabular-nums text-slate-900 dark:text-white">${fmtGBP(sel ? sel.total : sum.total)}</div>
           </div>
-          <button onclick="openSpendModal()" class="h-8 px-3 rounded-full border text-xs font-semibold border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300">Details</button>
+          <button data-action="openSpendModal" class="h-8 px-3 rounded-full border text-xs font-semibold border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300">Details</button>
         </div>
         ${cats.length ? `<div class="chip-row flex gap-2 overflow-x-auto">${cats.map(c => {
           const on = actCat === c.cat, col = SPEND_COLOURS[c.cat] || '#94a3b8';
-          return `<button data-cat="${esc(c.cat)}" onclick="setActCat(this.dataset.cat)" aria-pressed="${on}"
+          return `<button data-cat="${esc(c.cat)}" data-action="setActCat" aria-pressed="${on}"
                     class="hit shrink-0 h-9 px-3 rounded-full border text-sm font-semibold inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-200 ${on ? '' : 'border-slate-200 dark:border-slate-700'}"
                     style="${on ? `border-color:${col};background:${col}26` : ''}">
                     <span class="w-2 h-2 rounded-full" style="background:${col}"></span>${esc(c.cat)}
@@ -2983,7 +2983,7 @@ async function postToServer(bodyObj, opts = {}) {
       const visible = showEvery ? filtered : filtered.slice(0, phoneHome ? HOME_TX_PREVIEW : TX_PREVIEW);
       // Like Bills: tap a row to edit it (no pencil). A row that is still saving can't be edited yet.
       document.getElementById('txListContainer').innerHTML = visible.map(r => `
-        <${r.pending ? 'div' : 'button'} ${r.pending ? '' : `type="button" onclick="openEditTxForRow('${r.acct}', ${r.row})" aria-label="Edit ${esc(displayName(r.desc))}"`}
+        <${r.pending ? 'div' : 'button'} ${r.pending ? '' : `type="button" data-action="openEditTxForRow" data-acct="${esc(r.acct)}" data-row="${r.row}" aria-label="Edit ${esc(displayName(r.desc))}"`}
              class="tx-row w-[calc(100%+0.75rem)] text-left py-2.5 px-1.5 -mx-1.5 min-h-[48px] rounded-lg flex items-center justify-between gap-2 text-sm transition ${r.pending ? 'opacity-60' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer'}">
           <span class="flex items-center gap-3 min-w-0">
             ${getBankLogo(r.acct)}
@@ -3185,14 +3185,14 @@ async function postToServer(bodyObj, opts = {}) {
 
       container.innerHTML = customSplitEntries.map((entry, idx) => `
         <div class="flex items-center gap-2">
-          <input type="text" value="${esc(entry.person)}" placeholder="Name (e.g. Sam)" aria-label="Name" oninput="updatePersonRowName(${idx}, this.value)"
+          <input type="text" value="${esc(entry.person)}" placeholder="Name (e.g. Sam)" aria-label="Name" data-input="updatePersonRowName" data-idx="${idx}"
                  class="split-name w-32 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-900 dark:text-white capitalize" />
           <div class="relative flex-1">
             <span class="absolute left-2.5 top-1.5 text-slate-500 dark:text-slate-400 text-xs tabular-nums">£</span>
-            <input type="text" inputmode="decimal" autocomplete="off" aria-label="Their share (£)" value="${entry.amount || ''}" placeholder="0.00" oninput="updatePersonRowAmt(${idx}, this.value)"
+            <input type="text" inputmode="decimal" autocomplete="off" aria-label="Their share (£)" value="${entry.amount || ''}" placeholder="0.00" data-input="updatePersonRowAmt" data-idx="${idx}"
                    class="split-amt w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-6 pr-2.5 py-1.5 text-xs tabular-nums font-semibold text-slate-900 dark:text-white" />
           </div>
-          <button type="button" onclick="removePersonRow(${idx})" class="hit hit-32 text-slate-500 dark:text-slate-400 hover:text-rose-500 px-1.5 font-bold">✕</button>
+          <button type="button" data-action="removePersonRow" data-idx="${idx}" class="hit hit-32 text-slate-500 dark:text-slate-400 hover:text-rose-500 px-1.5 font-bold">✕</button>
         </div>
       `).join('');
     }
@@ -3626,7 +3626,7 @@ async function postToServer(bodyObj, opts = {}) {
         return `
           <label class="py-2.5 flex items-center justify-between gap-2 cursor-pointer">
             <div class="flex items-center gap-2.5 min-w-0">
-              <input type="checkbox" class="ro-bud-chk w-5 h-5 rounded text-emerald-500" value="${b.row}" ${b.isRecurring ? 'checked' : ''} onchange="updateRolloverCount()" />
+              <input type="checkbox" class="ro-bud-chk w-5 h-5 rounded text-emerald-500" value="${b.row}" ${b.isRecurring ? 'checked' : ''} data-change="updateRolloverCount" />
               <span class="truncate text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5">${icon(b.isRecurring ? 'repeat' : 'sparkle', 'w-3.5 h-3.5 ' + (b.isRecurring ? 'text-indigo-400' : 'text-amber-400'))} ${esc(b.name)}</span>
             </div>
             <span class="tabular-nums text-xs text-slate-500 shrink-0">${fmtGBP(resetAmt)}</span>
@@ -3796,6 +3796,122 @@ async function postToServer(bodyObj, opts = {}) {
         .catch(console.error)
         .then(flushOutbox);
     }
+
+    // ---- What each button and field does ----
+    // The page holds no inline handlers (onclick="..."), so its security policy can refuse inline script. A control
+    // names its job instead: data-action (a tap or click), data-input or data-change (typing, or a pick from a list),
+    // each the name of one of these ACTIONS; data-arg, data-row, data-idx and the like carry what it acts on. Every
+    // action is called as action(element).
+    const rowOf = el => Number(el.dataset.row);
+    const idxOf = el => Number(el.dataset.idx);
+    const ACTIONS = {
+      // lock screen, header, menu, sidebar
+      unlockWithPasskey: () => unlockWithPasskey(false),
+      cycleTheme: () => cycleTheme(),
+      syncNow: () => { retrySetAside(); forceSyncSheet(); },
+      switchMonth: el => switchMonth(el.value),
+      toggleMenu: () => toggleMenu(),
+      closeMenu: () => closeMenu(),
+      menuNewMonth: () => { closeMenu(); openNewMonthModal(); },
+      jumpToSection: el => jumpToSection(el.dataset.arg),
+      setView: el => setView(el.dataset.arg),
+      toggleSection: el => toggleSection(el.dataset.arg),
+      toggleShowAll: el => toggleShowAll(el.dataset.arg),
+      openAddModal: () => openAddModal(),
+      openSpendModal: () => openSpendModal(),
+      closeSpendModal: () => closeSpendModal(),
+      openNewMonthModal: () => openNewMonthModal(),
+      // fingerprint sign-in
+      openPasskeyModal: () => openPasskeyModal(),
+      closePasskeyModal: () => closePasskeyModal(),
+      dismissPasskeyOffer: () => dismissPasskeyOffer(),
+      runPasskeySetup: () => runPasskeySetup(),
+      testPasskey: () => testPasskey(),
+      removeThisPasskey: () => removePasskeyDevice(lsGet(PASSKEY_ID_KEY)),
+      removePasskeyDevice: el => removePasskeyDevice(el.dataset.id),
+      // sign out
+      openSignOutModal: () => openSignOutModal(),
+      closeSignOutModal: () => closeSignOutModal(),
+      sendWaitingBeforeSignOut: () => sendWaitingBeforeSignOut(),
+      signOut: () => signOut(false),
+      signOutAndForget: () => signOut(true),
+      // bills
+      openBudgetForm: () => openBudgetForm(),
+      openBudgetFormForRow: el => openBudgetFormForRow(rowOf(el)),
+      setBudFilter: el => setBudFilter(el.dataset.arg),
+      toggleWhatIf: el => toggleWhatIf(rowOf(el)),
+      markBudgetPaid: el => markBudgetPaid(rowOf(el)),
+      restoreBudget: el => restoreBudget(rowOf(el)),
+      closeBudgetForm: () => closeBudgetForm(),
+      setBudFormType: el => setBudFormType(el.dataset.arg === 'true'),
+      setBudFormSign: el => setBudFormSign(Number(el.dataset.arg)),
+      deleteBudgetFromForm: () => deleteBudgetFromForm(),
+      submitBudgetForm: () => submitBudgetForm(),
+      // Owed
+      handleSettleAll: () => handleSettleAll(),
+      handleSettlePerson: el => handleSettlePerson(el.dataset.person),
+      setSplitPanel: el => setSplitPanel(el.dataset.arg),
+      markPaidBack: el => toggleSplitNeed(rowOf(el), false),
+      undoPaidBack: el => toggleSplitNeed(rowOf(el), true),
+      shareOwed: el => shareOwed(el.dataset.person),
+      // Activity and Spending
+      toggleTxFilters: () => toggleTxFilters(),
+      setTxFilter: el => setTxFilter(el.dataset.arg),
+      showAllAccounts: () => setTxFilter('all'),
+      clearTxSearch: () => clearTxSearch(),
+      renderTransactions: () => renderTransactions(),
+      setActCat: el => setActCat(el.dataset.cat),
+      openEditTxForRow: el => openEditTxForRow(el.dataset.acct, rowOf(el)),
+      toggleSpendCat: el => toggleSpendCat(el.dataset.cat),
+      setSpendCategory: el => setSpendCategory(el.dataset.key, el.value),
+      // Add sheet
+      closeAddModal: () => closeAddModal(),
+      setTxDirection: el => setTxDirection(el.dataset.arg),
+      onGrossAmountInput: () => onGrossAmountInput(),
+      selectAcct: el => selectAcct(el.dataset.arg),
+      selectSplit: el => selectSplit(el.dataset.arg),
+      togglePersonChip: el => togglePersonChip(el.dataset.person),
+      addBlankPersonRow: () => addBlankPersonRow(),
+      updatePersonRowName: el => updatePersonRowName(idxOf(el), el.value),
+      updatePersonRowAmt: el => updatePersonRowAmt(idxOf(el), el.value),
+      removePersonRow: el => removePersonRow(idxOf(el)),
+      applyEqualGroupSplit: () => applyEqualGroupSplit(),
+      includeMeChanged: () => { if (autoEqualActive) applyEqualGroupSplit(); },
+      submitExpense: () => submitExpense(),
+      // Edit sheet
+      closeEditTxModal: () => closeEditTxModal(),
+      setEditTxSign: el => setEditTxSign(Number(el.dataset.arg)),
+      selectEditTxAcct: el => selectEditTxAcct(el.dataset.arg),
+      deleteCurrentTx: () => deleteCurrentTx(),
+      saveEditedTx: () => saveEditedTx(),
+      // Start new month
+      closeNewMonthModal: () => closeNewMonthModal(),
+      updateNewMonthName: () => updateNewMonthName(),
+      updateRolloverCount: () => updateRolloverCount(),
+      confirmStartNewMonth: () => confirmStartNewMonth()
+    };
+    // One listener per kind of event, on the page itself. It walks out from what was tapped, the way the browser
+    // passes an event outwards: each control on the way that names an action for this event runs it (innermost
+    // first). data-stop ends the walk there and keeps the tap from going any further (so it doesn't close the
+    // menu); data-backdrop acts only on a tap on the element itself (the dark area round a sheet), not inside it.
+    // A disabled control does nothing. The walk follows the path the event set out on, so it carries on as before
+    // when an action redraws the list it was in; anything on it that isn't an element (say a browser add-on's own
+    // panel) is passed over.
+    const ACTION_ATTRS = { click: 'action', input: 'input', change: 'change' };
+    Object.keys(ACTION_ATTRS).forEach(type => document.documentElement.addEventListener(type, e => {
+      const key = ACTION_ATTRS[type];
+      for (const el of e.composedPath()) {
+        if (el === document.documentElement) break;
+        if (el.nodeType !== 1) continue;
+        if (el.disabled) return;
+        const name = el.dataset && el.dataset[key];
+        if (name && !(el.hasAttribute('data-backdrop') && e.target !== el)) {
+          if (!Object.prototype.hasOwnProperty.call(ACTIONS, name)) throw new Error('No such action: ' + name);
+          ACTIONS[name](el);
+        }
+        if (type === 'click' && el.hasAttribute('data-stop')) { e.stopPropagation(); break; }
+      }
+    }));
 
     // Start as soon as the page is parsed rather than on `load`, which also waits for every font and
     // script (including Google sign-in) and so delayed the first data request.
