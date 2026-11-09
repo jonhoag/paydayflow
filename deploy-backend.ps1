@@ -185,8 +185,8 @@ try {
   }
 
   if ($StageOnly) {
-    Write-Host "Staged files (not pushed); only the page is kept, at $stage\Index.html :"
-    Get-ChildItem $stage -Force | Select-Object Name, Length
+    Write-Host "Staged (not pushed); only the page is kept, at $stage\Index.html :"
+    Get-Item "$stage\Index.html" | Select-Object Name, Length
     return
   }
 
