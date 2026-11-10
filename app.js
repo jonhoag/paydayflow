@@ -2373,7 +2373,7 @@ async function postToServer(bodyObj, opts = {}) {
     function updatePersonRowAmt(idx, val) {
       autoEqualActive = false;
       const e = customSplitEntries[idx];
-      if (e) { const n = parseAmount(val); e.amount = n || 0; e.bad = isNaN(n); }
+      if (e) { const n = parseAmount(val); e.amount = n || 0; e.bad = Number.isNaN(n); }
       updateSplitSummary();
     }
 
@@ -2511,7 +2511,12 @@ async function postToServer(bodyObj, opts = {}) {
       if (checkedAmount('inpAmount', true) === null) return;
       if (!merchant) return showFieldError('inpMerchant', 'Add where it was');
       const problem = splitProblem();
-      if (problem) return showFieldError('dynamicSplitRows', problem);
+      if (problem) {
+        showFieldError('dynamicSplitRows', problem);   // the rows can't take the cursor, so their first box does
+        const box = document.querySelector('#dynamicSplitRows .split-amt');
+        if (box) box.focus();
+        return;
+      }
       const { gross, isRefund, need, splits, marcusShare } = buildSplitData();
       lsSet(LAST_ACCT_KEY, formAcct);
 
@@ -2629,7 +2634,11 @@ async function postToServer(bodyObj, opts = {}) {
         return;
       }
       apiCall('addTransactionBundle', payload)
-        .then(s => { applyStateIfViewing(payload.sheetName)(s); if (onSaved) onSaved(); })
+        .then(s => {
+          applyStateIfViewing(payload.sheetName)(s);
+          // Saved: a slip in the follow-up must not be taken for a failed save (the spend would be queued again).
+          if (onSaved) try { onSaved(); } catch (e) { console.error('after the save:', e); }
+        })
         .catch(err => {
           const kind = failureKind(err);
           if (kind === 'saved') return refreshFromSheet(true);

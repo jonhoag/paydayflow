@@ -934,6 +934,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       await page.fill('#dynamicSplitRows .split-amt', '10');
       await page.click('#btnSubmitTx');
       assert.strictEqual(await err(), 'Add a name for each share');
+      assert.strictEqual(await page.evaluate(() => document.activeElement.className.includes('split-amt')), true, 'the cursor is not in a share box');
       assert.strictEqual(await adds(), n, 'a spend was sent');
     } finally { await resetAddForm(); }
   });
@@ -1214,7 +1215,6 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.deepStrictEqual(await toastParts(), ['Deleted "Failed delete"', 'Undo']);
       await page.click('#toastAction');   // while the delete is still on its way
       await page.waitForFunction(() => apiInflight === 0 && MOCK.calls.some(c => c.action === 'deleteTransactionRow' && c.end));
-      await page.waitForTimeout(300);
       assert.strictEqual(await page.evaluate(() => MOCK.db.amex.filter(t => t.desc === 'Failed delete').length), 1, 'a second copy was added');
       assert.strictEqual((await calls(page, 'addTransactionBundle')).length, adds, 'Undo sent a spend');
       await page.waitForFunction(() => state.amex.filter(t => t.desc === 'Failed delete' && !t.pending).length === 1 && !state.amex.some(t => t.pending));
