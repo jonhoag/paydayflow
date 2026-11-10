@@ -166,7 +166,7 @@
       <button data-action="openNewMonthModal" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 text-xs font-medium inline-flex items-center justify-center gap-1.5">
         <span data-icon="calendar_plus" data-class="w-3.5 h-3.5"></span> Start New Month
       </button>
-      <a id="rawSheetBtn" href="#" target="_blank"
+      <a id="rawSheetBtn" href="#" target="_blank" rel="noopener noreferrer"
          class="w-full py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-slate-800/50 dark:hover:bg-slate-800 dark:text-emerald-400 text-xs font-medium flex items-center justify-center gap-1.5">
         <span data-icon="sheet" data-class="w-3.5 h-3.5"></span><span>Open Sheet</span>
       </a>
@@ -218,7 +218,7 @@
               <span data-icon="calendar_plus" data-class="w-4 h-4"></span>
               <span class="flex-1">Start new month</span>
             </button>
-            <a id="rawSheetMenuBtn" href="#" target="_blank" data-action="closeMenu" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+            <a id="rawSheetMenuBtn" href="#" target="_blank" rel="noopener noreferrer" data-action="closeMenu" class="w-full flex items-center gap-3 px-4 py-3 text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
               <span data-icon="sheet" data-class="w-4 h-4"></span>
               <span class="flex-1">Open Google Sheet</span>
             </a>
@@ -578,6 +578,7 @@
 
           <!-- Dynamic Rows Container -->
           <div id="dynamicSplitRows" class="space-y-1.5 pt-1"></div>
+          <p id="dynamicSplitRowsErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
         </div>
       </div>
 
@@ -775,6 +776,6 @@
   <div id="toast" role="status" aria-live="polite" class="hidden fixed left-1/2 -translate-x-1/2 bottom-24 lg:bottom-6 z-[100000] max-w-sm w-[90%] px-4 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-medium shadow-lg text-center"></div>
 
   <!-- The app itself (everything above is only the layout). It runs here, once the page above is in place. -->
-  <script src="app.js?v=7ee2c2ea7d"></script>
+  <script src="app.js?v=1e051d5f70"></script>
 </body>
 </html>

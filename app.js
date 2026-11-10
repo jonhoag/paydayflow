@@ -930,6 +930,7 @@ async function postToServer(bodyObj, opts = {}) {
     }
 
     // What the screen shows before any figures have arrived.
+    const SHEET_LINK = /^https:\/\/docs\.google\.com\/spreadsheets\//;
     function emptyState() {
       return {
         sheetUrl: '#', availableMonths: [], activeMonth,
@@ -939,7 +940,9 @@ async function postToServer(bodyObj, opts = {}) {
     }
 
     let activeMonth = lsGet(LAST_MONTH_KEY) || '';
-    let state = emptyState();
+    // Nothing to show yet (no saved copy, first figures not here): the screen says so instead of showing £0.00.
+    function loadingState() { return { ...emptyState(), loading: true }; }
+    let state = loadingState();
     let skippedBudgetRows = new Set();
     let budFilter = 'all';
 
@@ -982,7 +985,7 @@ async function postToServer(bodyObj, opts = {}) {
 
     // A month's figures are only ever saved under that month's own name.
     function savePhoneCache(monthName, dataObj, remember = true) {
-      if (!dataObj || (dataObj.activeMonth && dataObj.activeMonth !== monthName)) return;
+      if (!dataObj || dataObj.loading || (dataObj.activeMonth && dataObj.activeMonth !== monthName)) return;
       if (remember) lsSet(LAST_MONTH_KEY, monthName);
       lsSet(CACHE_PREFIX + monthName, JSON.stringify(dataObj));
     }
@@ -1440,6 +1443,7 @@ async function postToServer(bodyObj, opts = {}) {
     const SAVING_TAG = '<span class="text-xs text-slate-500 dark:text-slate-400">saving…</span>';
     // A list with nothing left in it ("All clear", "Nothing owed").
     function emptyRow(text, pad) {
+      if (state.loading) return `<div class="${pad} text-xs text-slate-500 dark:text-slate-400 text-center w-full">Loading…</div>`;
       return `<div class="${pad} text-xs text-slate-500 dark:text-slate-400 text-center inline-flex items-center justify-center gap-1.5 w-full">${icon('check', 'w-4 h-4 text-emerald-500')} ${text}</div>`;
     }
 
@@ -1461,7 +1465,7 @@ async function postToServer(bodyObj, opts = {}) {
       closeBudgetForm();   // it belongs to the month you were on
       // Nothing saved for that month yet: show it empty until it arrives, never the old month's rows (a tap on one of
       // those would be sent to the new month).
-      if (!loadPhoneCache(monthName)) state = { ...emptyState(), availableMonths: state.availableMonths || [] };
+      if (!loadPhoneCache(monthName)) state = { ...loadingState(), availableMonths: state.availableMonths || [] };
       renderAll();
 
       const done = () => { if (pendingSwitchTarget === monthName) pendingSwitchTarget = null; };   // not a later switch's
@@ -1497,7 +1501,7 @@ async function postToServer(bodyObj, opts = {}) {
       if (s.availableMonths && s.availableMonths.length) {
         sel.innerHTML = s.availableMonths.map(m => `<option value="${esc(m)}" ${m === activeMonth ? 'selected' : ''}>${esc(m)}</option>`).join('');
       }
-      if (s.sheetUrl) {
+      if (SHEET_LINK.test(String(s.sheetUrl || ''))) {   // only ever a link to a Google Sheet
         document.getElementById('rawSheetBtn').href = s.sheetUrl;
         const menuLink = document.getElementById('rawSheetMenuBtn');
         if (menuLink) menuLink.href = s.sheetUrl;
@@ -1628,12 +1632,13 @@ async function postToServer(bodyObj, opts = {}) {
     function renderAll() {
       recomputeSummary();
       const s = state.summary;
-      document.getElementById('kpiAmex').textContent = fmtGBP(s.amex);
-      document.getElementById('kpiBarclays').textContent = fmtGBP(s.barclays);
-      document.getElementById('kpiNCA').textContent = fmtGBP(s.nCA);
-      document.getElementById('kpiMarcus').textContent = fmtGBP(s.mSAV);
-      document.getElementById('kpiSurplus').textContent = fmtGBP(s.eomSavingsJ);
-      renderDailyStrip(s.eomSavingsJ);
+      const money = n => state.loading ? '£—' : fmtGBP(n);
+      document.getElementById('kpiAmex').textContent = money(s.amex);
+      document.getElementById('kpiBarclays').textContent = money(s.barclays);
+      document.getElementById('kpiNCA').textContent = money(s.nCA);
+      document.getElementById('kpiMarcus').textContent = money(s.mSAV);
+      document.getElementById('kpiSurplus').textContent = money(s.eomSavingsJ);
+      renderDailyStrip(state.loading ? NaN : s.eomSavingsJ);
       document.getElementById('simBadge').classList.toggle('hidden', skippedBudgetRows.size === 0);
 
       renderBudgets();
@@ -1685,8 +1690,8 @@ async function postToServer(bodyObj, opts = {}) {
       const totalCount = state.budgets.length;
       const pct = totalCount ? Math.round((cleared.length / totalCount) * 100) : 0;
 
-      document.getElementById('budLeftVal').textContent = billsLeftText(state.summary.budgetRem);
-      document.getElementById('budClearedCount').textContent = `${cleared.length} of ${totalCount} paid`;
+      document.getElementById('budLeftVal').textContent = state.loading ? 'Loading…' : billsLeftText(state.summary.budgetRem);
+      document.getElementById('budClearedCount').textContent = state.loading ? '' : `${cleared.length} of ${totalCount} paid`;
       document.getElementById('budProgressBar').style.width = `${pct}%`;
       document.getElementById('clearedBudCount').textContent = cleared.length;
       document.getElementById('paidFold').classList.toggle('hidden', cleared.length === 0);
@@ -2367,7 +2372,8 @@ async function postToServer(bodyObj, opts = {}) {
 
     function updatePersonRowAmt(idx, val) {
       autoEqualActive = false;
-      if (customSplitEntries[idx]) customSplitEntries[idx].amount = parseAmount(val) || 0;
+      const e = customSplitEntries[idx];
+      if (e) { const n = parseAmount(val); e.amount = n || 0; e.bad = isNaN(n); }
       updateSplitSummary();
     }
 
@@ -2408,6 +2414,7 @@ async function postToServer(bodyObj, opts = {}) {
       });
 
       const container = document.getElementById('dynamicSplitRows');
+      customSplitEntries.forEach(e => { e.bad = false; });   // the boxes are redrawn from the amounts, so no bad text is left
       if (customSplitEntries.length === 0) {
         container.innerHTML = '<div class="text-xs text-slate-500 dark:text-slate-400 py-1">Tap any name above to split this transaction...</div>';
         return;
@@ -2453,7 +2460,20 @@ async function postToServer(bodyObj, opts = {}) {
       return { gross, isRefund, need, splits, marcusShare };
     }
 
+    // What is wrong with the group split's shares, or '' if nothing: a share that isn't an amount, a share with no
+    // name, or shares that come to more than the whole amount (each would otherwise be dropped or hidden quietly).
+    function splitProblem() {
+      if (formSplit !== 'custom') return '';
+      if (customSplitEntries.some(e => e.bad)) return 'Each share needs an amount like 12.50';
+      if (customSplitEntries.some(e => e.amount > 0 && !(e.person || '').trim())) return 'Add a name for each share';
+      const { gross, splits, marcusShare } = buildSplitData();
+      const others = splits.reduce((a, b) => a + b.amount, 0) + marcusShare;
+      if (others - gross > 0.005) return 'The shares come to ' + fmtGBP(others) + ', more than ' + fmtGBP(gross);
+      return '';
+    }
+
     function updateSplitSummary() {
+      clearFieldError('dynamicSplitRows');
       const { gross, isRefund, splits, marcusShare } = buildSplitData();
       if (formSplit === '100_me') {
         document.getElementById('cleanSplitPill').innerHTML = isRefund
@@ -2490,6 +2510,8 @@ async function postToServer(bodyObj, opts = {}) {
       const merchant = document.getElementById('inpMerchant').value.trim();
       if (checkedAmount('inpAmount', true) === null) return;
       if (!merchant) return showFieldError('inpMerchant', 'Add where it was');
+      const problem = splitProblem();
+      if (problem) return showFieldError('dynamicSplitRows', problem);
       const { gross, isRefund, need, splits, marcusShare } = buildSplitData();
       lsSet(LAST_ACCT_KEY, formAcct);
 
@@ -2599,14 +2621,15 @@ async function postToServer(bodyObj, opts = {}) {
       if (!IS_GAS_ENV && navigator.onLine === false) return;
       saveOutbox(loadOutbox().map(x => x.setAside ? { ...x, setAside: undefined, tries: undefined, sentAt: undefined } : x));
     }
-    function sendNewSpend(payload) {
+    // `onSaved` runs once the sheet's figures after this save are on screen (not when it is queued or set aside).
+    function sendNewSpend(payload, onSaved) {
       if (!IS_GAS_ENV && navigator.onLine === false) {
         if (!queueSpend(payload)) return showToast("You're offline and this device couldn't keep that spend, so it isn't saved.");
         showToast("You're offline - saved on this device, it will send when you're back online.", { kind: 'info' });
         return;
       }
       apiCall('addTransactionBundle', payload)
-        .then(applyStateIfViewing(payload.sheetName))
+        .then(s => { applyStateIfViewing(payload.sheetName)(s); if (onSaved) onSaved(); })
         .catch(err => {
           const kind = failureKind(err);
           if (kind === 'saved') return refreshFromSheet(true);
@@ -2775,35 +2798,45 @@ async function postToServer(bodyObj, opts = {}) {
       savePhoneCache(activeMonth, state);
       renderAll();
 
-      apiCall('deleteTransactionRow', { sheetName: month, acct: oldAcct, row, expect })
-        .then(applyServerState)
-        .catch(err => handleSaveError('the deletion', err));
+      // `deleted` settles true once the sheet has lost the row (also when only its new figures couldn't be read
+      // back), false if the delete didn't go through.
+      let landed = false;
+      const deleted = apiCall('deleteTransactionRow', { sheetName: month, acct: oldAcct, row, expect })
+        .then(s => { landed = true; applyServerState(s); })
+        .catch(err => { if (failureKind(err) === 'saved') landed = true; return handleSaveError('the deletion', err); })
+        .then(() => landed, () => landed);
       // Undo only for an entry that is really going (if the row changed meanwhile, the server refuses the delete, and
       // an Undo would add a second copy).
       if (!item) return;
       const gone = { acct: oldAcct, desc: item.desc, amount: item.amount, need: !!item.need };
-      showToast('Deleted "' + gone.desc + '"', { kind: 'info', actionLabel: 'Undo', duration: 9000, onAction: () => undoDeleteTx(gone, month) });
+      showToast('Deleted "' + gone.desc + '"', { kind: 'info', actionLabel: 'Undo', duration: 9000, onAction: () => undoDeleteTx(gone, month, deleted) });
     }
 
-    // Undo re-adds the entry (it lands in the first empty row of its account, so it may sit in a different
-    // position than before). If you've since left that month, only the sheet is updated.
-    function undoDeleteTx(item, month) {
-      if (month === activeMonth) {
-        recordLocalTimestamp(item.acct, item.desc, item.amount);
-        addPendingTx(item.acct, 99, item.desc, item.amount, false, Date.now());
-        savePhoneCache(activeMonth, state);
-        renderAll();
-      }
-      apiCall('addTransactionBundle', {
-        sheetName: month, merchant: item.desc, grossAmount: Math.abs(item.amount), isRefund: item.amount > 0,
-        account: item.acct, splits: [], marcusShare: 0, markNeed: false
-      }).then(s => {
-        applyStateIfViewing(month)(s);
-        if (item.need && month === activeMonth) {
-          const back = state.checking.find(x => x.desc === item.desc && x.amount === item.amount && !x.need && !x.pending);
-          if (back) toggleSplitNeed(back.row, true);
+    // Undo waits for the delete: if it didn't go through, the entry is still in the sheet and nothing is added. Else
+    // the entry is re-added as a new spend (with a clientId and the outbox, so a failed re-add is kept on this device,
+    // never lost or sent twice). It lands in the first empty row of its account, so it may sit in a different
+    // position than before. If you've since left that month, only the sheet is updated.
+    function undoDeleteTx(item, month, deleted) {
+      return deleted.then(landed => {
+        if (!landed) return;
+        const same = x => x.desc === item.desc && x.amount === item.amount && !x.pending;
+        // Rows already holding an identical entry, so the "owed" flag goes back on the re-added one, not a twin.
+        const before = new Set(state.checking.filter(same).map(x => x.row));
+        if (month === activeMonth) {
+          recordLocalTimestamp(item.acct, item.desc, item.amount);
+          addPendingTx(item.acct, 99, item.desc, item.amount, false, Date.now());
+          savePhoneCache(activeMonth, state);
+          renderAll();
         }
-      }).catch(err => handleSaveError('the restored transaction', err));
+        sendNewSpend({
+          sheetName: month, merchant: item.desc, grossAmount: Math.abs(item.amount), isRefund: item.amount > 0,
+          account: item.acct, splits: [], marcusShare: 0, markNeed: false, clientId: newClientId()
+        }, () => {
+          if (!item.need || month !== activeMonth) return;
+          const back = state.checking.find(x => same(x) && !x.need && !before.has(x.row));
+          if (back) toggleSplitNeed(back.row, true);
+        });
+      });
     }
 
     // ================= START NEW MONTH ROLLOVER MODAL =================
