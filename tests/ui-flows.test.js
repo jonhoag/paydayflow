@@ -913,6 +913,31 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.deepStrictEqual(await shares(), ['0', '0', '0', '0.02'].map(v => v === '0' ? '' : v));
     } finally { await resetAddForm(); }
   });
+  await step('group split: a share that is not an amount, has no name, or makes the shares more than the amount is not saved', async () => {
+    try {
+      const adds = async () => (await calls(page, 'addTransactionBundle')).length;
+      const err = () => page.evaluate(() => { const n = document.getElementById('dynamicSplitRowsErr'); return n.classList.contains('hidden') ? '' : n.textContent; });
+      await page.evaluate(() => openAddModal());
+      await page.fill('#inpMerchant', 'Split check shop');
+      await page.fill('#inpAmount', '30');
+      await page.evaluate(() => selectSplit('custom'));
+      const n = await adds();
+      await page.fill('#dynamicSplitRows .split-amt', '1O');   // a letter O, not a zero
+      await page.click('#btnSubmitTx');
+      assert.strictEqual(await err(), 'Each share needs an amount like 12.50');
+      assert.ok(await visible(page, '#addModal'), 'the form closed');
+      await page.fill('#dynamicSplitRows .split-amt', '40');
+      assert.strictEqual(await err(), '', 'typing clears the message');
+      await page.click('#btnSubmitTx');
+      assert.strictEqual(await err(), 'The shares come to £40.00, more than £30.00');
+      await page.fill('#dynamicSplitRows .split-name', '');
+      await page.fill('#dynamicSplitRows .split-amt', '10');
+      await page.click('#btnSubmitTx');
+      assert.strictEqual(await err(), 'Add a name for each share');
+      assert.strictEqual(await page.evaluate(() => document.activeElement.className.includes('split-amt')), true, 'the cursor is not in a share box');
+      assert.strictEqual(await adds(), n, 'a spend was sent');
+    } finally { await resetAddForm(); }
+  });
   await step('phone keyboard up: the sheet fills just what is visible, so the form stays in sight (and scrolls if taller)', async () => {
     try {
       await page.evaluate(() => openAddModal());
@@ -968,6 +993,8 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.click('#toastAction');
     await page.waitForTimeout(300);
     assert.ok((await page.textContent('#txListContainer')).includes('Flow test shop 2'), 'Undo should bring it back');
+    const u = (await calls(page, 'addTransactionBundle')).pop();
+    assert.ok(u && u.merchant === 'Flow test shop 2' && u.clientId, 'Undo is sent as a spend with a clientId: ' + JSON.stringify(u));
   });
 
   await step('activity rows: tap to edit like Bills, no pencil; a row is a real button (keyboard works too)', async () => {
@@ -1176,6 +1203,38 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       await page.waitForFunction(() => apiInflight === 0);
       dropExpectedSyncErrors(from);
     }
+  });
+  await step('delete that fails, with Undo tapped before the reply: Undo adds nothing (no second copy)', async () => {
+    const from = errors.length;
+    try {
+      await page.evaluate(() => { const a = MOCK.db.amex; a.push({ row: Math.max(...a.map(r => r.row)) + 1, desc: 'Failed delete', amount: -3.25 }); forceSyncSheet(); });
+      await page.waitForFunction(() => apiInflight === 0 && state.amex.some(t => t.desc === 'Failed delete'));
+      const adds = (await calls(page, 'addTransactionBundle')).length;
+      await page.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failNext = 1; MOCK.nextLatencies = [800]; const t = state.amex.find(x => x.desc === 'Failed delete'); openEditTxModal('amex', t.row, t.desc, t.amount); });
+      await page.click('#editTxModal button:has-text("Delete")');
+      assert.deepStrictEqual(await toastParts(), ['Deleted "Failed delete"', 'Undo']);
+      await page.click('#toastAction');   // while the delete is still on its way
+      await page.waitForFunction(() => apiInflight === 0 && MOCK.calls.some(c => c.action === 'deleteTransactionRow' && c.end));
+      assert.strictEqual(await page.evaluate(() => MOCK.db.amex.filter(t => t.desc === 'Failed delete').length), 1, 'a second copy was added');
+      assert.strictEqual((await calls(page, 'addTransactionBundle')).length, adds, 'Undo sent a spend');
+      await page.waitForFunction(() => state.amex.filter(t => t.desc === 'Failed delete' && !t.pending).length === 1 && !state.amex.some(t => t.pending));
+    } finally {
+      await resetFailures(page);
+      await page.evaluate(() => { MOCK.db.amex = MOCK.db.amex.filter(t => t.desc !== 'Failed delete'); forceSyncSheet(); });
+      await page.waitForFunction(() => apiInflight === 0);
+      dropExpectedSyncErrors(from);
+    }
+  });
+  await step('the "Open Sheet" links open only a Google Sheet, in a new tab with no link back', async () => {
+    const r = await page.evaluate(() => {
+      const before = document.getElementById('rawSheetBtn').href;
+      applyServerState({ ...state, sheetUrl: 'javascript:alert(1)' });
+      const bad = document.getElementById('rawSheetBtn').href;
+      applyServerState({ ...state, sheetUrl: 'https://docs.google.com/spreadsheets/d/x/edit#gid=1' });
+      return { kept: bad === before, good: document.getElementById('rawSheetMenuBtn').href,
+        rel: ['rawSheetBtn', 'rawSheetMenuBtn'].map(id => document.getElementById(id).rel) };
+    });
+    assert.deepStrictEqual(r, { kept: true, good: 'https://docs.google.com/spreadsheets/d/x/edit#gid=1', rel: ['noopener noreferrer', 'noopener noreferrer'] });
   });
   await step('bills: the sheet fits a 344px phone (no label wraps), every button has a 44px hit area, boxes are 44px tall', async () => {
     const { ctx: c7, page: p7 } = await open({ viewport: { width: 344, height: 740 }, isMobile: true, hasTouch: true });
@@ -2169,6 +2228,29 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.deepStrictEqual(lines.filter(x => !/:1$/.test(x)), [], lines.join(' '));
     });
     await c3.close();
+  }
+
+  // ---------------- first open, nothing saved on this device, slow reply ----------------
+  {
+    const c9 = await browser.newContext(phone);
+    const p9 = watch(await c9.newPage());
+    await step('first open with nothing saved: "£—" and "Loading…" until the figures arrive, never a false £0.00', async () => {
+      try {
+        await p9.goto(`http://localhost:${PORT}/tests/harness.html?demo=1&latency=1500`);
+        await p9.waitForFunction(() => window.MOCK && MOCK.calls.length > 0 && typeof renderAll === 'function');
+        const shown = () => p9.evaluate(() => ({
+          kpis: ['kpiSurplus', 'kpiAmex', 'kpiBarclays', 'kpiNCA', 'kpiMarcus'].map(id => document.getElementById(id).textContent),
+          bills: document.getElementById('budLeftVal').textContent,
+          owed: document.getElementById('panel_pending').textContent.trim(),
+          saved: Object.keys(localStorage).filter(k => k.startsWith('pf_cache_'))
+        }));
+        await p9.evaluate(() => renderAll());   // anything that redraws while waiting
+        assert.deepStrictEqual(await shown(), { kpis: ['£—', '£—', '£—', '£—', '£—'], bills: 'Loading…', owed: 'Loading…', saved: [] });
+        await p9.waitForFunction(() => /£\d/.test(document.getElementById('kpiNCA').textContent));
+        const after = await shown();
+        assert.ok(after.kpis.every(t => /£\d/.test(t)) && after.bills !== 'Loading…' && after.owed !== 'Loading…' && after.saved.length === 1, JSON.stringify(after));
+      } finally { await c9.close(); }
+    });
   }
 
   // ---------------- a Google account the server turns down ----------------
