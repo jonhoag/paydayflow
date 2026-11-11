@@ -2961,15 +2961,38 @@ async function postToServer(bodyObj, opts = {}) {
       }).then(applyServerState).catch(err => {
         // Made, but its figures couldn't be read back: open it, which fetches them.
         if (failureKind(err) === 'saved') {
-          showToast('Made ' + newMonthName + '. Loading it now.', { kind: 'info' });
-          switchMonth(newMonthName, true);
+          openMadeMonth(newMonthName);
         } else if (/^EXISTS/.test(String(err && err.message))) {
           // Another device made this month in the meantime: nothing was changed. Load the latest so the warning shows.
           showToast('"' + newMonthName + '" already exists, so nothing was changed. Open Start New Month again if you want to replace it.');
           forceSyncSheet();
+        } else if (failureKind(err) === 'reach') {
+          checkNewMonthAfterNoReply(newMonthName, replaceExisting);
         } else {
           showToast("Couldn't create the month: " + ((err && err.message) || 'unknown error'));
         }
+      });
+    }
+    // The month is in the sheet: open it, which fetches its figures.
+    function openMadeMonth(newMonthName) {
+      showToast('Made ' + newMonthName + '. Loading it now.', { kind: 'info' });
+      switchMonth(newMonthName, true);
+    }
+    // No reply (no signal, or it took too long), yet the server may have finished the month anyway. Look at the sheet
+    // before saying it failed, so you aren't sent to make (or replace) it a second time.
+    function checkNewMonthAfterNoReply(newMonthName, replaceExisting) {
+      showToast('No reply yet about ' + newMonthName + '. Checking your sheet...', { kind: 'info' });
+      apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true }).then(s => {
+        const there = !!(s && (s.availableMonths || []).includes(newMonthName));
+        if (there && !replaceExisting) return openMadeMonth(newMonthName);
+        applyServerState(s);
+        if (there) {
+          showToast('No reply about replacing ' + newMonthName + '; it may have gone through. Open it to check before trying again.');
+        } else {
+          showToast(newMonthName + " isn't in your sheet yet. It may still appear in a minute; check before trying again.");
+        }
+      }).catch(() => {
+        showToast("Couldn't reach your sheet to check whether " + newMonthName + ' was made. Check again before trying again.');
       });
     }
 
