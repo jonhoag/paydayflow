@@ -1784,6 +1784,38 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(c && c.replaceExisting === false && c.paycheck === 2600 && c.savingsAmount === 500, JSON.stringify(c));
   });
 
+  await step('new month: no reply, but the month was made: the page checks the sheet and opens it, never offering to make it again', async () => {
+    await page.evaluate(() => {
+      MOCK.listNewMonths = true; MOCK.badReplyNext = 1;
+      openNewMonthModal();
+      document.getElementById('nmName').value = 'Timed Out Payday 2026';
+      updateNewMonthName();
+    });
+    const syncs = (await calls(page, 'getCachedSheetState')).length;
+    await page.click('#nmCreateBtn');
+    await page.waitForTimeout(1200);
+    const toast = await page.textContent('#toast');
+    assert.ok(/Made Timed Out Payday 2026/.test(toast), toast);
+    assert.ok((await calls(page, 'getCachedSheetState')).length > syncs, 'should have looked at the sheet');
+    assert.ok((await calls(page, 'getCachedSheetState')).some(c => c.sheetName === 'Timed Out Payday 2026'), 'should open the new month');
+    await page.evaluate(() => { MOCK.listNewMonths = false; switchMonth(MOCK.MONTH, true); });
+    await page.waitForTimeout(500);
+  });
+
+  await step('new month: no reply and not in the sheet: the page says so instead of "failed"', async () => {
+    await page.evaluate(() => {
+      MOCK.dropNext = 1;
+      openNewMonthModal();
+      document.getElementById('nmName').value = 'Never Made Payday 2026';
+      updateNewMonthName();
+    });
+    await page.click('#nmCreateBtn');
+    await page.waitForTimeout(1200);
+    const toast = await page.textContent('#toast');
+    assert.ok(/isn't in your sheet yet/.test(toast), toast);
+    assert.ok(!/Couldn't create/.test(toast), toast);
+  });
+
   await step('new month: if another device made that month first, nothing changes and the page says so', async () => {
     await page.evaluate(() => {
       state.availableMonths = state.availableMonths.filter(m => m !== 'Other Payday 2026');   // this screen hasn't heard yet

@@ -96,6 +96,7 @@
     latency: Number(q.get('latency') || 300),
     nextLatencies: [],    // consumed one per request before falling back to `latency`
     failNext: 0,          // number of upcoming write calls that should fail
+    listNewMonths: false, // true: a month made by Start New Month appears in every reply's month list from then on
     failWith: 'Mock server failure',   // what the server says when it fails one of them
     failAfterWriteNext: 0,   // number of upcoming write calls that do their work, then reply with an error
     badReplyNext: 0,      // number of upcoming calls that get a page that isn't JSON (like Google's error page)
@@ -147,6 +148,7 @@
     // Like the real server: an existing month is only replaced when the page says so (nothing else is modelled).
     startNewMonth: (p, d, n) => {
       if (dbs[p.newMonthName] && p.replaceExisting !== true) throw new Error('EXISTS: There is already a month called "' + p.newMonthName + '". Nothing was changed.');
+      if (MOCK.listNewMonths && !MONTH_LIST.includes(p.newMonthName)) MONTH_LIST.push(p.newMonthName);
       return snapshot(d, n);
     },
     // Remembered for this tab, because Sign out reloads the page (and with it this pretend server).
