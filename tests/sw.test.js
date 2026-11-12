@@ -223,13 +223,19 @@ const { step, finish } = makeSteps();
     assert.strictEqual(await updateOffered(), false, 'offered an update when nothing changed');
   });
 
-  await step('a change to sw.js alone: the new service worker takes over without downloading any file again', async () => {
-    const before = [pageHits, fontHits, cssHits];
-    const changed = page.evaluate(() => new Promise(r => navigator.serviceWorker.addEventListener('controllerchange', () => r(true), { once: true })));
-    mode = 'fresh-sw';
-    await page.evaluate(() => navigator.serviceWorker.getRegistration().then(r => r.update()));
-    assert.ok(await Promise.race([changed, new Promise(r => setTimeout(() => r(false), 5000))]), 'the new service worker did not take over');
-    assert.deepStrictEqual([pageHits, fontHits, cssHits], before, 'files were downloaded again');
+  await step("a change to sw.js alone: the new service worker takes over without downloading any file again, and leaves other sites' caches", async () => {
+    await page.evaluate(() => caches.open('another-app').then(c => c.put('/x', new Response('x'))));   // not this app's
+    try {
+      const before = [pageHits, fontHits, cssHits];
+      const changed = page.evaluate(() => new Promise(r => navigator.serviceWorker.addEventListener('controllerchange', () => r(true), { once: true })));
+      mode = 'fresh-sw';
+      await page.evaluate(() => navigator.serviceWorker.getRegistration().then(r => r.update()));
+      assert.ok(await Promise.race([changed, new Promise(r => setTimeout(() => r(false), 5000))]), 'the new service worker did not take over');
+      assert.deepStrictEqual([pageHits, fontHits, cssHits], before, 'files were downloaded again');
+      // Taking over comes before the old caches are cleared out: wait for that to finish.
+      await page.evaluate(() => new Promise(r => { const w = navigator.serviceWorker.controller; if (w.state === 'activated') r(); else w.addEventListener('statechange', () => { if (w.state === 'activated') r(); }); }));
+      assert.ok((await caches_()).includes('another-app'), "another app's cache was deleted");
+    } finally { await page.evaluate(() => caches.delete('another-app')); }
     await reload();
     assert.ok(await page.$('#fresh-marker'), 'the saved app did not open');
   });
