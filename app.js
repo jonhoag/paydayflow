@@ -2494,6 +2494,17 @@ async function postToServer(bodyObj, opts = {}) {
     // Equal shares of the amount, less anything typed for Marcus (savings are never shared out by themselves). With
     // "Include me", what's left after the shares is yours; without, the last person takes the odd penny, so the shares
     // add up to the amount.
+    // `pence` shared equally between `count` people, in pence. With includeMe you have a share too (what's left after
+    // theirs); without, the last person takes the odd pence. A few pence between many: no share is below 0.
+    function equalShares(pence, count, includeMe) {
+      const divisor = count + (includeMe ? 1 : 0);
+      if (!divisor) return [];
+      let each = Math.round(pence / divisor);
+      if (!includeMe && each * (count - 1) > pence) each = Math.floor(pence / divisor);
+      const shares = new Array(count).fill(each);
+      if (!includeMe) shares[count - 1] = pence - each * (count - 1);
+      return shares;
+    }
     function applyEqualGroupSplit() {
       autoEqualActive = true;
       const isMarcus = e => e.person.toLowerCase() === 'marcus';
@@ -2501,13 +2512,7 @@ async function postToServer(bodyObj, opts = {}) {
       const marcus = customSplitEntries.filter(isMarcus).reduce((a, e) => a + (e.amount || 0), 0);
       const pence = Math.max(0, Math.round(((amountIn('inpAmount') || 0) - marcus) * 100));
       const incMe = document.getElementById('chkEqualIncludeMe').checked;
-      const divisor = people.length + (incMe ? 1 : 0);
-      if (divisor) {
-        let each = Math.round(pence / divisor);
-        if (!incMe && each * (people.length - 1) > pence) each = Math.floor(pence / divisor);   // a few pence: no share below 0
-        people.forEach(e => { e.amount = each / 100; });
-        if (!incMe) people[people.length - 1].amount = (pence - each * (people.length - 1)) / 100;
-      }
+      equalShares(pence, people.length, incMe).forEach((p, i) => { people[i].amount = p / 100; });
       renderDynamicSplitRows();
       updateSplitSummary();
     }

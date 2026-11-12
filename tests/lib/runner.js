@@ -1,6 +1,10 @@
 // Shared by the real-Chrome tests: the browser, a runner that records each check and prints the summary, and the
 // "away and back" helper. playwright-core comes from PW_PATH (a local folder) or from this repo's node_modules.
-const CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
+// Chrome: CHROME_PATH, else where it usually is on Windows, macOS or Linux.
+const CHROME = process.env.CHROME_PATH || {
+  win32: 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  darwin: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+}[process.platform] || '/usr/bin/google-chrome';
 const { chromium } = require(process.env.PW_PATH || 'playwright-core');
 
 const launchChrome = (opts = {}) => chromium.launch({ executablePath: CHROME, headless: true, ...opts });

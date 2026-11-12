@@ -1883,6 +1883,56 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.evaluate(() => { const a = MOCK.db.amex; for (let i = a.length - 1; i >= 0; i--) if (/^(Twin cafe|Between shop)$/.test(a[i].desc)) a.splice(i, 1); forceSyncSheet(); });
     await page.waitForFunction(() => apiInflight === 0 && !state.amex.some(r => r.desc === 'Twin cafe'));
   });
+  // Audit 3.5: the pretend server writes a spend and a new month the way the real one does.
+  await step('a savings share and a refund split come back as the server writes them (Marcus row, "savings" row, signs)', async () => {
+    await page.waitForFunction(() => apiInflight === 0);
+    await page.evaluate(() => apiCall('addTransactionBundle', { sheetName: activeMonth, merchant: 'Shape shop', grossAmount: 30, isRefund: true,
+      account: 'amex', splits: [{ person: 'Kim', amount: 5, need: true }], marcusShare: 10, markNeed: true, clientId: 'shape-1' }).then(applyServerState));
+    await page.waitForFunction(() => apiInflight === 0);
+    const rows = await page.evaluate(() => ['amex', 'marcus', 'checking'].flatMap(a => state[a].filter(r => /Shape shop$/.test(r.desc)).map(r => [a, r.desc, r.amount, !!r.need, r.clientTs > 0])));
+    assert.deepStrictEqual(rows.sort(), [['amex', 'Shape shop', 30, false, true], ['checking', 'kim Shape shop', -5, true, true],
+      ['checking', 'savings Shape shop', -10, true, true], ['marcus', 'Shape shop', 10, false, true]].sort(), JSON.stringify(rows));
+    await page.evaluate(() => { Object.values(MOCK.db).filter(Array.isArray).forEach(a => { for (let i = a.length - 1; i >= 0; i--) if (/Shape shop$/.test(a[i].desc)) a.splice(i, 1); }); forceSyncSheet(); });
+    await page.waitForFunction(() => apiInflight === 0 && !state.amex.some(r => r.desc === 'Shape shop'));
+  });
+  await step('Start New Month opens the month it made: balances carried, pay and savings in, owed items and the chosen bills at full amount', async () => {
+    await page.waitForFunction(() => apiInflight === 0);
+    try {
+      await page.evaluate(() => {
+        MOCK.db.checking.push({ row: Math.max(...MOCK.db.checking.map(r => r.row)) + 1, desc: 'kim Carried over', amount: 7.25, need: true });
+        MOCK.db.budgets[0].amount = 0;   // the first bill paid this month
+        forceSyncSheet();
+      });
+      await page.waitForFunction(() => apiInflight === 0 && state.checking.some(r => r.desc === 'kim Carried over'));
+      const was = await page.evaluate(() => ({ s: { ...state.summary }, owed: state.checking.filter(r => r.need).map(r => [r.desc, r.amount]).sort(),
+        bills: state.budgets.filter(b => b.isRecurring).map(b => [b.name, b.originalBudget]) }));   // repeating bills are ticked to carry over
+      await page.evaluate(() => { openNewMonthModal(); document.getElementById('nmName').value = 'Made Payday 2027'; updateNewMonthName(); });
+      const pay = Number(await page.inputValue('#nmPaycheck')), sav = Number(await page.inputValue('#nmSavings'));
+      assert.ok(pay > 0 && sav > 0, 'this month has a paycheck and a savings transfer to start from');
+      await page.click('#nmCreateBtn');
+      await page.waitForFunction(() => apiInflight === 0 && activeMonth === 'Made Payday 2027', null, { timeout: 5000 });
+      const now = await page.evaluate(() => ({ months: state.availableMonths.slice(0, 1), s: state.summary, owed: state.checking.filter(r => r.need).map(r => [r.desc, r.amount]).sort(),
+        pay: state.checking.filter(r => r.desc === 'paycheck').map(r => r.amount), mine: state.marcus.filter(r => r.desc !== 'start').map(r => r.amount),
+        bills: state.budgets.map(b => [b.name, b.amount]) }));
+      assert.deepStrictEqual(now.months, ['Made Payday 2027'], 'not first in the month list');
+      assert.deepStrictEqual(now.owed, was.owed, 'owed items not carried over');
+      assert.deepStrictEqual(now.pay, [pay]);
+      assert.deepStrictEqual(now.mine, [sav]);
+      assert.strictEqual(+now.s.nCA.toFixed(2), +(was.s.nCA + pay - sav).toFixed(2), 'Nationwide does not carry over');
+      assert.strictEqual(now.s.mSAV, +(was.s.mSAV + sav).toFixed(2));
+      assert.strictEqual(now.s.amex, was.s.amex);
+      assert.deepStrictEqual(now.bills, was.bills, 'the chosen bills are not back at their full amounts');
+    } finally {
+      await page.evaluate(() => {
+        closeNewMonthModal();
+        const i = MOCK.db.checking.findIndex(r => r.desc === 'kim Carried over');
+        if (i > -1) MOCK.db.checking.splice(i, 1);
+        MOCK.db.budgets[0].amount = MOCK.db.budgets[0].originalBudget;
+        switchMonth(MOCK.MONTH, true);
+      });
+      await page.waitForFunction(() => apiInflight === 0 && activeMonth === MOCK.MONTH);
+    }
+  });
   await step('an entry edited in place goes to the top of Activity; an identical one in another row keeps its place', async () => {
     const rows = await page.evaluate(() => {
       const a = MOCK.db.amex, out = [];
@@ -2081,7 +2131,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
 
   await step('new month: no reply, but the month was made: the page checks the sheet and opens it, never offering to make it again', async () => {
     await page.evaluate(() => {
-      MOCK.listNewMonths = true; MOCK.badReplyNext = 1;
+      MOCK.badReplyNext = 1;   // the month is made, but its reply is lost
       openNewMonthModal();
       document.getElementById('nmName').value = 'Timed Out Payday 2026';
       updateNewMonthName();
@@ -2093,7 +2143,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(/Made Timed Out Payday 2026/.test(toast), toast);
     assert.ok((await calls(page, 'getCachedSheetState')).length > syncs, 'should have looked at the sheet');
     assert.ok((await calls(page, 'getCachedSheetState')).some(c => c.sheetName === 'Timed Out Payday 2026'), 'should open the new month');
-    await page.evaluate(() => { MOCK.listNewMonths = false; switchMonth(MOCK.MONTH, true); });
+    await page.evaluate(() => switchMonth(MOCK.MONTH, true));
     await page.waitForTimeout(500);
   });
 

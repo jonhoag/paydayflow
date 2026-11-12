@@ -1,0 +1,5 @@
+# Text files are stored and checked out with plain \n line endings on every computer, so the bytes on disk are the
+# bytes published (build-sw.js hashes those). Images and fonts are never touched.
+* text=auto eol=lf
+*.png binary
+*.woff2 binary
