@@ -1768,6 +1768,96 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.ok(i > -1, 'the server did not refuse the stale save');
     errors.splice(i, 1);
   };
+
+  // Audit 4.1: "All paid back" acts at once, so it gets "Done / Undo" like a delete. 3.9: one toast slot, so an Undo
+  // covered by a newer message comes back afterwards; local add-times no longer mix up identical purchases.
+  const UNDO_OWED = ['lee Undo cafe', 'jo Undo bus'];
+  const sheetOwed = () => page.evaluate(n => MOCK.db.checking.filter(r => n.includes(r.desc)).map(r => r.need), UNDO_OWED);
+  const toastHidden = () => page.evaluate(() => document.getElementById('toast').classList.contains('hidden'));
+  await step('"All paid back" says what it did, with Undo; Undo marks them owed again, on screen and in the sheet', async () => {
+    await page.evaluate(names => {
+      const ch = MOCK.db.checking;
+      ch.forEach(r => { r.need = false; });
+      names.forEach((desc, i) => ch.push({ row: Math.max(...ch.map(r => r.row)) + 1, desc, amount: 4.5 + i, need: true }));
+      forceSyncSheet();
+    }, UNDO_OWED);
+    await page.waitForFunction(() => apiInflight === 0 && state.checking.filter(r => r.need).length === 2);
+    const toggles = (await calls(page, 'toggleNeedFlag')).length;
+    await page.click('#btnSettleAll');
+    assert.deepStrictEqual(await toastParts(), ['Marked 2 items paid back', 'Undo']);
+    await page.waitForFunction(() => apiInflight === 0);
+    assert.deepStrictEqual(await sheetOwed(), [false, false], 'not paid back in the sheet');
+    await page.click('#toastAction');
+    assert.strictEqual(await owedCount(page), 2, 'Undo did not show them owed at once');
+    await page.waitForFunction(() => apiInflight === 0);
+    assert.deepStrictEqual(await sheetOwed(), [true, true], 'Undo did not mark them owed in the sheet');
+    const sent = (await calls(page, 'toggleNeedFlag')).slice(toggles);
+    assert.deepStrictEqual(sent.map(t => [t.setNeed, t.expect && t.expect.desc]).sort(), UNDO_OWED.map(d => [true, d]).sort(), JSON.stringify(sent));
+    assert.strictEqual(await owedCount(page), 2);
+  });
+  await step('"All paid back" that didn\'t go through: Undo tapped before the reply sends nothing', async () => {
+    const from = errors.length;
+    try {
+      const toggles = (await calls(page, 'toggleNeedFlag')).length;
+      await page.evaluate(() => { MOCK.failNext = 1; MOCK.nextLatencies = [600]; });
+      await page.click('#btnSettleAll');
+      await page.click('#toastAction');   // while "All paid back" is still on its way
+      await page.waitForFunction(() => apiInflight === 0 && MOCK.calls.filter(c => c.action === 'getCachedSheetState' && c.end).length > 0);
+      await page.waitForTimeout(300);
+      assert.strictEqual((await calls(page, 'toggleNeedFlag')).length, toggles, 'Undo sent ticks for a change that never happened');
+      assert.deepStrictEqual(await sheetOwed(), [true, true]);
+    } finally { await resetFailures(page); dropExpectedSyncErrors(from); }
+  });
+  await step('a refused "All paid back": once the failure message goes, its Undo does not come back', async () => {
+    const from = errors.length;
+    try {
+      await page.waitForFunction(() => apiInflight === 0);
+      await page.evaluate(() => { MOCK.failNext = 1; });
+      await page.click('#btnSettleAll');
+      await page.waitForFunction(() => apiInflight === 0 && /^Couldn't save All paid back/.test(document.querySelector('#toast span').textContent));
+      await page.evaluate(() => closeToast());   // the failure message goes (an older Undo put aside may come back)
+      assert.ok(await toastHidden() || !/paid back/.test((await toastParts())[0]), 'the refused change\'s Undo came back: ' + (await toastParts()).join(' / '));
+      assert.strictEqual(await owedCount(page), 2);
+    } finally { await resetFailures(page); dropExpectedSyncErrors(from); }
+  });
+  await step('an Undo covered by a newer message comes back once that has gone, and still works', async () => {
+    await page.waitForFunction(() => apiInflight === 0);
+    await page.click('#btnSettleAll');
+    await page.evaluate(() => showToast('Something else happened', { kind: 'info', duration: 400 }));
+    assert.strictEqual((await toastParts())[0], 'Something else happened');
+    await page.waitForFunction(() => !document.getElementById('toast').classList.contains('hidden')
+      && document.querySelector('#toast span').textContent === 'Marked 2 items paid back', null, { timeout: 3000 });
+    await page.waitForFunction(() => apiInflight === 0);
+    await page.click('#toastAction');
+    await page.waitForFunction(() => apiInflight === 0);
+    assert.deepStrictEqual(await sheetOwed(), [true, true], 'the Undo that came back did not work');
+  });
+  await step('(tidy up) the owed items these steps added are taken back out of the pretend sheet', async () => {
+    await page.evaluate(names => { const ch = MOCK.db.checking; for (let i = ch.length - 1; i >= 0; i--) if (names.includes(ch[i].desc)) ch.splice(i, 1); forceSyncSheet(); }, UNDO_OWED);
+    await page.waitForFunction(() => apiInflight === 0 && !state.checking.some(r => r.need));
+  });
+  await step('a repeat of an earlier purchase goes to the top of Activity; the earlier one keeps its place', async () => {
+    await page.evaluate(() => {
+      const a = MOCK.db.amex;
+      ['Twin cafe', 'Between shop'].forEach((desc, i) => a.push({ row: Math.max(...a.map(r => r.row)) + 1, desc, amount: -3.1 + i }));
+      forceSyncSheet();
+    });
+    await page.waitForFunction(() => apiInflight === 0 && state.amex.some(r => r.desc === 'Between shop'));
+    await page.evaluate(() => {
+      openAddModal();
+      selectAcct('amex');
+      document.getElementById('inpMerchant').value = 'Twin cafe';
+      document.getElementById('inpAmount').value = '3.10';
+      submitExpense();
+    });
+    await page.waitForFunction(() => apiInflight === 0 && state.amex.filter(r => r.desc === 'Twin cafe' && !r.pending).length === 2);
+    const names = await page.$$eval('#txListContainer > .tx-row', els => els.map(e => e.getAttribute('aria-label') || e.textContent));
+    assert.strictEqual(names[0], 'Edit Twin cafe', JSON.stringify(names));
+    const twin = names.indexOf('Edit Twin cafe', 1), between = names.indexOf('Edit Between shop');
+    assert.ok(twin === -1 || (between > -1 && twin > between), 'the earlier purchase jumped to the top too: ' + JSON.stringify(names));
+    await page.evaluate(() => { const a = MOCK.db.amex; for (let i = a.length - 1; i >= 0; i--) if (/^(Twin cafe|Between shop)$/.test(a[i].desc)) a.splice(i, 1); forceSyncSheet(); });
+    await page.waitForFunction(() => apiInflight === 0 && !state.amex.some(r => r.desc === 'Twin cafe'));
+  });
   // The figures can refresh while a form is open (another save's reply, coming back to the app). If the row now holds
   // something else, the save must still be checked against what the form showed, so the server refuses it.
   await step('edit form left open while the row changes underneath: checked against what the form showed', async () => {
