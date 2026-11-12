@@ -1836,12 +1836,14 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.waitForFunction(() => apiInflight === 0);
     await page.click('#btnSettleAll');
     await page.waitForFunction(() => apiInflight === 0);
-    await page.evaluate(d => { MOCK.db.checking.find(r => r.desc === d).amount = 99; }, UNDO_OWED[0]);   // changed elsewhere
+    // Changed elsewhere: the newest row, so the first one Undo sends (the list is newest first).
+    await page.evaluate(d => { MOCK.db.checking.find(r => r.desc === d).amount = 99; }, UNDO_OWED[1]);
     await page.click('#toastAction');
     await page.waitForFunction(() => apiInflight === 0 && MOCK.calls.filter(c => c.action === 'getCachedSheetState').slice(-1)[0].end);
-    assert.deepStrictEqual(await sheetOwed(), [false, true], 'the row after the refused one was not ticked again');
+    assert.strictEqual((await calls(page, 'toggleNeedFlag')).slice(-2)[0].expect.desc, UNDO_OWED[1], 'the changed row was not sent first, so this proves nothing');
+    assert.deepStrictEqual(await sheetOwed(), [true, false], 'the row after the refused one was not ticked again');
     dropExpectedStale();
-    await page.evaluate(d => { const r = MOCK.db.checking.find(x => x.desc === d); r.amount = 4.5; r.need = true; forceSyncSheet(); }, UNDO_OWED[0]);
+    await page.evaluate(d => { const r = MOCK.db.checking.find(x => x.desc === d); r.amount = 5.5; r.need = true; forceSyncSheet(); }, UNDO_OWED[1]);
     await page.waitForFunction(() => apiInflight === 0);
   });
   await step('an Undo put aside never comes back over the lock screen', async () => {
@@ -1884,20 +1886,22 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   await step('an entry edited in place goes to the top of Activity; an identical one in another row keeps its place', async () => {
     const rows = await page.evaluate(() => {
       const a = MOCK.db.amex, out = [];
-      [['Twin cafe', -2], ['Between shop', -1], ['Edit me', -2]].forEach(([desc, amount]) => {
-        const row = Math.max(...a.map(r => r.row)) + 1; a.push({ row, desc, amount }); out.push(row);
+      // Edit me in the lowest row, so only its edit time can bring it to the top. Rows well past any used before, so
+      // none takes over a time the pretend server still holds for a row an earlier step took out.
+      [['Edit me', -2], ['Twin cafe', -2], ['Between shop', -1]].forEach(([desc, amount]) => {
+        const row = Math.max(...a.map(r => r.row)) + 20; a.push({ row, desc, amount }); out.push(row);
       });
       forceSyncSheet();
       return out;
     });
     await page.waitForFunction(() => apiInflight === 0 && state.amex.some(r => r.desc === 'Edit me'));
-    await page.evaluate(row => openEditTxForRow('amex', row), rows[2]);
+    await page.evaluate(row => openEditTxForRow('amex', row), rows[0]);
     await page.fill('#editTxDesc', 'Twin cafe');
     await page.click('#editTxModal button:has-text("Save")');
     await page.waitForFunction(() => apiInflight === 0 && !state.amex.some(r => r.desc === 'Edit me'));
     const order = await page.$$eval('#txListContainer > .tx-row', els => els.map(e => Number(e.dataset.row) + ' ' + e.getAttribute('aria-label')));
-    assert.strictEqual(order[0], rows[2] + ' Edit Twin cafe', 'the edited entry is not at the top: ' + JSON.stringify(order));
-    const twin = order.indexOf(rows[0] + ' Edit Twin cafe'), between = order.indexOf(rows[1] + ' Edit Between shop');
+    assert.strictEqual(order[0], rows[0] + ' Edit Twin cafe', 'the edited entry is not at the top: ' + JSON.stringify(order));
+    const twin = order.indexOf(rows[1] + ' Edit Twin cafe'), between = order.indexOf(rows[2] + ' Edit Between shop');
     assert.ok(twin === -1 || (between > -1 && twin > between), 'the identical entry in another row moved too: ' + JSON.stringify(order));
     await page.evaluate(() => { const a = MOCK.db.amex; for (let i = a.length - 1; i >= 0; i--) if (/^(Twin cafe|Between shop)$/.test(a[i].desc)) a.splice(i, 1); forceSyncSheet(); });
     await page.waitForFunction(() => apiInflight === 0 && !state.amex.some(r => r.desc === 'Twin cafe'));

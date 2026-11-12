@@ -2184,7 +2184,8 @@ async function postToServer(bodyObj, opts = {}) {
 
     // Undo of "All paid back" (offerUndo waits for it to be in the sheet): each row is ticked as owed again, one
     // request after another, each checking the row still holds what it did. A row changed meanwhile is refused and
-    // the rest still go; if any was refused, the screen goes back and the sheet is fetched, to show what it holds.
+    // the rest still go; if any was refused, the screen goes back and the sheet is fetched, to show what it holds
+    // (a refusal counts over a 'saved' reply, which would fetch it quietly).
     // Shown at once like any save. If you've since left that month, only the sheet is updated.
     function undoSettle(rows, expects, month) {
       return mutate('the Undo', () => {
@@ -2194,7 +2195,7 @@ async function postToServer(bodyObj, opts = {}) {
         items.forEach(r => { r.need = true; });
         return () => undos.forEach(u => u());
       }, () => rows.reduce((prev, row, i) => prev.then(last => apiCall('toggleNeedFlag', { sheetName: month, row, setNeed: true, expect: expects[i] })
-        .then(s => ({ s, err: last.err }), err => ({ s: last.s, err: last.err || err }))), Promise.resolve({}))
+        .then(s => ({ s, err: last.err }), err => ({ s: last.s, err: last.err && failureKind(last.err) !== 'saved' ? last.err : err }))), Promise.resolve({}))
         .then(last => { if (last.err) throw last.err; return last.s; }),
       applyStateIfViewing(month));
     }
