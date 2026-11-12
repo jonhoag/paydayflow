@@ -1078,7 +1078,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     } finally {
       await resetFailures(page);
       // Tidy up: the bill goes back in the pretend sheet (not through the toast: that is what failed).
-      if (bill) { await page.evaluate(b => undoDeleteBudget(b, activeMonth, Promise.resolve(true)), bill); await page.waitForFunction(() => apiInflight === 0); }
+      if (bill) { await page.evaluate(b => undoDeleteBudget(b, activeMonth), bill); await page.waitForFunction(() => apiInflight === 0); }
       dropExpectedSyncErrors(from);
     }
   });
@@ -1812,11 +1812,11 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     const from = errors.length;
     try {
       await page.waitForFunction(() => apiInflight === 0);
-      await page.evaluate(() => { MOCK.failNext = 1; });
+      await page.evaluate(() => { toastsAside.length = 0; MOCK.failNext = 1; });   // no older Undo waiting to come back
       await page.click('#btnSettleAll');
       await page.waitForFunction(() => apiInflight === 0 && /^Couldn't save All paid back/.test(document.querySelector('#toast span').textContent));
       await page.evaluate(() => closeToast());   // the failure message goes (an older Undo put aside may come back)
-      assert.ok(await toastHidden() || !/paid back/.test((await toastParts())[0]), 'the refused change\'s Undo came back: ' + (await toastParts()).join(' / '));
+      assert.ok(await toastHidden(), 'the refused change\'s Undo came back: ' + (await toastParts()).join(' / '));
       assert.strictEqual(await owedCount(page), 2);
     } finally { await resetFailures(page); dropExpectedSyncErrors(from); }
   });
@@ -1831,6 +1831,29 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.click('#toastAction');
     await page.waitForFunction(() => apiInflight === 0);
     assert.deepStrictEqual(await sheetOwed(), [true, true], 'the Undo that came back did not work');
+  });
+  await step('Undo of "All paid back" carries on past a row changed on another device meanwhile', async () => {
+    await page.waitForFunction(() => apiInflight === 0);
+    await page.click('#btnSettleAll');
+    await page.waitForFunction(() => apiInflight === 0);
+    await page.evaluate(d => { MOCK.db.checking.find(r => r.desc === d).amount = 99; }, UNDO_OWED[0]);   // changed elsewhere
+    await page.click('#toastAction');
+    await page.waitForFunction(() => apiInflight === 0 && MOCK.calls.filter(c => c.action === 'getCachedSheetState').slice(-1)[0].end);
+    assert.deepStrictEqual(await sheetOwed(), [false, true], 'the row after the refused one was not ticked again');
+    dropExpectedStale();
+    await page.evaluate(d => { const r = MOCK.db.checking.find(x => x.desc === d); r.amount = 4.5; r.need = true; forceSyncSheet(); }, UNDO_OWED[0]);
+    await page.waitForFunction(() => apiInflight === 0);
+  });
+  await step('an Undo put aside never comes back over the lock screen', async () => {
+    try {
+      await page.evaluate(() => {
+        showToast('Deleted "Lock test"', { kind: 'info', actionLabel: 'Undo', keep: true, duration: 9000, onAction() {} });
+        showToast('Something else happened', { kind: 'info', duration: 300 });
+        showLockScreen('Unlock to continue.', { noAuto: true });
+      });
+      await page.waitForTimeout(700);
+      assert.ok(await toastHidden(), 'a toast shows over the lock screen: ' + (await toastParts()).join(' / '));
+    } finally { await page.evaluate(() => hideLockScreen()); }
   });
   await step('(tidy up) the owed items these steps added are taken back out of the pretend sheet', async () => {
     await page.evaluate(names => { const ch = MOCK.db.checking; for (let i = ch.length - 1; i >= 0; i--) if (names.includes(ch[i].desc)) ch.splice(i, 1); forceSyncSheet(); }, UNDO_OWED);
@@ -1855,6 +1878,27 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     assert.strictEqual(names[0], 'Edit Twin cafe', JSON.stringify(names));
     const twin = names.indexOf('Edit Twin cafe', 1), between = names.indexOf('Edit Between shop');
     assert.ok(twin === -1 || (between > -1 && twin > between), 'the earlier purchase jumped to the top too: ' + JSON.stringify(names));
+    await page.evaluate(() => { const a = MOCK.db.amex; for (let i = a.length - 1; i >= 0; i--) if (/^(Twin cafe|Between shop)$/.test(a[i].desc)) a.splice(i, 1); forceSyncSheet(); });
+    await page.waitForFunction(() => apiInflight === 0 && !state.amex.some(r => r.desc === 'Twin cafe'));
+  });
+  await step('an entry edited in place goes to the top of Activity; an identical one in another row keeps its place', async () => {
+    const rows = await page.evaluate(() => {
+      const a = MOCK.db.amex, out = [];
+      [['Twin cafe', -2], ['Between shop', -1], ['Edit me', -2]].forEach(([desc, amount]) => {
+        const row = Math.max(...a.map(r => r.row)) + 1; a.push({ row, desc, amount }); out.push(row);
+      });
+      forceSyncSheet();
+      return out;
+    });
+    await page.waitForFunction(() => apiInflight === 0 && state.amex.some(r => r.desc === 'Edit me'));
+    await page.evaluate(row => openEditTxForRow('amex', row), rows[2]);
+    await page.fill('#editTxDesc', 'Twin cafe');
+    await page.click('#editTxModal button:has-text("Save")');
+    await page.waitForFunction(() => apiInflight === 0 && !state.amex.some(r => r.desc === 'Edit me'));
+    const order = await page.$$eval('#txListContainer > .tx-row', els => els.map(e => Number(e.dataset.row) + ' ' + e.getAttribute('aria-label')));
+    assert.strictEqual(order[0], rows[2] + ' Edit Twin cafe', 'the edited entry is not at the top: ' + JSON.stringify(order));
+    const twin = order.indexOf(rows[0] + ' Edit Twin cafe'), between = order.indexOf(rows[1] + ' Edit Between shop');
+    assert.ok(twin === -1 || (between > -1 && twin > between), 'the identical entry in another row moved too: ' + JSON.stringify(order));
     await page.evaluate(() => { const a = MOCK.db.amex; for (let i = a.length - 1; i >= 0; i--) if (/^(Twin cafe|Between shop)$/.test(a[i].desc)) a.splice(i, 1); forceSyncSheet(); });
     await page.waitForFunction(() => apiInflight === 0 && !state.amex.some(r => r.desc === 'Twin cafe'));
   });

@@ -161,6 +161,7 @@ function showLockScreen(msg, opts) {
   const lockEl = document.getElementById('authLockScreen');
   if (msg) setLockMsg(msg, msg.indexOf('Access Denied') === 0 || msg.indexOf('Fingerprint') === 0);
   if (lockEl) lockEl.style.display = 'flex';
+  dropToasts();   // no Undo may come back over the lock screen
   lockAllowsAuto = !(opts && opts.noAuto);
   initGoogleAuthButton();
   updateLockPasskeyUi();
@@ -973,19 +974,19 @@ async function postToServer(bodyObj, opts = {}) {
     let splitPanelMode = 'pending';
     let txFilter = 'all';
 
-    // When this device added or edited each entry, for the newest-first order of entries the server has no time for
-    // (it records adds and moves, not edits in place). An add or move has no row yet, so its time is kept under what
-    // it holds and belongs only to the newest row holding that (a new entry goes below the others): an older,
-    // identical purchase keeps its place. An edit in place is kept under its row as well.
+    // When this device edited an entry in place, for the newest-first order of Activity. The server keeps a time for
+    // every add and move (by row, sent as clientTs), not for edits in place. Kept under the row and what it holds now,
+    // so an identical purchase in another row, or whatever later fills a cleared row, isn't moved by it. (Times kept
+    // before 2026-11 under what the entry held alone, which mixed up identical purchases, are no longer read.)
     function getLocalTimestamps() {
       const map = lsJson(TX_TS_PREFIX + activeMonth);
       return map && typeof map === 'object' ? map : {};
     }
-    const localTsKey = (acct, desc, amount, row) => `${acct}|${String(desc).toLowerCase()}|${Number(amount)}` + (row ? '|' + row : '');
+    const localTsKey = (acct, row, desc, amount) => `${acct}|${row}|${String(desc).toLowerCase()}|${Number(amount)}`;
 
-    function recordLocalTimestamp(acct, desc, amount, row) {
+    function recordEditTime(acct, row, desc, amount) {
       const map = getLocalTimestamps();
-      map[localTsKey(acct, desc, amount, row)] = Date.now();
+      map[localTsKey(acct, row, desc, amount)] = Date.now();
       lsSet(TX_TS_PREFIX + activeMonth, JSON.stringify(map));
     }
 
@@ -1568,14 +1569,22 @@ async function postToServer(bodyObj, opts = {}) {
     const toastsAside = [];   // newest last
     function showToast(msg, opts = {}) {
       if (!document.getElementById('toast')) return () => {};
-      if (toastShown && toastShown.opts.keep) toastsAside.push({ ...toastShown, left: toastShown.ends - Date.now(), was: toastShown });
+      if (toastShown && toastShown.opts.keep) {
+        toastShown.left = toastShown.ends - Date.now();
+        toastsAside.push(toastShown);
+      }
       const t = { msg, opts };
       drawToast(t, opts.duration || 6000);
       return () => {
-        const at = toastsAside.findIndex(x => x.was === t);
+        const at = toastsAside.indexOf(t);
         if (at >= 0) toastsAside.splice(at, 1);
         if (toastShown === t) closeToast();
       };
+    }
+    // Every toast goes, those put aside too (the app has locked: nothing behind the lock screen can be undone).
+    function dropToasts() {
+      toastsAside.length = 0;
+      if (toastShown) closeToast();
     }
     // The toast goes; the newest one put aside, if any, comes back (for at least 3 s).
     function closeToast() {
@@ -1583,7 +1592,7 @@ async function postToServer(bodyObj, opts = {}) {
       document.getElementById('toast').classList.add('hidden');
       toastShown = null;
       const next = toastsAside.pop();
-      if (next) drawToast(next.was, Math.max(next.left, 3000));
+      if (next) drawToast(next, Math.max(next.left, 3000));
     }
     function drawToast(t, ms) {
       const { msg, opts } = t;
@@ -1605,10 +1614,12 @@ async function postToServer(bodyObj, opts = {}) {
       toastTimer = setTimeout(closeToast, ms);
     }
 
-    // "Done / Undo" for a change shown at once. `done` (from mutate) settles false if the change didn't go through, and
-    // then the Undo is taken away: there is nothing to undo.
+    // "Done / Undo" for a change shown at once. `done` (from mutate) settles true once the change is in the sheet,
+    // false if it didn't go through: then the Undo is taken away, and one tapped before the reply does nothing (there
+    // is nothing to undo, and undoing it would, say, add a second copy). Otherwise onUndo runs once it is in.
     function offerUndo(msg, done, onUndo) {
-      const withdraw = showToast(msg, { kind: 'info', actionLabel: 'Undo', duration: 9000, onAction: onUndo, keep: true });
+      const withdraw = showToast(msg, { kind: 'info', actionLabel: 'Undo', duration: 9000, keep: true,
+        onAction: () => done.then(ok => { if (ok) onUndo(); }) });
       done.then(ok => { if (!ok) withdraw(); });
     }
 
@@ -1931,21 +1942,18 @@ async function postToServer(bodyObj, opts = {}) {
       const deleted = mutate('the bill deletion', () => {
         if (item) return removeItem(state.budgets, item);
       }, () => apiCall('deleteBudgetItem', { sheetName: month, row, expect: sent }));
-      if (item) offerUndo('Deleted "' + item.name + '"', deleted, () => undoDeleteBudget(item, month, deleted));
+      if (item) offerUndo('Deleted "' + item.name + '"', deleted, () => undoDeleteBudget(item, month));
     }
 
     // Undo waits for the delete, then re-adds the bill, paid again if it was paid. If it was deleted from a month you've
     // since left, only the sheet is updated.
-    function undoDeleteBudget(item, month, deleted) {
-      return deleted.then(landed => {
-        if (!landed) return;   // the delete didn't go through, so the bill is still in the sheet: adding it would make two
-        const paid = Number(item.amount) === 0 && Number(item.originalBudget || 0) !== 0;
-        const amount = paid ? item.originalBudget : item.amount;
-        return mutate('the restored bill', () => {
-          if (month === activeMonth) return takeOut(state.budgets, addBudgetOptimistic(item.name, amount, item.isRecurring, paid));
-        }, () => apiCall('saveBudgetItem', { sheetName: month, row: null, name: item.name, amount, isRecurring: item.isRecurring, paid }),
-        applyStateIfViewing(month));
-      });
+    function undoDeleteBudget(item, month) {
+      const paid = Number(item.amount) === 0 && Number(item.originalBudget || 0) !== 0;
+      const amount = paid ? item.originalBudget : item.amount;
+      return mutate('the restored bill', () => {
+        if (month === activeMonth) return takeOut(state.budgets, addBudgetOptimistic(item.name, amount, item.isRecurring, paid));
+      }, () => apiCall('saveBudgetItem', { sheetName: month, row: null, name: item.name, amount, isRecurring: item.isRecurring, paid }),
+      applyStateIfViewing(month));
     }
 
     // Paid sets a bill to 0 and remembers its amount (originalBudget); Restore puts that amount back. A paid bill
@@ -2137,6 +2145,7 @@ async function postToServer(bodyObj, opts = {}) {
 
     // What a Nationwide row held when the screen showed it. The server refuses the change if it now holds something else.
     const expectOf = r => ({ desc: r.desc, amount: r.amount });
+    const holds = (r, expect) => r.desc === expect.desc && r.amount === expect.amount;
 
     function toggleSplitNeed(row, setNeed) {
       const item = state.checking.find(r => r.row === row && !r.pending);
@@ -2170,24 +2179,24 @@ async function postToServer(bodyObj, opts = {}) {
         return () => undos.forEach(u => u());
       }, () => apiCall('settleAllNeeds', { sheetName: month, rows, expect }));
       offerUndo(rows.length === 1 ? 'Marked 1 item paid back' : 'Marked ' + rows.length + ' items paid back', settled,
-        () => undoSettle(rows, expect, month, settled));
+        () => undoSettle(rows, expect, month));
     }
 
-    // Undo of "All paid back" waits for it: if it didn't go through, the items are still owed and nothing is sent.
-    // Else each row is ticked as owed again, one request after another (each checks the row still holds what it did),
-    // shown at once like any save. If you've since left that month, only the sheet is updated.
-    function undoSettle(rows, expects, month, settled) {
-      return settled.then(landed => {
-        if (!landed) return;
-        return mutate('the Undo', () => {
-          if (month !== activeMonth) return;
-          const items = rows.map((row, i) => state.checking.find(r => r.row === row && !r.pending && r.desc === expects[i].desc && r.amount === expects[i].amount));
-          const undos = items.filter(Boolean).map(r => keepFields(r, ['need']));
-          items.forEach(r => { if (r) r.need = true; });
-          return () => undos.forEach(u => u());
-        }, () => rows.reduce((prev, row, i) => prev.then(() => apiCall('toggleNeedFlag', { sheetName: month, row, setNeed: true, expect: expects[i] })), Promise.resolve()),
-        applyStateIfViewing(month));
-      });
+    // Undo of "All paid back" (offerUndo waits for it to be in the sheet): each row is ticked as owed again, one
+    // request after another, each checking the row still holds what it did. A row changed meanwhile is refused and
+    // the rest still go; if any was refused, the screen goes back and the sheet is fetched, to show what it holds.
+    // Shown at once like any save. If you've since left that month, only the sheet is updated.
+    function undoSettle(rows, expects, month) {
+      return mutate('the Undo', () => {
+        if (month !== activeMonth) return;
+        const items = rows.map((row, i) => state.checking.find(r => r.row === row && !r.pending && holds(r, expects[i]))).filter(Boolean);
+        const undos = items.map(r => keepFields(r, ['need']));
+        items.forEach(r => { r.need = true; });
+        return () => undos.forEach(u => u());
+      }, () => rows.reduce((prev, row, i) => prev.then(last => apiCall('toggleNeedFlag', { sheetName: month, row, setNeed: true, expect: expects[i] })
+        .then(s => ({ s, err: last.err }), err => ({ s: last.s, err: last.err || err }))), Promise.resolve({}))
+        .then(last => { if (last.err) throw last.err; return last.s; }),
+      applyStateIfViewing(month));
     }
 
     // ================= TRANSACTIONS & INTERLEAVED FEED =================
@@ -2293,11 +2302,8 @@ async function postToServer(bodyObj, opts = {}) {
       const tagRows = (arr, acct) => {
         const valid = (arr || []).filter(r => r.desc.toLowerCase() !== 'start');
         const len = Math.max(valid.length, 1);
-        const newest = {};   // the newest row holding each thing, the one an add's time belongs to
-        valid.forEach(r => { const k = localTsKey(acct, r.desc, r.amount); if (!(newest[k] >= r.row)) newest[k] = r.row; });
         return valid.map((r, i) => {
-          const tsKey = localTsKey(acct, r.desc, r.amount);
-          const clientTs = r.clientTs || tsMap[localTsKey(acct, r.desc, r.amount, r.row)] || (newest[tsKey] === r.row && tsMap[tsKey]) || 0;
+          const clientTs = r.clientTs || tsMap[localTsKey(acct, r.row, r.desc, r.amount)] || 0;
           const relOrder = typeof r.relOrder === 'number' ? r.relOrder : (i / len);
           return { ...r, acct, clientTs, sortScore: relOrder };
         });
@@ -2630,7 +2636,6 @@ async function postToServer(bodyObj, opts = {}) {
       const now = Date.now();
       const primarySigned = isRefund ? gross : -gross;
       const splitSign = isRefund ? -1 : 1;
-      recordLocalTimestamp(formAcct, merchant, primarySigned);
 
       // Made-up row numbers (99 and up) until the server says where each entry went.
       addPendingTx(formAcct, 99, merchant, primarySigned, false, now);
@@ -2638,8 +2643,6 @@ async function postToServer(bodyObj, opts = {}) {
       if (marcusShare > 0) {
         const mAmt = -splitSign * marcusShare;
         const cAmt = splitSign * marcusShare;
-        recordLocalTimestamp('marcus', merchant, mAmt);
-        recordLocalTimestamp('checking', 'savings ' + merchant, cAmt);
         addPendingTx('marcus', 100, merchant, mAmt, false, now);
         addPendingTx('checking', 101, 'savings ' + merchant, cAmt, need, now);
       }
@@ -2647,7 +2650,6 @@ async function postToServer(bodyObj, opts = {}) {
       splits.forEach((s, i) => {
         const spDesc = `${s.person} ${merchant}`;
         const signedSplitAmt = +(splitSign * Math.abs(s.amount)).toFixed(2);
-        recordLocalTimestamp('checking', spDesc, signedSplitAmt);
         addPendingTx('checking', 102 + i, spDesc, signedSplitAmt, s.need, now);
       });
 
@@ -2868,7 +2870,7 @@ async function postToServer(bodyObj, opts = {}) {
 
       const newAmount = +(rawAbs * editTxSign).toFixed(2);
       const now = Date.now();
-      recordLocalTimestamp(newAcct, newDesc, newAmount, newAcct === oldAcct ? row : undefined);
+      if (newAcct === oldAcct) recordEditTime(newAcct, row, newDesc, newAmount);   // a move gets the server's time
 
       closeEditTxModal();
       mutate('the transaction edit', () => {
@@ -2927,33 +2929,28 @@ async function postToServer(bodyObj, opts = {}) {
       // an Undo would add a second copy).
       if (!item) return;
       const gone = { acct: oldAcct, desc: item.desc, amount: item.amount, need: !!item.need };
-      offerUndo('Deleted "' + gone.desc + '"', deleted, () => undoDeleteTx(gone, month, deleted));
+      offerUndo('Deleted "' + gone.desc + '"', deleted, () => undoDeleteTx(gone, month));
     }
 
-    // Undo waits for the delete: if it didn't go through, the entry is still in the sheet and nothing is added. Else
-    // the entry is re-added as a new spend (with a clientId and the outbox, so a failed re-add is kept on this device,
+    // Undo of a delete that went through (offerUndo waits for it): the entry is re-added as a new spend (with a clientId and the outbox, so a failed re-add is kept on this device,
     // never lost or sent twice). It lands in the first empty row of its account, so it may sit in a different
     // position than before. If you've since left that month, only the sheet is updated.
-    function undoDeleteTx(item, month, deleted) {
-      return deleted.then(landed => {
-        if (!landed) return;
-        const same = x => x.desc === item.desc && x.amount === item.amount && !x.pending;
-        // Rows already holding an identical entry, so the "owed" flag goes back on the re-added one, not a twin.
-        const before = new Set(state.checking.filter(same).map(x => x.row));
-        if (month === activeMonth) {
-          recordLocalTimestamp(item.acct, item.desc, item.amount);
-          addPendingTx(item.acct, 99, item.desc, item.amount, false, Date.now());
-          savePhoneCache(activeMonth, state);
-          renderAll();
-        }
-        sendNewSpend({
-          sheetName: month, merchant: item.desc, grossAmount: Math.abs(item.amount), isRefund: item.amount > 0,
-          account: item.acct, splits: [], marcusShare: 0, markNeed: false, clientId: newClientId()
-        }, () => {
-          if (!item.need || month !== activeMonth) return;
-          const back = state.checking.find(x => same(x) && !x.need && !before.has(x.row));
-          if (back) toggleSplitNeed(back.row, true);
-        });
+    function undoDeleteTx(item, month) {
+      const same = x => x.desc === item.desc && x.amount === item.amount && !x.pending;
+      // Rows already holding an identical entry, so the "owed" flag goes back on the re-added one, not a twin.
+      const before = new Set(state.checking.filter(same).map(x => x.row));
+      if (month === activeMonth) {
+        addPendingTx(item.acct, 99, item.desc, item.amount, false, Date.now());
+        savePhoneCache(activeMonth, state);
+        renderAll();
+      }
+      sendNewSpend({
+        sheetName: month, merchant: item.desc, grossAmount: Math.abs(item.amount), isRefund: item.amount > 0,
+        account: item.acct, splits: [], marcusShare: 0, markNeed: false, clientId: newClientId()
+      }, () => {
+        if (!item.need || month !== activeMonth) return;
+        const back = state.checking.find(x => same(x) && !x.need && !before.has(x.row));
+        if (back) toggleSplitNeed(back.row, true);
       });
     }
 

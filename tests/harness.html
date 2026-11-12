@@ -69,15 +69,19 @@
   const CONFIG = q.get('noconfig') ? null
     : { people: ['kim', 'lee', 'robin', 'sam', 'jo'], quickSplit: 'kim', spendWords: { 'Entertainment': ['bowling'] } };
   const sum = a => +a.reduce((t, x) => t + Number(x.amount || 0), 0).toFixed(2);
-  const rev = (arr, acct) => arr.slice().reverse().map(r => ({ ...r, acct }));
+  // Like the server's add-times: kept per month by account|row for every add and move (dropped on delete), and sent
+  // as each row's clientTs. Rows put straight into the pretend sheet have none, like rows typed into the real one.
+  const times = new Map();
+  const timesOf = d => { if (!times.has(d)) times.set(d, {}); return times.get(d); };
+  const rev = (arr, acct, d) => arr.slice().reverse().map(r => ({ ...r, acct, clientTs: timesOf(d)[acct + '|' + r.row] || 0 }));
   function snapshot(d = db, name = MONTH) {
     const nCA = sum(d.checking), amex = sum(d.amex), barclays = sum(d.barclays);
     const budgetRem = sum(d.budgets);
     return {
       ...(MOCK.config ? { config: JSON.parse(JSON.stringify(MOCK.config)) } : {}),
       sheetUrl: '#', availableMonths: MONTH_LIST, activeMonth: name,
-      checking: rev(d.checking, 'checking'), marcus: rev(d.marcus, 'marcus'),
-      barclays: rev(d.barclays, 'barclays'), amex: rev(d.amex, 'amex'),
+      checking: rev(d.checking, 'checking', d), marcus: rev(d.marcus, 'marcus', d),
+      barclays: rev(d.barclays, 'barclays', d), amex: rev(d.amex, 'amex', d),
       budgets: JSON.parse(JSON.stringify(d.budgets)),
       summary: { nCA, mSAV: sum(d.marcus), amex, barclays, budgetRem, checkingExpected: +(nCA + budgetRem).toFixed(2), eomSavingsJ: +(nCA + budgetRem + amex + barclays).toFixed(2) }
     };
@@ -120,25 +124,40 @@
       // Like the server, a repeat of a spend already saved (same clientId) is ignored.
       if (p.clientId && seenClientIds.has(p.clientId)) return snapshot(d, n);
       if (p.clientId) seenClientIds.add(p.clientId);
-      const arr = d[p.account];
-      arr.push({ row: nextRow(arr), desc: p.merchant, amount: p.isRefund ? Math.abs(p.grossAmount) : -Math.abs(p.grossAmount), need: false });
-      (p.splits || []).forEach(s => d.checking.push({ row: nextRow(d.checking), desc: s.person + ' ' + p.merchant, amount: s.amount, need: !!s.need }));
+      const arr = d[p.account], now = Date.now();
+      const add = (acct, row, ts) => { d[acct].push(row); timesOf(d)[acct + '|' + row.row] = ts; };
+      add(p.account, { row: nextRow(arr), desc: p.merchant, amount: p.isRefund ? Math.abs(p.grossAmount) : -Math.abs(p.grossAmount), need: false }, now);
+      (p.splits || []).forEach((s, i) => add('checking', { row: nextRow(d.checking), desc: s.person + ' ' + p.merchant, amount: s.amount, need: !!s.need }, now - 3 - i));
       return snapshot(d, n);
     },
     editOrMoveTransaction: (p, d, n) => {
       const it = d[p.oldAcct].find(r => r.row === Number(p.row));
       checkExpect(it, p);
       if (it) { it.desc = p.newDesc; it.amount = p.newAmount; }
+      if (it && p.newAcct && p.newAcct !== p.oldAcct) {   // a move: to the new account's next row, with a new time
+        d[p.oldAcct].splice(d[p.oldAcct].indexOf(it), 1);
+        delete timesOf(d)[p.oldAcct + '|' + it.row];
+        it.row = nextRow(d[p.newAcct]);
+        d[p.newAcct].push(it);
+        timesOf(d)[p.newAcct + '|' + it.row] = Date.now();
+      }
       return snapshot(d, n);
     },
     deleteTransactionRow: (p, d, n) => {
       const i = d[p.acct].findIndex(r => r.row === Number(p.row));
       checkExpect(d[p.acct][i], p);
-      if (i > -1) d[p.acct].splice(i, 1);
+      if (i > -1) { delete timesOf(d)[p.acct + '|' + d[p.acct][i].row]; d[p.acct].splice(i, 1); }
       return snapshot(d, n);
     },
-    toggleNeedFlag: (p, d, n) => { const it = d.checking.find(r => r.row === Number(p.row)); if (it) it.need = !!p.setNeed; return snapshot(d, n); },
-    settleAllNeeds: (p, d, n) => { d.checking.forEach(r => { if ((p.rows || []).includes(r.row)) r.need = false; }); return snapshot(d, n); },
+    toggleNeedFlag: (p, d, n) => { const it = d.checking.find(r => r.row === Number(p.row)); checkExpect(it, p); if (it) it.need = !!p.setNeed; return snapshot(d, n); },
+    // Like the server: every row is checked before any is changed.
+    settleAllNeeds: (p, d, n) => {
+      const rows = (p.rows || []).map(Number);
+      if (rows.length && (!Array.isArray(p.expect) || p.expect.length !== rows.length)) throw new Error('STALE: This entry was changed on another device.');
+      const its = rows.map((row, i) => { const it = d.checking.find(r => r.row === row); checkExpect(it, { expect: p.expect[i] }); return it; });
+      its.forEach(it => { it.need = false; });
+      return snapshot(d, n);
+    },
     updateBudgetRow: (p, d, n) => { const it = d.budgets.find(b => b.row === Number(p.row)); checkExpect(it, p, 'name'); if (it) it.amount = Number(p.newAmount); return snapshot(d, n); },
     saveBudgetItem: (p, d, n) => {
       if (p.row) { const it = d.budgets.find(b => b.row === Number(p.row)); checkExpect(it, p, 'name'); if (it) Object.assign(it, { name: p.name, amount: p.amount, originalBudget: p.amount, isRecurring: !!p.isRecurring }); }
