@@ -1078,7 +1078,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     } finally {
       await resetFailures(page);
       // Tidy up: the bill goes back in the pretend sheet (not through the toast: that is what failed).
-      if (bill) { await page.evaluate(b => undoDeleteBudget(b, activeMonth), bill); await page.waitForFunction(() => apiInflight === 0); }
+      if (bill) { await page.evaluate(b => undoDeleteBudget(b, activeMonth, Promise.resolve(true)), bill); await page.waitForFunction(() => apiInflight === 0); }
       dropExpectedSyncErrors(from);
     }
   });
@@ -1098,6 +1098,61 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   });
   await page.evaluate(() => { setView('home'); forceSyncSheet(); });
   await page.waitForFunction(() => apiInflight === 0);
+
+  await step("bills: Undo of a delete that didn't go through adds nothing (the bill is still in the sheet, so it would be there twice)", async () => {
+    const from = errors.length;
+    try {
+      await page.click('#upcomingBudgetsList button[aria-label^="Edit"]');
+      const name = await page.inputValue('#inpBudName');
+      const saves = (await calls(page, 'saveBudgetItem')).length;
+      await page.evaluate(() => { MOCK.failNext = 1; MOCK.nextLatencies = [600]; });   // slow, so Undo is tapped before the reply
+      await page.click('#budDeleteBtn');
+      await page.click('#toastAction');
+      await page.waitForFunction(() => apiInflight === 0);
+      await page.waitForTimeout(200);
+      assert.strictEqual((await calls(page, 'saveBudgetItem')).length, saves, 'Undo sent the bill again');
+      assert.strictEqual(await page.evaluate(n => MOCK.db.budgets.filter(b => b.name === n).length, name), 1);
+      assert.strictEqual(await page.evaluate(n => state.budgets.filter(b => b.name === n).length, name), 1);
+    } finally { await resetFailures(page); await page.evaluate(() => { MOCK.nextLatencies = []; }); dropExpectedSyncErrors(from); }
+  });
+  await step('Edit: saving with no description says so under the box, and sends nothing', async () => {
+    const edits = (await calls(page, 'editOrMoveTransaction')).length;
+    await openTx(await firstSavedTx());
+    await page.fill('#editTxDesc', '  ');
+    await page.click('#editTxModal button:has-text("Save")');
+    assert.ok(await visible(page, '#editTxDescErr'), 'no message under the box');
+    assert.strictEqual(await page.textContent('#editTxDescErr'), 'Add where it was');
+    assert.strictEqual(await page.evaluate(() => document.activeElement.id), 'editTxDesc');
+    assert.ok(await visible(page, '#editTxModal'), 'the form closed');
+    await page.waitForTimeout(150);
+    assert.strictEqual((await calls(page, 'editOrMoveTransaction')).length, edits, 'an edit was sent');
+    await page.keyboard.press('Escape');
+    await openTx(await firstSavedTx());
+    assert.ok(!(await visible(page, '#editTxDescErr')), 'the message was still there when Edit opened again');
+    await page.keyboard.press('Escape');
+  });
+  await step('row numbers from the sheet or a saved copy are always numbers (they go into the page markup)', async () => {
+    const r = await page.evaluate(() => {
+      const s = numberRows({ summary: {}, budgets: [{ row: '7"><b>x' }], amex: [{ row: '12' }] });
+      return [Number.isNaN(s.budgets[0].row), s.amex[0].row];
+    });
+    assert.deepStrictEqual(r, [true, 12]);
+  });
+  await step("a damaged saved copy of the month doesn't stop the app opening: it is passed over and the figures fetched", async () => {
+    const ctx = await browser.newContext(desk);
+    await ctx.addInitScript(() => {
+      localStorage.setItem('pf_last_month', 'Test Payday 2026');
+      localStorage.setItem('pf_cache_Test Payday 2026', JSON.stringify({ activeMonth: 'Test Payday 2026', summary: { nCA: 1 }, budgets: 'damaged', checking: [null] }));
+    });
+    const from = errors.length;
+    try {
+      const p = watch(await ctx.newPage());
+      await p.goto(`http://localhost:${PORT}/tests/harness.html?demo=1&keep=1&latency=50`);
+      await p.waitForFunction(() => window.MOCK && MOCK.MONTH === 'Test Payday 2026' && MOCK.calls.length > 0 && apiInflight === 0 && /£\d/.test(document.getElementById('kpiNCA').textContent));
+      assert.deepStrictEqual(errors.slice(from), [], 'the page failed');
+      assert.ok(await p.evaluate(() => state.budgets.length > 0), 'the figures were not fetched');
+    } finally { await ctx.close(); }
+  });
 
   await step('activity rows: tap to edit like Bills, no pencil; a row is a real button (keyboard works too)', async () => {
     const s = await page.$$eval('#txListContainer > .tx-row', rows => rows.map(r => ({ tag: r.tagName, label: r.getAttribute('aria-label') || '', svgs: r.querySelectorAll('svg').length, wide: r.getBoundingClientRect().width >= r.parentElement.getBoundingClientRect().width })));
@@ -2272,6 +2327,22 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.strictEqual(await p3.evaluate(() => sessionStorage.getItem('pf_signed_out')), null, 'the signed-out note should go once signed in');
     });
     await c3.close();
+    await step('sign out in one tab: another open tab of the app locks too, says so, and keeps no figures', async () => {
+      const ctx = await browser.newContext(phone);
+      try {
+        const [a, b] = [watch(await ctx.newPage()), watch(await ctx.newPage())];
+        for (const p of [a, b]) {
+          await p.goto(`http://localhost:${PORT}/tests/harness.html?demo=1&keep=1&latency=50`);
+          await p.waitForFunction(() => window.MOCK && apiInflight === 0 && /£\d/.test(document.getElementById('kpiNCA').textContent));
+        }
+        await a.evaluate(() => signOut(false));
+        await afterReload(b);
+        assert.ok(await locked(b), 'the other tab is still open');
+        assert.strictEqual(await b.textContent('#authLockMsg'), 'Signed out. Nothing is saved on this device any more.');
+        assert.ok(!/£\d/.test(await b.textContent('#kpiNCA')), 'figures still on the other tab');
+        assert.deepStrictEqual((await keys(b)).filter(k => k.startsWith('pf_cache_')), [], 'figures saved again');
+      } finally { await ctx.close(); }
+    });
 
     ({ ctx: c3, page: p3 } = await open(phone));
     await step('sign out with a spend still waiting to send: warns, first tap only arms, Send now sends it', async () => {

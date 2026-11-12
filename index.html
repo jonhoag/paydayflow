@@ -113,7 +113,7 @@
     <div style="background:#111827; border:1px solid #1E293B; border-radius:20px; padding:32px 24px; max-width:360px; width:100%; box-shadow:0 20px 50px rgba(0,0,0,0.5);">
       <div style="width:52px; height:52px; border-radius:14px; background:rgba(16,185,129,0.15); color:#10B981; display:flex; align-items:center; justify-content:center; font-size:24px; margin:0 auto 16px;"><span data-icon="lock" data-class="w-6 h-6"></span></div>
       <h2 style="margin:0 0 8px; font-size:20px; font-weight:700;">PaydayFlow Locked</h2>
-      <p id="authLockMsg" style="margin:0 0 24px; font-size:13px; color:#94A3B8; line-height:1.5;">Sign in with your authorized Google account to unlock your live ledger.</p>
+      <p id="authLockMsg" style="margin:0 0 24px; font-size:13px; color:#94A3B8; line-height:1.5;">Sign in with your Google account to unlock PaydayFlow.</p>
       <button id="passkeyUnlockBtn" data-action="unlockWithPasskey" style="display:none; width:100%; min-height:52px; margin:0 0 16px; border:0; border-radius:14px; background:#10B981; color:#052E1F; font-size:15px; font-weight:700; align-items:center; justify-content:center; gap:10px; cursor:pointer;">
         <span data-icon="fingerprint" data-class="w-6 h-6"></span><span id="passkeyUnlockLabel">Unlock with fingerprint</span>
       </button>
@@ -633,6 +633,7 @@
           <label for="editTxDesc" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Where / Description</label>
           <input id="editTxDesc" type="text" enterkeyhint="done" data-enter="btnSaveEditTx"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
+          <p id="editTxDescErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
         </div>
       </div>
 
@@ -776,6 +777,6 @@
   <div id="toast" role="status" aria-live="polite" class="hidden fixed left-1/2 -translate-x-1/2 bottom-24 lg:bottom-6 z-[100000] max-w-sm w-[90%] px-4 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-medium shadow-lg text-center"></div>
 
   <!-- The app itself (everything above is only the layout). It runs here, once the page above is in place. -->
-  <script src="app.js?v=be70880a92"></script>
+  <script src="app.js?v=1d2879877c"></script>
 </body>
 </html>

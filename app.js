@@ -27,6 +27,7 @@ const SPEND_OVERRIDES_KEY = 'pf_cat_overrides';        // your Spending category
 const OUTBOX_KEY = 'pf_outbox';                        // spends saved offline, still to send
 const LAST_ACCT_KEY = 'pf_last_acct';                  // the card the last spend went on (the Add form starts there)
 const SIGNED_OUT_FLAG = 'pf_signed_out';               // sessionStorage: this tab has just signed out
+const SIGNED_OUT_NOTICE = 'pf_signed_out_at';           // set on sign-out, so the app's other open tabs lock too
 // Storage can refuse (a private window, or a full or blocked store): a read then finds nothing and a write is
 // skipped, rather than stopping the page.
 function lsGet(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
@@ -787,10 +788,18 @@ async function signOut(forget) {
     }
   }
   clearThisDevice(forget);
+  lsSet(SIGNED_OUT_NOTICE, String(Date.now()));   // tells this app's other open tabs (see below)
   ssSet(SIGNED_OUT_FLAG, '1');
   stopGoogleAutoSignIn();
   location.reload();
 }
+// Signed out in another tab: this one locks too, the same way, so it can't go on showing the figures or save them
+// again.
+window.addEventListener('storage', e => {
+  if (e.key !== SIGNED_OUT_NOTICE || !e.newValue || IS_GAS_ENV) return;
+  ssSet(SIGNED_OUT_FLAG, '1');
+  location.reload();
+});
 
     // Requests go to the server strictly one at a time. Apps Script can answer two quick requests out of
     // order, and a late, older reply would otherwise overwrite newer screen state.
@@ -867,7 +876,7 @@ async function signOut(forget) {
       const usedSession = !!auth.session;
       if (usedSession) clearSession(); else { lsDel(TOKEN_STORAGE_KEY); stopGoogleAutoSignIn(); }
       // An expired fingerprint session is normal: go straight back to the fingerprint prompt.
-      showLockScreen(usedSession ? 'Session ended. Unlock to continue.' : 'Access Denied: ' + String(json.error || 'Unauthorized account.').replace(/^[A-Z_]+: /, ''), usedSession ? undefined : { noAuto: true });
+      showLockScreen(usedSession ? 'Session ended. Unlock to continue.' : 'Access Denied: ' + String(json.error || 'Unauthorised account.').replace(/^[A-Z_]+: /, ''), usedSession ? undefined : { noAuto: true });
     }
     const apiErr = new Error(json.error || 'API request failed');
     apiErr.auth = !!json.authError;
@@ -977,9 +986,28 @@ async function postToServer(bodyObj, opts = {}) {
       lsSet(TX_TS_PREFIX + activeMonth, JSON.stringify(map));
     }
 
-    function loadPhoneCache(monthName) {
+    // The lists of rows in a month's figures.
+    const MONTH_LISTS = ['budgets'].concat(ACCTS);
+    // Whether a month's figures are ones the screen can draw (a damaged saved copy isn't).
+    function usableMonth(s) {
+      if (!s || typeof s !== 'object' || !s.summary || typeof s.summary !== 'object') return false;
+      if (!Object.values(s.summary).every(Number.isFinite)) return false;
+      if (s.availableMonths !== undefined && !Array.isArray(s.availableMonths)) return false;
+      return MONTH_LISTS.every(k => s[k] === undefined || (Array.isArray(s[k]) && s[k].every(r => r && typeof r === 'object')));
+    }
+    // Every row number made a number: they go into the page's markup.
+    function numberRows(s) {
+      MONTH_LISTS.forEach(k => { if (Array.isArray(s[k])) s[k].forEach(r => { if (r && typeof r === 'object') r.row = Number(r.row); }); });
+      return s;
+    }
+    // A month's figures saved on this device, or null if there are none it can use.
+    function savedMonth(monthName) {
       const saved = lsJson(CACHE_PREFIX + monthName);
-      if (saved && (!saved.activeMonth || saved.activeMonth === monthName)) { state = { ...emptyState(), ...saved }; return true; }
+      return usableMonth(saved) && (!saved.activeMonth || saved.activeMonth === monthName) ? numberRows(saved) : null;
+    }
+    function loadPhoneCache(monthName) {
+      const saved = savedMonth(monthName);
+      if (saved) { state = { ...emptyState(), ...saved }; return true; }
       return false;
     }
 
@@ -1181,7 +1209,7 @@ async function postToServer(bodyObj, opts = {}) {
     function spendMonthTotals(overrides) {
       const out = [];
       [...new Set((state.availableMonths || []).concat(activeMonth))].sort(newestFirst).forEach(name => {
-        const st = name === activeMonth ? state : lsJson(CACHE_PREFIX + name);
+        const st = name === activeMonth ? state : savedMonth(name);
         if (st) out.push({ name, total: summariseSpend(st, overrides).total });
       });
       return out;
@@ -1201,7 +1229,7 @@ async function postToServer(bodyObj, opts = {}) {
     // Spending details redrawn when they arrive.
     let prevMonthAsked = null;
     function previousMonthState(name) {
-      const st = lsJson(CACHE_PREFIX + name);
+      const st = savedMonth(name);
       if (st) return st;
       if (prevMonthAsked !== name) {
         prevMonthAsked = name;
@@ -1488,6 +1516,7 @@ async function postToServer(bodyObj, opts = {}) {
 
     function applyServerState(s) {
       if (!s) return;
+      numberRows(s);
       if (s.config) applyConfig(s.config, true);   // older backends send none: the names this device has are kept
       if (pendingSwitchTarget && s.activeMonth !== pendingSwitchTarget) {
         savePhoneCache(s.activeMonth, s, false);
@@ -1864,21 +1893,24 @@ async function postToServer(bodyObj, opts = {}) {
       const sent = expect || { name: item.name, amount: item.amount };
       const month = activeMonth;
       skippedBudgetRows.delete(row);
-      mutate('the bill deletion', () => {
+      const deleted = mutate('the bill deletion', () => {
         if (item) return removeItem(state.budgets, item);
       }, () => apiCall('deleteBudgetItem', { sheetName: month, row, expect: sent }));
-      if (item) showToast('Deleted "' + item.name + '"', { kind: 'info', actionLabel: 'Undo', duration: 9000, onAction: () => undoDeleteBudget(item, month) });
+      if (item) showToast('Deleted "' + item.name + '"', { kind: 'info', actionLabel: 'Undo', duration: 9000, onAction: () => undoDeleteBudget(item, month, deleted) });
     }
 
-    // Undo re-adds the bill, paid again if it was paid. If it was deleted from a month you've since left, only the
-    // sheet is updated.
-    function undoDeleteBudget(item, month) {
-      const paid = Number(item.amount) === 0 && Number(item.originalBudget || 0) !== 0;
-      const amount = paid ? item.originalBudget : item.amount;
-      mutate('the restored bill', () => {
-        if (month === activeMonth) return takeOut(state.budgets, addBudgetOptimistic(item.name, amount, item.isRecurring, paid));
-      }, () => apiCall('saveBudgetItem', { sheetName: month, row: null, name: item.name, amount, isRecurring: item.isRecurring, paid }),
-      applyStateIfViewing(month));
+    // Undo waits for the delete, then re-adds the bill, paid again if it was paid. If it was deleted from a month you've
+    // since left, only the sheet is updated.
+    function undoDeleteBudget(item, month, deleted) {
+      return deleted.then(landed => {
+        if (!landed) return;   // the delete didn't go through, so the bill is still in the sheet: adding it would make two
+        const paid = Number(item.amount) === 0 && Number(item.originalBudget || 0) !== 0;
+        const amount = paid ? item.originalBudget : item.amount;
+        return mutate('the restored bill', () => {
+          if (month === activeMonth) return takeOut(state.budgets, addBudgetOptimistic(item.name, amount, item.isRecurring, paid));
+        }, () => apiCall('saveBudgetItem', { sheetName: month, row: null, name: item.name, amount, isRecurring: item.isRecurring, paid }),
+        applyStateIfViewing(month));
+      });
     }
 
     // Paid sets a bill to 0 and remembers its amount (originalBudget); Restore puts that amount back. A paid bill
@@ -2725,6 +2757,7 @@ async function postToServer(bodyObj, opts = {}) {
     let editTxExpect = null;
     function openEditTxModal(acct, row, desc, amount) {
       clearFieldError('editTxAmt');
+      clearFieldError('editTxDesc');
       editTxExpect = { desc, amount: Number(amount) };
       document.getElementById('editTxOldAcct').value = acct;
       document.getElementById('editTxRow').value = row;
@@ -2773,7 +2806,8 @@ async function postToServer(bodyObj, opts = {}) {
       const row = Number(document.getElementById('editTxRow').value);
       const newDesc = document.getElementById('editTxDesc').value.trim();
       const rawAbs = checkedAmount('editTxAmt', true);
-      if (rawAbs === null || !newDesc) return;
+      if (rawAbs === null) return;
+      if (!newDesc) return showFieldError('editTxDesc', 'Add where it was');
 
       const newAmount = +(rawAbs * editTxSign).toFixed(2);
       const now = Date.now();
