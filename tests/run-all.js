@@ -15,6 +15,8 @@ const argv = process.argv.slice(2);
 const quick = argv.includes('--quick');
 const requirePrivate = argv.includes('--require-private');
 const only = argv.filter(a => !a.startsWith('--')).map(a => a.toLowerCase());
+const unknown = argv.filter(a => a.startsWith('--') && !['--quick', '--require-private'].includes(a));
+if (unknown.length) { console.log('Not an option: ' + unknown.join(', ') + ' (options: --quick, --require-private)'); process.exit(1); }
 const canDriveChrome = (() => { try { require.resolve(process.env.PW_PATH || 'playwright-core'); return true; } catch (e) { return false; } })();
 const chrome = canDriveChrome && !quick;
 const privateList = path.join(__dirname, 'private', 'suites.js');
@@ -38,6 +40,7 @@ if (only.length) {
 if (!chrome && suites.some(s => s[2])) {
   suites = suites.filter(s => !s[2]);
   console.log(quick ? '(quick run: the real-Chrome tests are skipped)\n' : '(skipping the real-Chrome tests: run npm ci --ignore-scripts, or set PW_PATH to a playwright-core folder)\n');
+  if (!suites.length) { console.log('Nothing left to run: the suites named need real Chrome.'); process.exit(1); }
 }
 
 let failed = 0;

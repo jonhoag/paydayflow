@@ -2491,9 +2491,6 @@ async function postToServer(bodyObj, opts = {}) {
       updateSplitSummary();
     }
 
-    // Equal shares of the amount, less anything typed for Marcus (savings are never shared out by themselves). With
-    // "Include me", what's left after the shares is yours; without, the last person takes the odd penny, so the shares
-    // add up to the amount.
     // `pence` shared equally between `count` people, in pence. With includeMe you have a share too (what's left after
     // theirs); without, the last person takes the odd pence. A few pence between many: no share is below 0.
     function equalShares(pence, count, includeMe) {
@@ -2505,6 +2502,9 @@ async function postToServer(bodyObj, opts = {}) {
       if (!includeMe) shares[count - 1] = pence - each * (count - 1);
       return shares;
     }
+    // Equal shares of the amount, less anything typed for Marcus (savings are never shared out by themselves). With
+    // "Include me", what's left after the shares is yours; without, the last person takes the odd penny, so the shares
+    // add up to the amount.
     function applyEqualGroupSplit() {
       autoEqualActive = true;
       const isMarcus = e => e.person.toLowerCase() === 'marcus';

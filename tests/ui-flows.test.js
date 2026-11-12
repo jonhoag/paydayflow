@@ -1905,7 +1905,9 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       });
       await page.waitForFunction(() => apiInflight === 0 && state.checking.some(r => r.desc === 'kim Carried over'));
       const was = await page.evaluate(() => ({ s: { ...state.summary }, owed: state.checking.filter(r => r.need).map(r => [r.desc, r.amount]).sort(),
-        bills: state.budgets.filter(b => b.isRecurring).map(b => [b.name, b.originalBudget]) }));   // repeating bills are ticked to carry over
+        bills: state.budgets.filter(b => b.isRecurring).map(b => [b.name, b.originalBudget]),   // repeating bills are ticked to carry over
+        oneOff: state.budgets.filter(b => !b.isRecurring).length }));
+      assert.ok(was.oneOff > 0, 'no one-off bill to leave behind, so this proves nothing');
       await page.evaluate(() => { openNewMonthModal(); document.getElementById('nmName').value = 'Made Payday 2027'; updateNewMonthName(); });
       const pay = Number(await page.inputValue('#nmPaycheck')), sav = Number(await page.inputValue('#nmSavings'));
       assert.ok(pay > 0 && sav > 0, 'this month has a paycheck and a savings transfer to start from');

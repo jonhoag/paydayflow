@@ -1,37 +1,37 @@
 // Unit tests for small pieces of page logic in app.js that need no screen: reading an amount, equal split shares,
-// the next month's name and what a failed request means. Each is taken out of app.js as it is (see appPart), so the
-// tests check the code the page runs.
+// the next month's name and what a failed request means. Each is read out of app.js by its name (appPart), so the
+// tests check the code the page runs, wherever it sits in the file. (The spending maths is one block between markers
+// instead, tested by spending.test.js; these helpers are spread through the file, and moving them together just for
+// the tests would be churn.) To test another function: add its name to UNDER_TEST, and anything it needs to NEEDS.
 // Run: node tests/page-logic.test.js
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
+const { step: test, finish } = require('./lib/steps').makeSteps();
+
+const UNDER_TEST = ['parseAmount', 'equalShares', 'getNextMonthName', 'failureKind'];
+const NEEDS = ['MONTHS', 'isConnectionError'];
 
 const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
-// One top-level part of app.js by its name, as written there: a function (from "function name(" to the closing brace
-// at the same indent) or a const on one line.
+// One part of app.js by its name, as written there: a function (from "function name(" to the closing brace at the
+// same indent) or a const on one line. There must be exactly one, so the test can't pick up the wrong one.
 function appPart(name) {
-  const fn = app.match(new RegExp('^( *)function ' + name + '\\(.*\\n[\\s\\S]*?^\\1\\}$', 'm'));
-  if (fn) return fn[0];
-  const one = app.match(new RegExp('^ *const ' + name + ' = .*;$', 'm'));
-  if (one) return one[0];
-  throw new Error('could not find ' + name + ' in app.js');
+  const found = [...app.matchAll(new RegExp('^( *)function ' + name + '\\(.*\\n[\\s\\S]*?^\\1\\}$', 'gm')),
+    ...app.matchAll(new RegExp('^ *const ' + name + ' = .*;$', 'gm'))];
+  if (found.length !== 1) throw new Error('found ' + name + ' ' + found.length + ' times in app.js (expected once)');
+  return found[0][0];
 }
 const sandbox = {};
 vm.createContext(sandbox);
-vm.runInContext(['MONTHS', 'isConnectionError', 'parseAmount', 'equalShares', 'getNextMonthName', 'failureKind'].map(appPart).join('\n')
-  + '\nthis.api = { parseAmount, equalShares, getNextMonthName, failureKind };', sandbox);
+vm.runInContext(NEEDS.concat(UNDER_TEST).map(appPart).join('\n') + '\nthis.api = { ' + UNDER_TEST.join(', ') + ' };', sandbox);
 const { parseAmount, equalShares, getNextMonthName, failureKind } = sandbox.api;
 
-const results = [];
-function test(name, fn) {
-  try { fn(); results.push([true, name]); }
-  catch (e) { results.push([false, name + '\n      ' + String(e.message).split('\n')[0]]); }
-}
 const same = (a, b) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), b);   // arrays made inside the sandbox
 
 // ---- parseAmount: what is typed in an amount box ----
-const amounts = { '12.50': 12.5, '£1,234.50': 1234.5, '£ 3': 3, ' 7 ': 7, '.5': 0.5, '12.': 12, '0': 0, '1,234,567.89': 1234567.89, '': 0, '   ': 0 };
+const amounts = { '12.50': 12.5, '£1,234.50': 1234.5, '£ 3': 3, ' 7 ': 7, '.5': 0.5, '12.': 12, '0': 0, '1,234,567.89': 1234567.89,
+  '': 0, '   ': 0, '£': 0 };   // a lone £ is an empty box
 Object.keys(amounts).forEach(t => test(`amount "${t}" is ${amounts[t]}`, () => assert.strictEqual(parseAmount(t), amounts[t])));
 test('no amount at all is 0', () => { assert.strictEqual(parseAmount(null), 0); assert.strictEqual(parseAmount(undefined), 0); });
 ['12,50', '-4', '12.5e3', '1,23', '1,2345', 'abc', '1.2.3', '0x10', '1 000', '+5', 'Infinity'].forEach(t =>
@@ -91,7 +91,4 @@ const kinds = [
 ];
 kinds.forEach(([what, err, kind]) => test(`${what} is '${kind}'`, () => assert.strictEqual(failureKind(err), kind)));
 
-const failed = results.filter(([ok]) => !ok).length;
-results.forEach(([ok, name]) => console.log((ok ? '  PASS  ' : '  FAIL  ') + name));
-console.log(`\n${results.length - failed}/${results.length} passed`);
-process.exit(failed ? 1 : 0);
+finish();

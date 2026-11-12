@@ -73,6 +73,12 @@
   // as each row's clientTs. Rows put straight into the pretend sheet have none, like rows typed into the real one.
   const times = new Map();
   const timesOf = d => { if (!times.has(d)) times.set(d, {}); return times.get(d); };
+  // A new entry in a month's next row of that account, with its add-time; "need" (owed) only on Nationwide.
+  const pushRow = (d, acct, desc, amount, need, ts) => {
+    const row = nextRow(d[acct]);
+    d[acct].push({ row, desc, amount, ...(acct === 'checking' ? { need: !!need } : {}) });
+    timesOf(d)[acct + '|' + row] = ts;
+  };
   const rev = (arr, acct, d) => arr.slice().reverse().map(r => ({ ...r, acct, clientTs: timesOf(d)[acct + '|' + r.row] || 0 }));
   function snapshot(d = db, name = MONTH) {
     const nCA = sum(d.checking), amex = sum(d.amex), barclays = sum(d.barclays);
@@ -126,18 +132,15 @@
       // Like the server: the spend on its card; a savings share as a Marcus row and a "savings" Nationwide row; each
       // person's share as "<person> <shop>" (owed to you on a spend, by you on a refund).
       const now = Date.now(), sign = p.isRefund ? -1 : 1, money = x => +Math.abs(Number(x) || 0).toFixed(2);
-      const add = (acct, desc, amount, need, ts) => {
-        const row = { row: nextRow(d[acct]), desc, amount, ...(acct === 'checking' ? { need: !!need } : {}) };
-        d[acct].push(row);
-        timesOf(d)[acct + '|' + row.row] = ts;
-      };
+      const add = (...a) => pushRow(d, ...a);
       add(p.account, p.merchant, -sign * money(p.grossAmount), false, now);
       const mAmt = money(p.marcusShare);
       if (mAmt > 0) {
         add('marcus', p.merchant, -sign * mAmt, false, now - 1);
         add('checking', 'savings ' + p.merchant, sign * mAmt, p.markNeed, now - 2);
       }
-      (p.splits || []).forEach((sp, i) => add('checking', String(sp.person).toLowerCase() + ' ' + p.merchant, +(sign * money(sp.amount)).toFixed(2), sp.need, now - 3 - i));
+      (p.splits || []).filter(sp => sp && Number(sp.amount) > 0)   // a share of 0 or less is left out
+        .forEach((sp, i) => add('checking', String(sp.person).trim().toLowerCase() + ' ' + p.merchant, +(sign * money(sp.amount)).toFixed(2), sp.need, now - 3 - i));
       return snapshot(d, n);
     },
     editOrMoveTransaction: (p, d, n) => {
@@ -177,7 +180,9 @@
     deleteBudgetItem: (p, d, n) => { const i = d.budgets.findIndex(b => b.row === Number(p.row)); checkExpect(d.budgets[i], p, 'name'); if (i > -1) d.budgets.splice(i, 1); return snapshot(d, n); },
     // Like the real server: builds the new month from the one it starts from (closing balances as its start rows,
     // the pay, the savings transfer, what is still owed, and the bills asked for at their full amounts) and puts it
-    // first in the month list. A month of that name is only replaced when the page says so.
+    // first in the month list. A month of that name is only replaced when the page says so. What this changes stays
+    // for the rest of that test page (a replaced month keeps its new rows, new months stay at the front of the list),
+    // so a step that makes a month opens the one it needs afterwards.
     startNewMonth: (p, d, n) => {
       const name = String(p.newMonthName || '').trim();
       if (!name || name.length > 85 || name.charAt(0) === '_' || name === n) throw new Error('Invalid month name.');
@@ -191,19 +196,19 @@
         amex: [{ row: 4, desc: 'start', amount: was.amex }], barclays: [{ row: 4, desc: 'start', amount: was.barclays }],
         marcus: [{ row: 4, desc: 'start', amount: was.mSAV }], budgets: []
       };
-      const t = {};
-      const add = (acct, desc, amount, ts, need) => { const row = nextRow(m[acct]); m[acct].push({ row, desc, amount, ...(acct === 'checking' ? { need: !!need } : {}) }); t[acct + '|' + row] = ts; };
-      if (pay > 0) add('checking', 'paycheck', pay, now - 2);
-      if (sav > 0) { add('checking', 'me to savings', -sav, now - 1); add('marcus', 'my savings', sav, now); }
-      owed.forEach((r, i) => add('checking', r.desc, r.amount, now - 100 + i, true));
+      times.set(m, {});
+      const add = (...a) => pushRow(m, ...a);
+      if (pay > 0) add('checking', 'paycheck', pay, false, now - 2);
+      if (sav > 0) { add('checking', 'me to savings', -sav, false, now - 1); add('marcus', 'my savings', sav, false, now); }
+      owed.forEach((r, i) => add('checking', r.desc, r.amount, true, now - 100 + i));
       const keep = new Set(p.keepBudgetRows.map(Number));
       d.budgets.filter(b => keep.has(Number(b.row))).forEach((b, i) => {
-        const amount = b.originalBudget ? b.originalBudget : b.amount;
+        const amount = b.originalBudget !== 0 && b.originalBudget != null ? b.originalBudget : b.amount;
+        // Bills fill rows 4-32, then 40 on (the sheet's Money Left box sits in 33-39).
         m.budgets.push({ row: 4 + i + (i >= 29 ? 7 : 0), name: b.name, amount, originalBudget: amount, isRecurring: !!b.isRecurring });
       });
-      if (dbs[name]) Object.assign(dbs[name], m);   // replaced: the same object, so MOCK.db / MOCK.db2 still point at it
+      if (dbs[name]) { Object.assign(dbs[name], m); times.set(dbs[name], times.get(m)); }   // replaced: the same object, so MOCK.db / MOCK.db2 still point at it
       else dbs[name] = m;
-      times.set(dbs[name], t);
       const at = MONTH_LIST.indexOf(name);
       if (at > -1) MONTH_LIST.splice(at, 1);
       MONTH_LIST.unshift(name);
