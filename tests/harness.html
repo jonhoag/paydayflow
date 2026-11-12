@@ -101,6 +101,7 @@
     failAfterWriteNext: 0,   // number of upcoming write calls that do their work, then reply with an error
     badReplyNext: 0,      // number of upcoming calls that get a page that isn't JSON (like Google's error page)
     dropNext: 0,          // number of upcoming calls of any kind that get no reply (like a lost connection)
+    dropReadsNext: 0,     // number of upcoming sheet reads (not writes) that get no reply
     authError: null,      // set to an error text and the server turns down every request as a sign-in problem
     config: CONFIG,       // the names sent with every reply (null: none, like an older backend)
     categoryChoices: {},  // the mock server's saved Spending category choices
@@ -171,8 +172,9 @@
     MOCK.calls.push(call);
     const wait = MOCK.nextLatencies.length ? MOCK.nextLatencies.shift() : MOCK.latency;
     const isWrite = body.action !== 'getCachedSheetState';
-    if (MOCK.dropNext > 0) {
-      MOCK.dropNext--;
+    const drop = MOCK.dropNext > 0 ? 'dropNext' : !isWrite && MOCK.dropReadsNext > 0 ? 'dropReadsNext' : null;
+    if (drop) {
+      MOCK[drop]--;
       await new Promise(r => setTimeout(r, wait));
       call.end = Date.now();
       throw new TypeError('Failed to fetch');

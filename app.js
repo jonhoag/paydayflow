@@ -1603,6 +1603,40 @@ async function postToServer(bodyObj, opts = {}) {
       refreshFromSheet();
     }
 
+    // A change shown straight away, before the sheet has it. `change()` updates `state` and returns how to undo that
+    // (or nothing); `send()` makes the request. If the save fails, other than 'saved' (it is in the sheet), the change
+    // is undone on screen and in the saved copy before the sheet is fetched afresh, so a fetch that fails too
+    // (offline) can't leave it there; unless the sheet's figures or another month have replaced the screen since.
+    // Resolves true once the change is in the sheet, false if it isn't.
+    function mutate(what, change, send, onReply = applyServerState) {
+      const month = activeMonth, shown = state;
+      const undo = change();
+      savePhoneCache(month, state);
+      renderAll();
+      return send().then(s => {
+        try { onReply(s); } catch (e) { console.error('after the save:', e); }
+        return true;
+      }, err => {
+        const saved = failureKind(err) === 'saved';
+        if (!saved && undo && state === shown && activeMonth === month) {
+          undo();
+          renderAll();   // first: it works out the totals the saved copy holds
+          savePhoneCache(month, state);
+        }
+        handleSaveError(what, err);
+        return saved;
+      });
+    }
+    // Undo helpers for mutate. keepFields: what puts back the fields an object holds now. removeItem: takes an item out
+    // of its list; what puts it back. takeOut: what takes an added item out again.
+    const keepFields = (obj, keys) => { const was = keys.map(k => [k, obj[k]]); return () => was.forEach(([k, v]) => { obj[k] = v; }); };
+    const removeItem = (list, item) => {
+      const at = list.indexOf(item);
+      if (at >= 0) list.splice(at, 1);
+      return () => { if (at >= 0 && !list.includes(item)) list.splice(at, 0, item); };
+    };
+    const takeOut = (list, item) => () => { const at = list.indexOf(item); if (at >= 0) list.splice(at, 1); };
+
     function recomputeSummary() {
       const s = state.summary;
       s.budgetRem = +state.budgets
@@ -1783,7 +1817,9 @@ async function postToServer(bodyObj, opts = {}) {
       while (usedRows.has(tempRow) || (tempRow >= 32 && tempRow <= 39)) {
         tempRow++;
       }
-      state.budgets.push({ row: tempRow, name, amount: paid ? 0 : signedAmt, originalBudget: signedAmt, isRecurring, pending: true });
+      const bill = { row: tempRow, name, amount: paid ? 0 : signedAmt, originalBudget: signedAmt, isRecurring, pending: true };
+      state.budgets.push(bill);
+      return bill;
     }
 
     function submitBudgetForm() {
@@ -1797,29 +1833,23 @@ async function postToServer(bodyObj, opts = {}) {
 
       const expect = row ? budFormExpect : null;
       if (row && !expect) return;
-      if (row) {
-        const existing = findBudget(Number(row), expect);
-        if (existing) {
-          existing.name = name;
-          existing.amount = signedAmt;
-          existing.originalBudget = signedAmt;
-          existing.isRecurring = budFormIsRecurring;
-        }
-      } else {
-        addBudgetOptimistic(name, signedAmt, budFormIsRecurring);
-      }
+      const isRecurring = budFormIsRecurring;
       closeBudgetForm();
-      savePhoneCache(activeMonth, state);
-      renderAll();
-
-      apiCall('saveBudgetItem', {
+      mutate('the bill', () => {
+        if (!row) return takeOut(state.budgets, addBudgetOptimistic(name, signedAmt, isRecurring));
+        const existing = findBudget(Number(row), expect);
+        if (!existing) return;
+        const undo = keepFields(existing, ['name', 'amount', 'originalBudget', 'isRecurring']);
+        Object.assign(existing, { name, amount: signedAmt, originalBudget: signedAmt, isRecurring });
+        return undo;
+      }, () => apiCall('saveBudgetItem', {
         sheetName: activeMonth,
         row: row || null,
         name,
         amount: signedAmt,
-        isRecurring: budFormIsRecurring,
+        isRecurring,
         expect
-      }).then(applyServerState).catch(err => handleSaveError('the bill', err));
+      }));
     }
 
     // The saved (not still-saving) bill in a row, and only if it is still the one expected.
@@ -1833,14 +1863,10 @@ async function postToServer(bodyObj, opts = {}) {
       if (!item && !expect) return;
       const sent = expect || { name: item.name, amount: item.amount };
       const month = activeMonth;
-      if (item) state.budgets = state.budgets.filter(b => b !== item);
       skippedBudgetRows.delete(row);
-      savePhoneCache(activeMonth, state);
-      renderAll();
-
-      apiCall('deleteBudgetItem', { sheetName: month, row, expect: sent })
-        .then(applyServerState)
-        .catch(err => handleSaveError('the bill deletion', err));
+      mutate('the bill deletion', () => {
+        if (item) return removeItem(state.budgets, item);
+      }, () => apiCall('deleteBudgetItem', { sheetName: month, row, expect: sent }));
       if (item) showToast('Deleted "' + item.name + '"', { kind: 'info', actionLabel: 'Undo', duration: 9000, onAction: () => undoDeleteBudget(item, month) });
     }
 
@@ -1849,14 +1875,10 @@ async function postToServer(bodyObj, opts = {}) {
     function undoDeleteBudget(item, month) {
       const paid = Number(item.amount) === 0 && Number(item.originalBudget || 0) !== 0;
       const amount = paid ? item.originalBudget : item.amount;
-      if (month === activeMonth) {
-        addBudgetOptimistic(item.name, amount, item.isRecurring, paid);
-        savePhoneCache(activeMonth, state);
-        renderAll();
-      }
-      apiCall('saveBudgetItem', { sheetName: month, row: null, name: item.name, amount, isRecurring: item.isRecurring, paid })
-        .then(applyStateIfViewing(month))
-        .catch(err => handleSaveError('the restored bill', err));
+      mutate('the restored bill', () => {
+        if (month === activeMonth) return takeOut(state.budgets, addBudgetOptimistic(item.name, amount, item.isRecurring, paid));
+      }, () => apiCall('saveBudgetItem', { sheetName: month, row: null, name: item.name, amount, isRecurring: item.isRecurring, paid }),
+      applyStateIfViewing(month));
     }
 
     // Paid sets a bill to 0 and remembers its amount (originalBudget); Restore puts that amount back. A paid bill
@@ -1873,14 +1895,12 @@ async function postToServer(bodyObj, opts = {}) {
     }
     function setBudgetAmount(item, newAmt, origAmt) {
       const expect = { name: item.name, amount: item.amount };
-      if (newAmt === 0 && item.amount !== 0) item.originalBudget = item.amount;
-      item.amount = newAmt;
-      savePhoneCache(activeMonth, state);
-      renderAll();
-
-      apiCall('updateBudgetRow', { sheetName: activeMonth, row: item.row, newAmount: newAmt, originalBudget: origAmt, expect })
-        .then(applyServerState)
-        .catch(err => handleSaveError('the bill update', err));
+      mutate('the bill update', () => {
+        const undo = keepFields(item, ['amount', 'originalBudget']);
+        if (newAmt === 0 && item.amount !== 0) item.originalBudget = item.amount;
+        item.amount = newAmt;
+        return undo;
+      }, () => apiCall('updateBudgetRow', { sheetName: activeMonth, row: item.row, newAmount: newAmt, originalBudget: origAmt, expect }));
     }
 
     // ================= OWED & SPLITS PANEL =================
@@ -2055,12 +2075,11 @@ async function postToServer(bodyObj, opts = {}) {
       const item = state.checking.find(r => r.row === row && !r.pending);
       if (!item) return;
       const expect = expectOf(item);
-      item.need = setNeed;
-      savePhoneCache(activeMonth, state);
-      renderAll();
-      apiCall('toggleNeedFlag', { sheetName: activeMonth, row, setNeed, expect })
-        .then(applyServerState)
-        .catch(err => handleSaveError('the paid-back change', err));
+      mutate('the paid-back change', () => {
+        const undo = keepFields(item, ['need']);
+        item.need = setNeed;
+        return undo;
+      }, () => apiCall('toggleNeedFlag', { sheetName: activeMonth, row, setNeed, expect }));
     }
 
     // "All paid back" for one person: same save as the overall button, just their rows.
@@ -2077,12 +2096,11 @@ async function postToServer(bodyObj, opts = {}) {
       if (!items.length) return;
       const rows = items.map(r => r.row);
       const expect = items.map(expectOf);
-      items.forEach(r => { r.need = false; });
-      savePhoneCache(activeMonth, state);
-      renderAll();
-      apiCall('settleAllNeeds', { sheetName: activeMonth, rows, expect })
-        .then(applyServerState)
-        .catch(err => handleSaveError('All paid back', err));
+      mutate('All paid back', () => {
+        const undos = items.map(r => keepFields(r, ['need']));
+        items.forEach(r => { r.need = false; });
+        return () => undos.forEach(u => u());
+      }, () => apiCall('settleAllNeeds', { sheetName: activeMonth, rows, expect }));
     }
 
     // ================= TRANSACTIONS & INTERLEAVED FEED =================
@@ -2736,8 +2754,10 @@ async function postToServer(bodyObj, opts = {}) {
     // Shows a new entry straight away (marked pending until the server confirms it and gives it a real row), and
     // adds it to its account's balance.
     function addPendingTx(acct, row, desc, amount, need, ts) {
-      state[acct].unshift({ row, acct, desc, amount, need: !!need, clientTs: ts, relOrder: 0, pending: true });
+      const tx = { row, acct, desc, amount, need: !!need, clientTs: ts, relOrder: 0, pending: true };
+      state[acct].unshift(tx);
       updateSummaryBalance(acct, amount);
+      return tx;
     }
 
     // The saved (not still-saving) entry in a row, and only if it is still the one the form showed.
@@ -2759,26 +2779,30 @@ async function postToServer(bodyObj, opts = {}) {
       const now = Date.now();
       recordLocalTimestamp(newAcct, newDesc, newAmount);
 
-      const oldArr = state[oldAcct] || [];
-      const oldItem = findEditedTx(oldAcct, row, expect);
-      if (oldItem) {
-        updateSummaryBalance(oldAcct, -oldItem.amount);
+      closeEditTxModal();
+      mutate('the transaction edit', () => {
+        const oldArr = state[oldAcct] || [];
+        const oldItem = findEditedTx(oldAcct, row, expect);
+        if (!oldItem) return;
+        const was = oldItem.amount;
+        updateSummaryBalance(oldAcct, -was);
         if (oldAcct === newAcct) {
+          const undo = keepFields(oldItem, ['desc', 'amount', 'clientTs']);
           oldItem.desc = newDesc;
           oldItem.amount = newAmount;
           oldItem.clientTs = now;
           updateSummaryBalance(newAcct, newAmount);
-        } else {
-          oldArr.splice(oldArr.indexOf(oldItem), 1);
-          addPendingTx(newAcct, 98, newDesc, newAmount, false, now);
+          return () => { undo(); updateSummaryBalance(newAcct, was - newAmount); };
         }
-      }
-
-      closeEditTxModal();
-      savePhoneCache(activeMonth, state);
-      renderAll();
-
-      apiCall('editOrMoveTransaction', {
+        const putBack = removeItem(oldArr, oldItem);
+        const moved = addPendingTx(newAcct, 98, newDesc, newAmount, false, now);
+        return () => {
+          takeOut(state[newAcct], moved)();
+          updateSummaryBalance(newAcct, -newAmount);
+          putBack();
+          updateSummaryBalance(oldAcct, was);
+        };
+      }, () => apiCall('editOrMoveTransaction', {
         sheetName: activeMonth,
         oldAcct,
         newAcct,
@@ -2786,7 +2810,7 @@ async function postToServer(bodyObj, opts = {}) {
         newDesc,
         newAmount,
         expect
-      }).then(applyServerState).catch(err => handleSaveError('the transaction edit', err));
+      }));
     }
 
     function deleteCurrentTx() {
@@ -2798,22 +2822,16 @@ async function postToServer(bodyObj, opts = {}) {
       const oldArr = state[oldAcct] || [];
       const item = findEditedTx(oldAcct, row, expect);
       const month = activeMonth;
-      if (item) {
-        updateSummaryBalance(oldAcct, -item.amount);
-        oldArr.splice(oldArr.indexOf(item), 1);
-      }
 
       closeEditTxModal();
-      savePhoneCache(activeMonth, state);
-      renderAll();
-
       // `deleted` settles true once the sheet has lost the row (also when only its new figures couldn't be read
       // back), false if the delete didn't go through.
-      let landed = false;
-      const deleted = apiCall('deleteTransactionRow', { sheetName: month, acct: oldAcct, row, expect })
-        .then(s => { landed = true; applyServerState(s); })
-        .catch(err => { if (failureKind(err) === 'saved') landed = true; return handleSaveError('the deletion', err); })
-        .then(() => landed, () => landed);
+      const deleted = mutate('the deletion', () => {
+        if (!item) return;
+        const putBack = removeItem(oldArr, item);
+        updateSummaryBalance(oldAcct, -item.amount);
+        return () => { putBack(); updateSummaryBalance(oldAcct, item.amount); };
+      }, () => apiCall('deleteTransactionRow', { sheetName: month, acct: oldAcct, row, expect }));
       // Undo only for an entry that is really going (if the row changed meanwhile, the server refuses the delete, and
       // an Undo would add a second copy).
       if (!item) return;
