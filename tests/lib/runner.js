@@ -1,29 +1,14 @@
-// Shared by the real-Chrome tests: the browser, a runner that records each check and prints the summary, and the
+// Shared by the real-Chrome tests: the browser, the step counter (tests/lib/steps.js), and the
 // "away and back" helper. playwright-core comes from PW_PATH (a local folder) or from this repo's node_modules.
-const CHROME = process.env.CHROME_PATH || 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe';
+// Chrome: CHROME_PATH, else where it usually is on Windows, macOS or Linux.
+const CHROME = process.env.CHROME_PATH || {
+  win32: 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  darwin: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+}[process.platform] || '/usr/bin/google-chrome';
 const { chromium } = require(process.env.PW_PATH || 'playwright-core');
+const { makeSteps } = require('./steps');   // shared with the Node-only tests
 
 const launchChrome = (opts = {}) => chromium.launch({ executablePath: CHROME, headless: true, ...opts });
-
-// step(name, fn) runs one check and records whether it passed (with the first lines of the error if not); a failed
-// check never stops the run. finish() prints every result and the count, and exits 1 if any failed.
-// onFail(name) runs after a failed check, e.g. to save a screenshot.
-function makeSteps({ onFail } = {}) {
-  const results = [];
-  async function step(name, fn) {
-    try { await fn(); results.push([true, name]); } catch (e) {
-      results.push([false, name + '\n      ' + String(e.message).split('\n').slice(0, 4).join('\n      ')]);
-      if (onFail) await onFail(name);
-    }
-  }
-  function finish() {
-    const failed = results.filter(([ok]) => !ok).length;
-    results.forEach(([ok, name]) => console.log((ok ? '  PASS  ' : '  FAIL  ') + name));
-    console.log(`\n${results.length - failed}/${results.length} passed`);
-    process.exit(failed ? 1 : 0);
-  }
-  return { step, finish };
-}
 
 // The app goes to the background for `ms` and comes back (the page's clock jumps by `ms` while it is hidden).
 const awayAndBack = (page, ms) => page.evaluate(away => {

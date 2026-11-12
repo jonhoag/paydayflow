@@ -13,11 +13,7 @@ vm.createContext(sandbox);
 vm.runInContext(m[1] + '\nthis.api = { guessCategory, categoryFor, summariseSpend, spendKey, setSpendWords, SPEND_CATEGORIES, paydayIn, nextPayday, compareSpend };', sandbox);
 const { guessCategory, categoryFor, summariseSpend, setSpendWords, SPEND_CATEGORIES, paydayIn, nextPayday, compareSpend } = sandbox.api;
 
-const results = [];
-function test(name, fn) {
-  try { fn(); results.push([true, name]); }
-  catch (e) { results.push([false, name + '\n      ' + String(e.message).split('\n')[0]]); }
-}
+const { step: test, finish } = require('./lib/steps').makeSteps();
 
 // Made-up merchant spellings, one or more per category rule, including the ones where order matters
 // ("uber eats" is eating out but "uber" is transport; "sains petrol" is transport; "train ticket" is transport).
@@ -147,7 +143,4 @@ test('vs last month: up, down, the same within 50p, or new', () => {
   assert.strictEqual(compareSpend(15, undefined).kind, 'new');
 });
 
-let failed = 0;
-results.forEach(([ok, name]) => { if (!ok) failed++; console.log((ok ? '  PASS  ' : '  FAIL  ') + name); });
-console.log(`\n${results.length - failed}/${results.length} passed`);
-process.exit(failed ? 1 : 0);
+finish();
