@@ -938,9 +938,8 @@ async function postToServer(bodyObj, opts = {}) {
       checking: { label: 'NW', name: 'Nationwide', from: '#8B5CF6', to: '#3B2A8C' },
       marcus: { label: 'MS', name: 'Marcus', from: '#F59E0B', to: '#9A4B0B' }
     };
-    // The four accounts in the order the screen lists them, and where each one's balance sits in state.summary.
+    // The four accounts in the order the screen lists them.
     const ACCTS = ['amex', 'barclays', 'checking', 'marcus'];
-    const SUMMARY_KEY = { amex: 'amex', barclays: 'barclays', checking: 'nCA', marcus: 'mSAV' };
     function getBankLogo(acct) {
       const c = ACCOUNT_CARDS[acct] || ACCOUNT_CARDS.marcus;
       return `<span class="inline-flex items-center justify-center shrink-0 text-white font-bold" title="${c.name}" style="width:30px;height:20px;border-radius:4px;font-size:9.5px;letter-spacing:.04em;background:linear-gradient(135deg,${c.from},${c.to})">${c.label}</span>`;
@@ -951,7 +950,6 @@ async function postToServer(bodyObj, opts = {}) {
     function emptyState() {
       return {
         sheetUrl: '#', availableMonths: [], activeMonth,
-        summary: { nCA: 0, mSAV: 0, amex: 0, barclays: 0, budgetRem: 0, checkingExpected: 0, eomSavingsJ: 0 },
         budgets: [], checking: [], amex: [], barclays: [], marcus: []
       };
     }
@@ -999,12 +997,13 @@ async function postToServer(bodyObj, opts = {}) {
 
     // The lists of rows in a month's figures.
     const MONTH_LISTS = ['budgets'].concat(ACCTS);
-    // Whether a month's figures are ones the screen can draw (a damaged saved copy isn't).
+    // Whether a month's figures are ones the screen can draw (a damaged or cut-short saved copy isn't). The totals are
+    // worked out from the rows (sheetFigures), so every list must be there and every row needs an amount that is a number.
     function usableMonth(s) {
-      if (!s || typeof s !== 'object' || !s.summary || typeof s.summary !== 'object') return false;
-      if (!Object.values(s.summary).every(Number.isFinite)) return false;
+      if (!s || typeof s !== 'object') return false;
       if (s.availableMonths !== undefined && !Array.isArray(s.availableMonths)) return false;
-      return MONTH_LISTS.every(k => s[k] === undefined || (Array.isArray(s[k]) && s[k].every(r => r && typeof r === 'object')));
+      return MONTH_LISTS.every(k => Array.isArray(s[k])
+        && s[k].every(r => r && typeof r === 'object' && Number.isFinite(Number(r.amount || 0))));
     }
     // Every row number made a number: they go into the page's markup.
     function numberRows(s) {
@@ -1702,7 +1701,7 @@ async function postToServer(bodyObj, opts = {}) {
         const saved = failureKind(err) === 'saved';
         if (!saved && undo && state === shown && activeMonth === month) {
           undo();
-          renderAll();   // first: it works out the totals the saved copy holds
+          renderAll();
           savePhoneCache(month, state);
         }
         handleSaveError(what, err);
@@ -1719,13 +1718,19 @@ async function postToServer(bodyObj, opts = {}) {
     };
     const takeOut = (list, item) => () => { const at = list.indexOf(item); if (at >= 0) list.splice(at, 1); };
 
-    function recomputeSummary() {
-      const s = state.summary;
-      s.budgetRem = +state.budgets
-        .filter(b => !skippedBudgetRows.has(b.row))
-        .reduce((a, b) => a + Number(b.amount || 0), 0).toFixed(2);
-      s.checkingExpected = +(s.nCA + s.budgetRem).toFixed(2);
-      s.eomSavingsJ = +(s.checkingExpected + s.amex + s.barclays).toFixed(2);
+    // The rows' amounts added up, to the penny.
+    const sumAmounts = list => +(list || []).reduce((a, r) => a + Number(r.amount || 0), 0).toFixed(2);
+    // Every figure on the screen, worked out from the month's rows: each account's balance is the sum of its rows (as
+    // the server adds them up), bills left is the sum of the bills not switched off in the what-if view (`skipped`:
+    // their rows), and Money Left is the current account after those bills, plus the two cards (which are negative).
+    // This is the page's one source for them (audit 3.3), worked out wherever they are shown: the `summary` the server
+    // sends isn't used, so a change shown before the sheet has it counts at once, and taking it back off the screen
+    // takes it out of the totals too.
+    function sheetFigures(s, skipped) {
+      const nCA = sumAmounts(s.checking), amex = sumAmounts(s.amex), barclays = sumAmounts(s.barclays);
+      const budgetRem = sumAmounts((s.budgets || []).filter(b => !skipped.has(b.row)));
+      const checkingExpected = +(nCA + budgetRem).toFixed(2);
+      return { nCA, mSAV: sumAmounts(s.marcus), amex, barclays, budgetRem, checkingExpected, eomSavingsJ: +(checkingExpected + amex + barclays).toFixed(2) };
     }
 
     // Money Left spread over the days until payday, shown only on the newest month (older months are history).
@@ -1746,8 +1751,7 @@ async function postToServer(bodyObj, opts = {}) {
     }
 
     function renderAll() {
-      recomputeSummary();
-      const s = state.summary;
+      const s = sheetFigures(state, skippedBudgetRows);
       const money = n => state.loading ? '£—' : fmtGBP(n);
       document.getElementById('kpiAmex').textContent = money(s.amex);
       document.getElementById('kpiBarclays').textContent = money(s.barclays);
@@ -1806,7 +1810,7 @@ async function postToServer(bodyObj, opts = {}) {
       const totalCount = state.budgets.length;
       const pct = totalCount ? Math.round((cleared.length / totalCount) * 100) : 0;
 
-      document.getElementById('budLeftVal').textContent = state.loading ? 'Loading…' : billsLeftText(state.summary.budgetRem);
+      document.getElementById('budLeftVal').textContent = state.loading ? 'Loading…' : billsLeftText(sheetFigures(state, skippedBudgetRows).budgetRem);
       document.getElementById('budClearedCount').textContent = state.loading ? '' : `${cleared.length} of ${totalCount} paid`;
       document.getElementById('budProgressBar').style.width = `${pct}%`;
       document.getElementById('clearedBudCount').textContent = cleared.length;
@@ -2851,17 +2855,11 @@ async function postToServer(bodyObj, opts = {}) {
       markChoice('etx_', ACCTS, a, CARD_ON, CARD_OFF);
     }
 
-    function updateSummaryBalance(acct, delta) {
-      const k = SUMMARY_KEY[acct];
-      if (k) state.summary[k] = +(state.summary[k] + delta).toFixed(2);
-    }
-
-    // Shows a new entry straight away (marked pending until the server confirms it and gives it a real row), and
-    // adds it to its account's balance.
+    // Shows a new entry straight away (marked pending until the server confirms it and gives it a real row); the
+    // totals count it from the next render (sheetFigures).
     function addPendingTx(acct, row, desc, amount, need, ts) {
       const tx = { row, acct, desc, amount, need: !!need, clientTs: ts, relOrder: 0, pending: true };
       state[acct].unshift(tx);
-      updateSummaryBalance(acct, amount);
       return tx;
     }
 
@@ -2890,24 +2888,16 @@ async function postToServer(bodyObj, opts = {}) {
         const oldArr = state[oldAcct] || [];
         const oldItem = findEditedTx(oldAcct, row, expect);
         if (!oldItem) return;
-        const was = oldItem.amount;
-        updateSummaryBalance(oldAcct, -was);
         if (oldAcct === newAcct) {
           const undo = keepFields(oldItem, ['desc', 'amount', 'clientTs']);
           oldItem.desc = newDesc;
           oldItem.amount = newAmount;
           oldItem.clientTs = now;
-          updateSummaryBalance(newAcct, newAmount);
-          return () => { undo(); updateSummaryBalance(newAcct, was - newAmount); };
+          return undo;
         }
         const putBack = removeItem(oldArr, oldItem);
         const moved = addPendingTx(newAcct, 98, newDesc, newAmount, false, now);
-        return () => {
-          takeOut(state[newAcct], moved)();
-          updateSummaryBalance(newAcct, -newAmount);
-          putBack();
-          updateSummaryBalance(oldAcct, was);
-        };
+        return () => { takeOut(state[newAcct], moved)(); putBack(); };
       }, () => apiCall('editOrMoveTransaction', {
         sheetName: activeMonth,
         oldAcct,
@@ -2934,9 +2924,7 @@ async function postToServer(bodyObj, opts = {}) {
       // back), false if the delete didn't go through.
       const deleted = mutate('the deletion', () => {
         if (!item) return;
-        const putBack = removeItem(oldArr, item);
-        updateSummaryBalance(oldAcct, -item.amount);
-        return () => { putBack(); updateSummaryBalance(oldAcct, item.amount); };
+        return removeItem(oldArr, item);
       }, () => apiCall('deleteTransactionRow', { sheetName: month, acct: oldAcct, row, expect }));
       // Undo only for an entry that is really going (if the row changed meanwhile, the server refuses the delete, and
       // an Undo would add a second copy).
@@ -2989,7 +2977,7 @@ async function postToServer(bodyObj, opts = {}) {
 
     function openNewMonthModal() {
       ['nmPaycheck', 'nmSavings'].forEach(clearFieldError);
-      const s = state.summary;
+      const s = sheetFigures(state, skippedBudgetRows);
       document.getElementById('nmName').value = getNextMonthName(activeMonth);
       document.getElementById('nmPaycheck').value = thisMonthAmount(/^paycheck$/i);
       document.getElementById('nmSavings').value = thisMonthAmount(/^\S+ to savings$/i);
@@ -3001,7 +2989,7 @@ async function postToServer(bodyObj, opts = {}) {
 
       // What is still owed carries over to the new month
       const pendingItems = (state.checking || []).filter(r => r.need);
-      const pendingSum = +pendingItems.reduce((acc, r) => acc + Number(r.amount || 0), 0).toFixed(2);
+      const pendingSum = sumAmounts(pendingItems);
       const settleEl = document.getElementById('roSettle');
       if (settleEl) {
         settleEl.textContent = pendingItems.length
