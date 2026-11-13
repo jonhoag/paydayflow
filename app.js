@@ -342,9 +342,9 @@ function deviceLabel() {
 
 // Words for the person, not the browser, for the ways a fingerprint step can fail.
 function describePasskeyError(err, auto) {
-  const code = String((err && err.serverCode) || '');
-  if (code.indexOf('AUTH_PASSKEY_UNKNOWN') === 0) return { text: 'Fingerprint sign-in was turned off for this device. Sign in with Google to set it up again.', error: true, forget: true };
-  if (code.indexOf('AUTH_THROTTLED') === 0) return { text: 'Fingerprint sign-in is paused for a few minutes after too many tries. You can still sign in with Google.', error: true };
+  const code = err && err.code;
+  if (code === 'AUTH_PASSKEY_UNKNOWN') return { text: 'Fingerprint sign-in was turned off for this device. Sign in with Google to set it up again.', error: true, forget: true };
+  if (code === 'AUTH_THROTTLED') return { text: 'Fingerprint sign-in is paused for a few minutes after too many tries. You can still sign in with Google.', error: true };
   // (The lock screen words this itself, since its button reloads; this is for the fingerprint dialog's "Test it now".)
   if (err && err.promptBusy) return { text: 'The fingerprint prompt is stuck. Reload the page and try again.', error: false };
   // AbortError: a prompt that never answered was dropped (a try cancelled on purpose shows no message at all).
@@ -394,7 +394,7 @@ async function passkeyLoginRoundTrip(signal, onAccepted) {
     if (!err || !err.network || err.timedOut) throw err;   // not after a long wait: that is long enough
     return new Promise(r => setTimeout(r, PASSKEY_RETRY_MS)).then(() => postToServer(beginReq, beginOpts));
   });
-  if (!begin.ok) throw Object.assign(new Error(begin.error || 'Sign-in failed'), { serverCode: begin.error });
+  if (!begin.ok) throw serverError(begin, 'Sign-in failed');
   // The prompt should end by itself after its time limit, but on a phone one that never appeared can leave the
   // request waiting for good, so it is dropped a little after that (or as soon as the caller cancels).
   const prompt = new AbortController();
@@ -428,7 +428,7 @@ async function passkeyLoginRoundTrip(signal, onAccepted) {
     authenticatorData: bytesToB64u(r.authenticatorData),
     signature: bytesToB64u(r.signature)
   } }, { signal });
-  if (!fin.ok) throw Object.assign(new Error(fin.error || 'Sign-in failed'), { serverCode: fin.error });
+  if (!fin.ok) throw serverError(fin, 'Sign-in failed');
   return fin.data;
 }
 
@@ -519,7 +519,7 @@ async function setUpPasskey() {
   try {
     begin = await apiCall('passkeyRegisterBegin', {}, { needGoogle: true });
   } catch (err) {
-    if (!/^REAUTH/.test(String(err && err.message))) throw err;
+    if (!err || err.code !== 'REAUTH') throw err;
     lsDel(TOKEN_STORAGE_KEY);   // that Google sign-in is too old to add a device: ask for a new one
     return askGoogleForPasskeySetup('Sign in with Google again to set up fingerprint on this device.');
   }
@@ -816,8 +816,7 @@ window.addEventListener('storage', e => {
     function failureKind(err) {
       if (err && (err.needsSignIn || err.auth)) return 'signin';
       if (!err || isConnectionError(err)) return 'reach';
-      const msg = String(err.message);
-      return /^Lock timeout/i.test(msg) ? 'busy' : /^SAVED_NO_STATE/.test(msg) ? 'saved' : 'refused';
+      return err.code === 'BUSY' ? 'busy' : err.code === 'SAVED_NO_STATE' ? 'saved' : 'refused';
     }
     // What a failed sheet request means for the sync status: null for a sign-in problem (the lock screen shows that),
     // 'reach' when nothing usable came back or a read failed, 'refused' when the server turned a change down.
@@ -844,11 +843,15 @@ window.addEventListener('storage', e => {
       // Mode 1: the copy of the page Apps Script serves itself. gasCall runs the same actions, checks and write
       // lock as the website's requests.
       if (IS_GAS_ENV) {
-        // Apps Script hands back an error whose text may start "Error: " or "Exception: ". A lost connection is
-        // named (or worded) "NetworkError": like no reply on the website, not a refusal.
+        // Apps Script hands back an error whose text may start "Error: " or "Exception: ", then the server's code in
+        // brackets ("[STALE] ..."; see gasCall). A lost connection is named (or worded) "NetworkError": like no
+        // reply on the website, not a refusal.
         const failed = e => {
           const name = String((e && e.name) || ''), text = String((e && e.message) || e);
-          const err = new Error(text.replace(/^(?:(?:Error|Exception|ScriptError): )+/, ''));
+          const plain = text.replace(/^(?:(?:Error|Exception|ScriptError): )+/, '');
+          const coded = /^\[([A-Z_]+)\] ([\s\S]*)$/.exec(plain);
+          const err = new Error(coded ? coded[2] : plain);
+          if (coded) err.code = coded[1];
           if (/NetworkError/.test(name + ' ' + text)) err.network = true;
           return err;
         };
@@ -869,9 +872,10 @@ window.addEventListener('storage', e => {
   const json = await postToServer({ action, payload, ...auth });
 
   if (!json.ok) {
+    const apiErr = serverError(json, 'API request failed');
     // The server couldn't fetch Google's keys just now: the sign-in wasn't turned down, so keep it and try again later.
-    if (/^AUTH_UNAVAILABLE/.test(String(json.error))) {
-      throw Object.assign(new Error(String(json.error).replace(/^[A-Z_]+: /, '')), { unavailable: true });
+    if (apiErr.code === 'AUTH_UNAVAILABLE') {
+      throw Object.assign(new Error(String(json.error).replace(/^[A-Z_]+: /, '')), { unavailable: true, code: apiErr.code });
     }
     if (json.authError) {
       const usedSession = !!auth.session;
@@ -879,12 +883,15 @@ window.addEventListener('storage', e => {
       // An expired fingerprint session is normal: go straight back to the fingerprint prompt.
       showLockScreen(usedSession ? 'Session ended. Unlock to continue.' : 'Access Denied: ' + String(json.error || 'Unauthorised account.').replace(/^[A-Z_]+: /, ''), usedSession ? undefined : { noAuto: true });
     }
-    const apiErr = new Error(json.error || 'API request failed');
     apiErr.auth = !!json.authError;
     throw apiErr;
   }
   return json.data;
 }
+
+// A refused reply as an error. What happened is its `code` (see ERROR CODES in the backend; ERROR if it has none):
+// the page acts on that alone, and the words are only for showing.
+const serverError = (json, fallback) => Object.assign(new Error(json.error || fallback), { code: String(json.code || 'ERROR') });
 
 // No reply, one that wasn't readable, or a server that couldn't check the sign-in just now: worth trying again
 // later, not a refusal.
@@ -1673,7 +1680,7 @@ async function postToServer(bodyObj, opts = {}) {
       if (failureKind(err) === 'saved') return refreshFromSheet(true);
       console.error(what + ' error:', err);
       // The server refuses an edit or delete when the row changed on another device since this screen loaded.
-      const stale = /STALE/.test(String(err && err.message));
+      const stale = !!err && err.code === 'STALE';
       showToast(stale ? 'That entry changed on another device, so nothing was changed. Showing the latest.' : "Couldn't save " + what + ' - refreshing from your sheet.');
       refreshFromSheet();
     }
@@ -3074,7 +3081,7 @@ async function postToServer(bodyObj, opts = {}) {
         // Made, but its figures couldn't be read back: open it, which fetches them.
         if (failureKind(err) === 'saved') {
           openMadeMonth(newMonthName);
-        } else if (/^EXISTS/.test(String(err && err.message))) {
+        } else if (err && err.code === 'EXISTS') {
           // Another device made this month in the meantime: nothing was changed. Load the latest so the warning shows.
           showToast('"' + newMonthName + '" already exists, so nothing was changed. Open Start New Month again if you want to replace it.');
           forceSyncSheet();

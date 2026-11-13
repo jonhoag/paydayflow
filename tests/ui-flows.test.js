@@ -65,7 +65,7 @@ const SEED_OWED = `(async () => {
 
 const calls = (page, action) => page.evaluate(a => MOCK.calls.filter(c => c.action === a).map(c => c.payload), action);
 // The server saved a change, then couldn't read the month's figures back: saved, so never kept or sent again.
-const SAVED_NO_STATE = 'SAVED_NO_STATE: saved, but the figures could not be read just now.';
+const SAVED_NO_STATE = { code: 'SAVED_NO_STATE', error: 'SAVED_NO_STATE: saved, but the figures could not be read just now.' };
 const failSavedNoState = page => page.evaluate(t => { MOCK.failWith = t; MOCK.failAfterWriteNext = 1; }, SAVED_NO_STATE);
 const resetFailures = page => page.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; MOCK.failAfterWriteNext = 0; MOCK.dropNext = 0; MOCK.dropReadsNext = 0; });
 const sheetReads = page => page.evaluate(() => MOCK.calls.filter(c => c.action === 'getCachedSheetState').length);
@@ -540,6 +540,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   const sentCount = merchant => page.evaluate(m => MOCK.calls.filter(c => c.action === 'addTransactionBundle' && c.payload.merchant === m).length, merchant);
   const toastParts = () => page.evaluate(() => [document.querySelector('#toast span').textContent, (document.getElementById('toastAction') || {}).textContent || null]);
   const LOCK_TIMEOUT = 'Lock timeout: another process was holding the lock for too long.';
+  const BUSY = { code: 'BUSY', error: LOCK_TIMEOUT };   // how the server sends it
   const addSpend = async (amount, merchant) => {
     await page.click('nav button[aria-label="Add transaction"]');
     await page.fill('#inpAmount', amount);
@@ -564,7 +565,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   await step('outbox: the sheet busy (lock timeout) keeps the spend waiting; the next send gets it there', async () => {
     const from = errors.length;
     try {
-      await page.evaluate(t => { MOCK.failWith = t; MOCK.failNext = 2; }, LOCK_TIMEOUT);
+      await page.evaluate(t => { MOCK.failWith = t; MOCK.failNext = 2; }, BUSY);
       await addSpend('2.20', 'Busy shop');
       await syncSettled('waiting');
       await page.click('#syncBtn');   // the sheet is still busy
@@ -577,11 +578,34 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.strictEqual(await rowsNamed('Busy shop'), 1);
     } finally { await page.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; }); dropExpectedSyncErrors(from); }
   });
+  // Audit 3.2: the page acts on the server's code, never its words.
+  await step("outbox: the server's code decides, not its words: BUSY in other words waits; busy words coded ERROR are set aside", async () => {
+    const from = errors.length;
+    try {
+      await page.evaluate(() => { MOCK.failWith = { code: 'BUSY', error: 'Mock server failure: another save is under way.' }; MOCK.failNext = 1; });
+      await addSpend('2.40', 'Coded busy shop');
+      await syncSettled('waiting');
+      let o = await outbox();
+      assert.ok(o.length === 1 && !o[0].setAside && !o[0].sentAt, 'BUSY should wait: ' + JSON.stringify(o));
+      await page.click('#syncBtn');
+      await syncSettled('synced');
+      assert.strictEqual(await rowsNamed('Coded busy shop'), 1);
+      await page.evaluate(t => { MOCK.failWith = { code: 'ERROR', error: t }; MOCK.failNext = 1; }, LOCK_TIMEOUT);
+      await addSpend('2.50', 'Uncoded busy shop');
+      await syncSettled('failed');
+      o = await outbox();
+      assert.ok(o.length === 1 && /^Lock timeout/.test(o[0].setAside), 'ERROR should be set aside at once: ' + JSON.stringify(o));
+      await page.click('#syncBtn');
+      await syncSettled('synced');
+      assert.deepStrictEqual(await outbox(), []);
+      assert.strictEqual(await rowsNamed('Uncoded busy shop'), 1);
+    } finally { await page.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; }); dropExpectedSyncErrors(from); }
+  });
   await step('outbox: busy OUTBOX_MAX_TRIES times in a row sets it aside in red; the timer leaves it; a tap sends it', async () => {
     const from = errors.length;
     try {
       const max = await page.evaluate(() => OUTBOX_MAX_TRIES);
-      await page.evaluate(([t, n]) => { MOCK.failWith = t; MOCK.failNext = n + 1; }, [LOCK_TIMEOUT, max]);
+      await page.evaluate(([t, n]) => { MOCK.failWith = t; MOCK.failNext = n + 1; }, [BUSY, max]);
       await addSpend('1.10', 'Very busy shop');   // the first send isn't counted: then `max` tries
       await syncSettled('waiting');
       await page.evaluate(async n => { for (let i = 0; i < n; i++) await flushOutbox(); }, max);
@@ -700,7 +724,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   });
   await step('outbox: (tidy up) the spends these steps saved are taken back out of the pretend sheet', async () => {
     await page.evaluate(() => {
-      const ours = /^(Bad reply|Busy|Very busy|Half done|Old lost|Read back|Resent read back) shop$/;
+      const ours = /^(Bad reply|Busy|Very busy|Coded busy|Uncoded busy|Half done|Old lost|Read back|Resent read back) shop$/;
       Object.values(MOCK.db).filter(Array.isArray).forEach(a => { for (let i = a.length - 1; i >= 0; i--) if (ours.test(a[i].desc)) a.splice(i, 1); });
     });
     await page.click('#syncBtn');
@@ -711,7 +735,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     const from = errors.length;
     try {
       const before = await page.evaluate(() => [hasValidToken(), Object.keys(localStorage).filter(k => /token|session/i.test(k)).sort().join()]);
-      await page.evaluate(() => { MOCK.authError = "AUTH_UNAVAILABLE: Couldn't check the Google sign-in just now. Try again in a minute."; });
+      await page.evaluate(() => { MOCK.authError = { code: 'AUTH_UNAVAILABLE', error: "AUTH_UNAVAILABLE: Couldn't check the Google sign-in just now. Try again in a minute." }; });
       await page.click('#syncBtn');
       await syncSettled('failed');
       assert.strictEqual((await syncShown()).caption, "Couldn't reach your sheet. Tap ↻ to try again.");
@@ -1973,6 +1997,25 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.waitForFunction(row => state.amex.some(r => r.row === row && r.desc === 'Someone else spend'), before.row);
     dropExpectedStale();
   });
+  await step("a save refused as STALE says 'changed on another device' whatever the words; STALE words coded ERROR do not", async () => {
+    const from = errors.length;
+    const edit = async (failWith, desc) => {
+      await page.evaluate(f => { MOCK.failWith = f; MOCK.failNext = 1; const r = state.amex.find(x => !x.pending); openEditTxForRow('amex', r.row); }, failWith);
+      await page.fill('#editTxDesc', desc);
+      await page.click('#editTxModal button:has-text("Save")');
+      await page.waitForFunction(() => MOCK.failNext === 0 && apiInflight === 0);
+      return page.textContent('#toast span');
+    };
+    try {
+      const a = await edit({ code: 'STALE', error: 'Mock server failure: someone got there first.' }, 'Coded stale edit');
+      assert.ok(/changed on another device/.test(a), a);
+      const b = await edit({ code: 'ERROR', error: 'STALE: This entry was changed on another device.' }, 'Uncoded stale edit');
+      assert.ok(/^Couldn't save/.test(b), b);
+    } finally {
+      await page.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; });
+      for (let i = errors.length - 1; i >= from; i--) if (/STALE: This entry was changed|Mock server failure/.test(errors[i])) errors.splice(i, 1);
+    }
+  });
   await step('bill form left open while the bill changes underneath: checked against what the form showed', async () => {
     const b = await page.evaluate(() => { const x = state.budgets.find(y => !y.pending && Number(y.amount) !== 0); openBudgetFormForRow(x.row); return { row: x.row, name: x.name, amount: Number(x.amount) }; });
     await page.evaluate(row => { MOCK.db.budgets.find(r => r.row === row).name = 'Changed elsewhere'; forceSyncSheet(); }, b.row);
@@ -2175,6 +2218,30 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.waitForTimeout(500);
     assert.ok(/already exists/.test(await page.textContent('#toast')), await page.textContent('#toast'));
     assert.ok((await calls(page, 'getCachedSheetState')).length > syncs, 'should reload the latest months');
+  });
+
+  await step("new month: EXISTS in other words still says 'already exists'; its words coded ERROR do not", async () => {
+    const from = errors.length;
+    const create = async (failWith, name) => {
+      await page.evaluate(([f, n]) => {
+        MOCK.failWith = f; MOCK.failNext = 1;
+        openNewMonthModal();
+        document.getElementById('nmName').value = n;
+        updateNewMonthName();
+      }, [failWith, name]);
+      await page.click('#nmCreateBtn');
+      await page.waitForFunction(() => MOCK.failNext === 0 && apiInflight === 0);
+      return page.textContent('#toast');
+    };
+    try {
+      const a = await create({ code: 'EXISTS', error: 'Mock server failure: that month is there.' }, 'Coded Payday 2026');
+      assert.ok(/already exists/.test(a), a);
+      const b = await create({ code: 'ERROR', error: 'EXISTS: There is already a month called "Uncoded Payday 2026". Nothing was changed.' }, 'Uncoded Payday 2026');
+      assert.ok(/Couldn't create the month/.test(b), b);
+    } finally {
+      await page.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; });
+      dropExpectedSyncErrors(from);
+    }
   });
 
   await step('new month: made, but its figures could not be read back: says so and opens the new month (no "Couldn\'t create")', async () => {
@@ -2666,7 +2733,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     });
     await step('Google sign-in the server turns down: says why and which account, keeps no token, does not loop', async () => {
       // Google would sign this account back in by itself (auto select) every time the lock screen asks.
-      await p2.evaluate(() => { MOCK.authError = "FORBIDDEN: This Google account can't open PaydayFlow."; MOCK.gsiAccount = 'someone@example.com'; MOCK.gsiCallback({ credential: MOCK.makeToken('someone@example.com') }); });
+      await p2.evaluate(() => { MOCK.authError = { code: 'FORBIDDEN', error: "FORBIDDEN: This Google account can't open PaydayFlow." }; MOCK.gsiAccount = 'someone@example.com'; MOCK.gsiCallback({ credential: MOCK.makeToken('someone@example.com') }); });
       await p2.waitForFunction(() => /can't open PaydayFlow/.test(document.getElementById('authLockMsg').textContent));
       await p2.waitForTimeout(1500);
       const s = await p2.evaluate(() => ({ msg: document.getElementById('authLockMsg').textContent, token: localStorage.getItem('pf_google_id_token'),
@@ -2679,7 +2746,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.strictEqual(await p2.evaluate(() => MOCK.gsi.initialize), 1, "Google's sign-in should be set up once per page load");
     });
     await step("Google sign-in the server can't check just now: says try again (not Access Denied) and keeps no token", async () => {
-      await p2.evaluate(() => { MOCK.authError = "AUTH_UNAVAILABLE: Couldn't check the Google sign-in just now. Try again in a minute."; MOCK.gsiCallback({ credential: MOCK.makeToken('owner@example.com') }); });
+      await p2.evaluate(() => { MOCK.authError = { code: 'AUTH_UNAVAILABLE', error: "AUTH_UNAVAILABLE: Couldn't check the Google sign-in just now. Try again in a minute." }; MOCK.gsiCallback({ credential: MOCK.makeToken('owner@example.com') }); });
       await p2.waitForFunction(() => /Couldn't reach the server/.test(document.getElementById('authLockMsg').textContent));
       const s = await p2.evaluate(() => ({ msg: document.getElementById('authLockMsg').textContent, token: localStorage.getItem('pf_google_id_token'), locked: lockScreenShowing() }));
       assert.ok(s.locked && !/Access Denied/.test(s.msg), JSON.stringify(s));
@@ -2909,6 +2976,27 @@ const contrastOf = (page, sel) => page.evaluate(s => {
         await gasSettled('synced');
         assert.deepStrictEqual(await gasOutbox(), []);
         assert.strictEqual(await gasRows('Gas refused shop'), 1);
+      } finally { await pg.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; }); dropExpectedSyncErrors(from); }
+    });
+    await step("Apps Script copy: the code in front of the message decides: BUSY in other words waits, and isn't shown", async () => {
+      const from = errors.length;
+      try {
+        await pg.evaluate(() => { MOCK.failWith = { code: 'BUSY', error: 'Mock server failure: another save is under way.' }; MOCK.failNext = 1; });
+        await gasAdd('2.65', 'Gas busy shop');
+        await gasSettled('waiting');
+        const o = await gasOutbox();
+        assert.ok(o.length === 1 && !o[0].setAside, 'BUSY should wait: ' + JSON.stringify(o));
+        await pg.click('#syncBtn');
+        await gasSettled('synced');
+        assert.strictEqual(await gasRows('Gas busy shop'), 1);
+        await pg.evaluate(() => { MOCK.failWith = { code: 'ERROR', error: 'Lock timeout: words only.' }; MOCK.failNext = 1; });
+        await gasAdd('2.85', 'Gas uncoded shop');
+        await gasSettled('failed');
+        const o2 = await gasOutbox();
+        assert.ok(o2.length === 1 && o2[0].setAside === 'Lock timeout: words only.', 'set aside, without the [code]: ' + JSON.stringify(o2));
+        await pg.click('#syncBtn');
+        await gasSettled('synced');
+        assert.deepStrictEqual(await gasOutbox(), []);
       } finally { await pg.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; }); dropExpectedSyncErrors(from); }
     });
     await step('Apps Script copy: a lost connection (NetworkError) keeps the spend waiting, in amber; a tap sends it, saved once', async () => {
