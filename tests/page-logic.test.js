@@ -1,5 +1,5 @@
 // Unit tests for small pieces of page logic in app.js that need no screen: reading an amount, equal split shares,
-// the next month's name and what a failed request means. Each is read out of app.js by its name (appPart), so the
+// the next month's name, what a failed request means and what a fingerprint failure says. Each is read out of app.js by its name (appPart), so the
 // tests check the code the page runs, wherever it sits in the file. (The spending maths is one block between markers
 // instead, tested by spending.test.js; these helpers are spread through the file, and moving them together just for
 // the tests would be churn.) To test another function: add its name to UNDER_TEST, and anything it needs to NEEDS.
@@ -10,7 +10,7 @@ const vm = require('vm');
 const assert = require('assert');
 const { step: test, finish } = require('./lib/steps').makeSteps();
 
-const UNDER_TEST = ['parseAmount', 'equalShares', 'getNextMonthName', 'failureKind'];
+const UNDER_TEST = ['parseAmount', 'equalShares', 'getNextMonthName', 'failureKind', 'serverError', 'describePasskeyError'];
 const NEEDS = ['MONTHS', 'isConnectionError'];
 
 const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
@@ -25,7 +25,7 @@ function appPart(name) {
 const sandbox = {};
 vm.createContext(sandbox);
 vm.runInContext(NEEDS.concat(UNDER_TEST).map(appPart).join('\n') + '\nthis.api = { ' + UNDER_TEST.join(', ') + ' };', sandbox);
-const { parseAmount, equalShares, getNextMonthName, failureKind } = sandbox.api;
+const { parseAmount, equalShares, getNextMonthName, failureKind, serverError, describePasskeyError } = sandbox.api;
 
 const same = (a, b) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), b);   // arrays made inside the sandbox
 
@@ -77,18 +77,38 @@ test('a month with no year gets this year (December: next year)', () => {
 test('no month name at all', () => { assert.strictEqual(getNextMonthName(null), 'New Payday Month'); assert.strictEqual(getNextMonthName(undefined), 'New Payday Month'); });
 
 // ---- failureKind: what a failed request means ----
+const coded = (code, text) => Object.assign(new Error(text), { code });
 const kinds = [
   ['a sign-in problem', { needsSignIn: true }, 'signin'], ['a sign-in problem (auth)', { auth: true }, 'signin'],
   ['no error at all', null, 'reach'], ['no connection', { network: true }, 'reach'], ['a reply that could not be read', { badReply: true }, 'reach'],
   ['a server that could not check the sign-in', { unavailable: true }, 'reach'],
-  ['the sheet busy with another save', new Error('Lock timeout: another process was holding the lock for too long.'), 'busy'],
-  ['the sheet busy (any case)', new Error('lock timeout'), 'busy'],
-  ['saved, figures not read back', new Error('SAVED_NO_STATE: saved, but the figures could not be read just now.'), 'saved'],
-  ['the row changed elsewhere', new Error('STALE: This entry was changed on another device.'), 'refused'],
-  ['any other refusal', new Error('Invalid amount.'), 'refused'],
-  ['words that only contain "Lock timeout"', new Error('Refused: Lock timeout'), 'refused'],
+  // The server's code decides, never its words (audit 3.2).
+  ['the sheet busy with another save', coded('BUSY', 'Lock timeout: another process was holding the lock for too long.'), 'busy'],
+  ['the sheet busy, in other words', coded('BUSY', 'Another save is under way.'), 'busy'],
+  ['saved, figures not read back', coded('SAVED_NO_STATE', 'SAVED_NO_STATE: saved, but the figures could not be read just now.'), 'saved'],
+  ['saved, in other words', coded('SAVED_NO_STATE', 'Saved; the figures will follow.'), 'saved'],
+  ['the row changed elsewhere', coded('STALE', 'STALE: This entry was changed on another device.'), 'refused'],
+  ['any other refusal', coded('ERROR', 'Invalid amount.'), 'refused'],
+  ['busy words with no code', new Error('Lock timeout: another process was holding the lock for too long.'), 'refused'],
+  ['saved words with another code', coded('ERROR', 'SAVED_NO_STATE: saved, but the figures could not be read just now.'), 'refused'],
+  ['a browser error with a number for its code', Object.assign(new Error('x'), { code: 18 }), 'refused'],
   ['a sign-in problem that is also a connection error', { needsSignIn: true, network: true }, 'signin']
 ];
 kinds.forEach(([what, err, kind]) => test(`${what} is '${kind}'`, () => assert.strictEqual(failureKind(err), kind)));
+
+// ---- serverError and the fingerprint messages: the server's code decides, never its words (audit 3.2) ----
+test('a refused reply keeps its code and words', () => {
+  const e = serverError({ ok: false, code: 'STALE', error: 'STALE: changed' }, 'fallback');
+  assert.deepStrictEqual([e.code, e.message], ['STALE', 'STALE: changed']);
+});
+test('a refused reply with no code is ERROR, with the fallback words if it has none', () => {
+  const e = serverError({ ok: false }, 'Sign-in failed');
+  assert.deepStrictEqual([e.code, e.message], ['ERROR', 'Sign-in failed']);
+});
+const pk = (code, error) => describePasskeyError(serverError({ ok: false, code, error }, 'Sign-in failed'), false);
+test('an unknown fingerprint device is forgotten, whatever the words', () => assert.strictEqual(pk('AUTH_PASSKEY_UNKNOWN', 'Not set up here.').forget, true));
+test('the unknown-device words with no code are not acted on', () => assert.ok(!pk(undefined, 'AUTH_PASSKEY_UNKNOWN: This device is not set up for fingerprint sign-in.').forget));
+test('too many tries says it is paused, whatever the words', () => assert.ok(/paused/.test(pk('AUTH_THROTTLED', 'Slow down.').text)));
+test('the too-many-tries words with no code are not taken for a pause', () => assert.ok(!/paused/.test(pk(undefined, 'AUTH_THROTTLED: Too many attempts.').text)));
 
 finish();

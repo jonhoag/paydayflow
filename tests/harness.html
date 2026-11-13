@@ -93,12 +93,22 @@
     };
   }
   const nextRow = arr => Math.max(3, ...arr.map(r => r.row)) + 1;
-  // Like the real server: an edit or delete that says what it expects in the row is refused if the row changed.
+  // Refusals carry a code, like the real server's (ERROR CODES in Code.js; tests/private/mock-contract.test.js checks the
+  // list matches). MOCK.failWith and MOCK.authError are { code, error }, or just words, which are sent as ERROR.
+  const ERROR_CODES = ['AUTH_REQUIRED', 'AUTH_EXPIRED', 'AUTH_FAILED', 'AUTH_THROTTLED', 'AUTH_PASSKEY_UNKNOWN', 'FORBIDDEN',
+    'AUTH_UNAVAILABLE', 'BUSY', 'STALE', 'SAVED_NO_STATE', 'EXISTS', 'REAUTH'];
+  const coded = (code, error) => Object.assign(new Error(error), { code });
+  const refusal = f => {
+    const r = f && typeof f === 'object' ? { ok: false, code: f.code || 'ERROR', error: f.error || f.message } : { ok: false, code: 'ERROR', error: f };
+    if (r.code !== 'ERROR' && !ERROR_CODES.includes(r.code)) throw new Error('The test server was given a code the backend never sends: ' + r.code);
+    return r;
+  };
+
   // Like the real server: refuse a change to a row that no longer holds what the page expected. Bills are named by
   // `name`, everything else by `desc`.
   const checkExpect = (it, p, key = 'desc') => {
     if (p.expect && (!it || it[key] !== p.expect[key] || Math.abs(it.amount - p.expect.amount) >= 0.005)) {
-      throw new Error('STALE: This entry was changed on another device.');
+      throw coded('STALE', 'STALE: This entry was changed on another device.');
     }
   };
 
@@ -106,12 +116,12 @@
     latency: Number(q.get('latency') || 300),
     nextLatencies: [],    // consumed one per request before falling back to `latency`
     failNext: 0,          // number of upcoming write calls that should fail
-    failWith: 'Mock server failure',   // what the server says when it fails one of them
+    failWith: 'Mock server failure',   // what the server says when it fails one of them (or { code, error })
     failAfterWriteNext: 0,   // number of upcoming write calls that do their work, then reply with an error
     badReplyNext: 0,      // number of upcoming calls that get a page that isn't JSON (like Google's error page)
     dropNext: 0,          // number of upcoming calls of any kind that get no reply (like a lost connection)
     dropReadsNext: 0,     // number of upcoming sheet reads (not writes) that get no reply
-    authError: null,      // set to an error text and the server turns down every request as a sign-in problem
+    authError: null,      // set to an error text (or { code, error }) and the server turns down every request as a sign-in problem
     config: CONFIG,       // the names sent with every reply (null: none, like an older backend)
     categoryChoices: {},  // the mock server's saved Spending category choices
     calls: [],            // log of { action, payload, start, end }
@@ -166,7 +176,7 @@
     // Like the server: every row is checked before any is changed.
     settleAllNeeds: (p, d, n) => {
       const rows = (p.rows || []).map(Number);
-      if (rows.length && (!Array.isArray(p.expect) || p.expect.length !== rows.length)) throw new Error('STALE: This entry was changed on another device.');
+      if (rows.length && (!Array.isArray(p.expect) || p.expect.length !== rows.length)) throw coded('STALE', 'STALE: This entry was changed on another device.');
       const its = rows.map((row, i) => { const it = d.checking.find(r => r.row === row); checkExpect(it, { expect: p.expect[i] }); return it; });
       its.forEach(it => { it.need = false; });
       return snapshot(d, n);
@@ -186,7 +196,7 @@
     startNewMonth: (p, d, n) => {
       const name = String(p.newMonthName || '').trim();
       if (!name || name.length > 85 || name.charAt(0) === '_' || name === n) throw new Error('Invalid month name.');
-      if (dbs[name] && p.replaceExisting !== true) throw new Error('EXISTS: There is already a month called "' + name + '". Nothing was changed.');
+      if (dbs[name] && p.replaceExisting !== true) throw coded('EXISTS', 'EXISTS: There is already a month called "' + name + '". Nothing was changed.');
       if (!Array.isArray(p.keepBudgetRows)) throw new Error('Say which bills to carry over (keepBudgetRows).');
       const was = snapshot(d, n).summary, now = Date.now();
       const pay = Number(p.paycheck) || 0, sav = Math.abs(Number(p.savingsAmount) || 0);
@@ -245,18 +255,18 @@
     // The server does its work as soon as the request arrives...
     let reply;
     if (MOCK.authError) {
-      reply = { ok: false, authError: true, error: MOCK.authError };
+      reply = Object.assign(refusal(MOCK.authError), { authError: true });
     } else if (isWrite && MOCK.failNext > 0) {
       MOCK.failNext--;
-      reply = { ok: false, error: MOCK.failWith };
+      reply = refusal(MOCK.failWith);
     } else if (!handlers[body.action]) {
-      reply = { ok: false, error: 'Unknown action ' + body.action };
+      reply = refusal('Unknown action ' + body.action);
     } else {
       const p = body.payload || {};
       const name = dbs[p.sheetName || p.sourceSheetName] ? (p.sheetName || p.sourceSheetName) : MONTH;
       try { reply = { ok: true, data: handlers[body.action](p, dbs[name], name) }; }
-      catch (e) { reply = { ok: false, error: e.message }; }
-      if (isWrite && reply.ok && MOCK.failAfterWriteNext > 0) { MOCK.failAfterWriteNext--; reply = { ok: false, error: MOCK.failWith }; }
+      catch (e) { reply = refusal(e); }
+      if (isWrite && reply.ok && MOCK.failAfterWriteNext > 0) { MOCK.failAfterWriteNext--; reply = refusal(MOCK.failWith); }
     }
     // ...but the reply reaches the browser only after its latency.
     await new Promise(r => setTimeout(r, wait));
@@ -283,7 +293,8 @@
   } } };
 
   // ?gas=1: google.script.run goes to the same mock server. A failure reaches the page as an Error whose text starts
-  // "Error: " (as Apps Script may send it); a lost connection is an error named NetworkError.
+  // "Error: " (as Apps Script may send it), then the code in brackets, as gasCall sends it; a lost connection is an
+  // error named NetworkError.
   if (q.get('gas')) window.google.script = { get run() {
     let ok = () => {}, fail = () => {};
     const r = {
@@ -291,7 +302,7 @@
       withFailureHandler: f => { fail = f; return r; },
       gasCall: (action, payload) => {
         window.fetch('gas', { body: JSON.stringify({ action, payload }) })
-          .then(res => res.text()).then(t => { const j = JSON.parse(t); if (j.ok) ok(j.data); else fail(new Error('Error: ' + j.error)); })
+          .then(res => res.text()).then(t => { const j = JSON.parse(t); if (j.ok) ok(j.data); else fail(new Error('Error: [' + j.code + '] ' + j.error)); })
           .catch(e => fail(e instanceof TypeError ? Object.assign(new Error('Connection failure due to HTTP 0'), { name: 'NetworkError' }) : e));
       }
     };
