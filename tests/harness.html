@@ -121,6 +121,7 @@
     badReplyNext: 0,      // number of upcoming calls that get a page that isn't JSON (like Google's error page)
     dropNext: 0,          // number of upcoming calls of any kind that get no reply (like a lost connection)
     dropReadsNext: 0,     // number of upcoming sheet reads (not writes) that get no reply
+    summaryOff: 0,        // audit 3.3 test: added to every figure in the summary the server sends, which the page must not use
     authError: null,      // set to an error text (or { code, error }) and the server turns down every request as a sign-in problem
     config: CONFIG,       // the names sent with every reply (null: none, like an older backend)
     categoryChoices: {},  // the mock server's saved Spending category choices
@@ -267,6 +268,9 @@
       try { reply = { ok: true, data: handlers[body.action](p, dbs[name], name) }; }
       catch (e) { reply = refusal(e); }
       if (isWrite && reply.ok && MOCK.failAfterWriteNext > 0) { MOCK.failAfterWriteNext--; reply = refusal(MOCK.failWith); }
+      if (reply.ok && MOCK.summaryOff && reply.data && reply.data.summary) {
+        reply.data.summary = Object.fromEntries(Object.entries(reply.data.summary).map(([k, v]) => [k, +(v + MOCK.summaryOff).toFixed(2)]));
+      }
     }
     // ...but the reply reaches the browser only after its latency.
     await new Promise(r => setTimeout(r, wait));

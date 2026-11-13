@@ -1928,7 +1928,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
         forceSyncSheet();
       });
       await page.waitForFunction(() => apiInflight === 0 && state.checking.some(r => r.desc === 'kim Carried over'));
-      const was = await page.evaluate(() => ({ s: { ...state.summary }, owed: state.checking.filter(r => r.need).map(r => [r.desc, r.amount]).sort(),
+      const was = await page.evaluate(() => ({ s: sheetFigures(state, skippedBudgetRows), owed: state.checking.filter(r => r.need).map(r => [r.desc, r.amount]).sort(),
         bills: state.budgets.filter(b => b.isRecurring).map(b => [b.name, b.originalBudget]),   // repeating bills are ticked to carry over
         oneOff: state.budgets.filter(b => !b.isRecurring).length }));
       assert.ok(was.oneOff > 0, 'no one-off bill to leave behind, so this proves nothing');
@@ -1937,7 +1937,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.ok(pay > 0 && sav > 0, 'this month has a paycheck and a savings transfer to start from');
       await page.click('#nmCreateBtn');
       await page.waitForFunction(() => apiInflight === 0 && activeMonth === 'Made Payday 2027', null, { timeout: 5000 });
-      const now = await page.evaluate(() => ({ months: state.availableMonths.slice(0, 1), s: state.summary, owed: state.checking.filter(r => r.need).map(r => [r.desc, r.amount]).sort(),
+      const now = await page.evaluate(() => ({ months: state.availableMonths.slice(0, 1), s: sheetFigures(state, skippedBudgetRows), owed: state.checking.filter(r => r.need).map(r => [r.desc, r.amount]).sort(),
         pay: state.checking.filter(r => r.desc === 'paycheck').map(r => r.amount), mine: state.marcus.filter(r => r.desc !== 'start').map(r => r.amount),
         bills: state.budgets.map(b => [b.name, b.amount]) }));
       assert.deepStrictEqual(now.months, ['Made Payday 2027'], 'not first in the month list');
@@ -2038,6 +2038,51 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await page.waitForFunction(() => MOCK.calls.some(c => c.action === 'deleteTransactionRow' && c.end));
     assert.ok(await page.evaluate(row => MOCK.db.amex.some(r => r.row === row && r.desc === 'Changed again'), before.row), 'the other entry was deleted');
     dropExpectedStale();
+  });
+  // Audit 3.3: one source for Money Left and the balances: the rows on screen. The server's own summary is sent off
+  // by £1,000 here, and the figures must not move.
+  await step("Money Left and the balances come from the rows on screen, never the server's summary (also while saving)", async () => {
+    const shown = () => page.evaluate(() => {
+      const sum = l => +l.reduce((a, r) => a + Number(r.amount || 0), 0).toFixed(2);
+      const nCA = sum(state.checking), amex = sum(state.amex), barclays = sum(state.barclays);
+      const bills = sum(state.budgets.filter(b => !skippedBudgetRows.has(b.row)));
+      return {
+        screen: ['kpiNCA', 'kpiMarcus', 'kpiAmex', 'kpiBarclays', 'kpiSurplus'].map(id => document.getElementById(id).textContent),
+        rows: [nCA, sum(state.marcus), amex, barclays, +(nCA + bills + amex + barclays).toFixed(2)].map(fmtGBP)
+      };
+    });
+    const reads = () => page.evaluate(() => MOCK.calls.filter(c => c.action === 'getCachedSheetState' && c.end).length);
+    try {
+      // First, with the server's summary as it really is: the page's figures are the same as the server's.
+      const server = await page.evaluate(async () => JSON.parse(await (await fetch('figures', { body: JSON.stringify({ action: 'getCachedSheetState', payload: { sheetName: activeMonth } }) })).text()).data.summary);
+      const fromServer = await page.evaluate(s => [s.nCA, s.mSAV, s.amex, s.barclays, s.eomSavingsJ].map(fmtGBP), server);
+      assert.deepStrictEqual((await shown()).screen, fromServer, "the page's figures differ from the server's");
+      const n = await reads();
+      await page.evaluate(() => { MOCK.summaryOff = 1000; forceSyncSheet(); });
+      await page.waitForFunction(n => apiInflight === 0 && MOCK.calls.filter(c => c.action === 'getCachedSheetState' && c.end).length > n, n);
+      let v = await shown();
+      assert.deepStrictEqual(v.screen, v.rows, 'after a refresh');
+      const amexBefore = await page.evaluate(() => state.amex.reduce((a, r) => a + Number(r.amount || 0), 0));
+      await page.evaluate(() => { MOCK.nextLatencies = [1500]; openAddModal(); });
+      await page.click('#acct_amex');
+      await page.fill('#inpAmount', '2.00');
+      await page.fill('#inpMerchant', 'Figures test shop');
+      await page.click('#btnSubmitTx');
+      await page.waitForFunction(() => state.amex.some(r => r.desc === 'Figures test shop' && r.pending));
+      v = await shown();
+      assert.deepStrictEqual(v.screen, v.rows, 'while saving');
+      assert.strictEqual(v.screen[2], await page.evaluate(a => fmtGBP(+(a - 2).toFixed(2)), amexBefore), 'the spend still saving should already be in the Amex balance');
+      await page.waitForFunction(() => apiInflight === 0 && state.amex.some(r => r.desc === 'Figures test shop' && !r.pending));
+      v = await shown();
+      assert.deepStrictEqual(v.screen, v.rows, 'after the save');
+    } finally {
+      await page.evaluate(() => {
+        MOCK.summaryOff = 0;
+        MOCK.db.amex = MOCK.db.amex.filter(r => r.desc !== 'Figures test shop');
+        forceSyncSheet();
+      });
+      await page.waitForFunction(() => apiInflight === 0 && !state.amex.some(r => r.desc === 'Figures test shop'));
+    }
   });
   await step('a saved copy of one month stored under another month name is never shown', async () => {
     await page.evaluate(() => { localStorage.setItem('pf_cache_' + MOCK.MONTH2, JSON.stringify(state)); MOCK.nextLatencies = [1200]; switchMonth(MOCK.MONTH2); });
@@ -2782,7 +2827,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
 
     let { c, p } = await openAt(phone, '2026-11-02T10:00:00');
     await step('daily amount: Money Left spread over the days to payday (30 Nov), with the payday date', async () => {
-      const left = await p.evaluate(() => state.summary.eomSavingsJ);
+      const left = await p.evaluate(() => sheetFigures(state, skippedBudgetRows).eomSavingsJ);
       assert.ok(left > 0, 'test set-up: Money Left should be positive');
       assert.ok(await isShown(p, 'dailyStrip'));
       const want = '£' + (Math.floor(left / 28 * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' a day';
@@ -2795,10 +2840,10 @@ const contrastOf = (page, sel) => page.evaluate(s => {
       assert.ok(!(await p.$('#heroSection button')), 'the Money Left card still has a button');
     });
     await step('What-If: skipping a bill shows the badge and takes it out of Money Left and the Bills total', async () => {
-      const before = await p.evaluate(() => ({ left: state.summary.eomSavingsJ, bills: document.getElementById('budLeftVal').textContent }));
+      const before = await p.evaluate(() => ({ left: sheetFigures(state, skippedBudgetRows).eomSavingsJ, bills: document.getElementById('budLeftVal').textContent }));
       const b = await p.evaluate(() => state.budgets.find(x => Number(x.amount) < 0));
       await p.click(`#upcomingBudgetsList button[aria-label="Simulate skipping ${b.name}"]`);
-      const after = await p.evaluate(() => ({ left: state.summary.eomSavingsJ, bills: document.getElementById('budLeftVal').textContent, badge: !document.getElementById('simBadge').classList.contains('hidden') }));
+      const after = await p.evaluate(() => ({ left: sheetFigures(state, skippedBudgetRows).eomSavingsJ, bills: document.getElementById('budLeftVal').textContent, badge: !document.getElementById('simBadge').classList.contains('hidden') }));
       await p.click(`#upcomingBudgetsList button[aria-label="Simulate skipping ${b.name}"]`);
       assert.ok(after.badge, 'no What-If badge');
       assert.strictEqual(Math.round((after.left - before.left) * 100), Math.round(-b.amount * 100));
@@ -2808,7 +2853,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     await step('daily amount: over budget says how much over; payday itself says so; older months show none', async () => {
       await p.evaluate(() => renderDailyStrip(-12.3));
       assert.strictEqual(await txt(p, '#dailyLeft'), '£12.30 over');
-      await p.evaluate(() => renderDailyStrip(state.summary.eomSavingsJ));
+      await p.evaluate(() => renderDailyStrip(sheetFigures(state, skippedBudgetRows).eomSavingsJ));
       await p.evaluate(() => switchMonth(MOCK.MONTH2));
       await p.waitForFunction(() => activeMonth === MOCK.MONTH2 && /£\d/.test(document.getElementById('kpiSurplus').textContent));
       await p.waitForTimeout(300);

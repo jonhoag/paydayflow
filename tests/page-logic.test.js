@@ -1,5 +1,5 @@
 // Unit tests for small pieces of page logic in app.js that need no screen: reading an amount, equal split shares,
-// the next month's name, what a failed request means and what a fingerprint failure says. Each is read out of app.js by its name (appPart), so the
+// the next month's name, what a failed request means, what a fingerprint failure says, and the month's figures. Each is read out of app.js by its name (appPart), so the
 // tests check the code the page runs, wherever it sits in the file. (The spending maths is one block between markers
 // instead, tested by spending.test.js; these helpers are spread through the file, and moving them together just for
 // the tests would be churn.) To test another function: add its name to UNDER_TEST, and anything it needs to NEEDS.
@@ -10,8 +10,8 @@ const vm = require('vm');
 const assert = require('assert');
 const { step: test, finish } = require('./lib/steps').makeSteps();
 
-const UNDER_TEST = ['parseAmount', 'equalShares', 'getNextMonthName', 'failureKind', 'serverError', 'describePasskeyError'];
-const NEEDS = ['MONTHS', 'isConnectionError'];
+const UNDER_TEST = ['parseAmount', 'equalShares', 'getNextMonthName', 'failureKind', 'serverError', 'describePasskeyError', 'sheetFigures', 'usableMonth'];
+const NEEDS = ['MONTHS', 'isConnectionError', 'ACCTS', 'MONTH_LISTS', 'sumAmounts'];
 
 const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
 // One part of app.js by its name, as written there: a function (from "function name(" to the closing brace at the
@@ -25,7 +25,7 @@ function appPart(name) {
 const sandbox = {};
 vm.createContext(sandbox);
 vm.runInContext(NEEDS.concat(UNDER_TEST).map(appPart).join('\n') + '\nthis.api = { ' + UNDER_TEST.join(', ') + ' };', sandbox);
-const { parseAmount, equalShares, getNextMonthName, failureKind, serverError, describePasskeyError } = sandbox.api;
+const { parseAmount, equalShares, getNextMonthName, failureKind, serverError, describePasskeyError, sheetFigures, usableMonth } = sandbox.api;
 
 const same = (a, b) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), b);   // arrays made inside the sandbox
 
@@ -110,5 +110,36 @@ test('an unknown fingerprint device is forgotten, whatever the words', () => ass
 test('the unknown-device words with no code are not acted on', () => assert.ok(!pk(undefined, 'AUTH_PASSKEY_UNKNOWN: This device is not set up for fingerprint sign-in.').forget));
 test('too many tries says it is paused, whatever the words', () => assert.ok(/paused/.test(pk('AUTH_THROTTLED', 'Slow down.').text)));
 test('the too-many-tries words with no code are not taken for a pause', () => assert.ok(!/paused/.test(pk(undefined, 'AUTH_THROTTLED: Too many attempts.').text)));
+
+// ---- sheetFigures: every figure on the screen, from the rows (audit 3.3) ----
+const month = {
+  checking: [{ row: 4, amount: 1000 }, { row: 5, amount: -12.34 }, { row: 6, amount: 0.1 }, { row: 7, amount: 0.2 }],
+  marcus: [{ row: 4, amount: 500 }], amex: [{ row: 4, amount: -100 }, { row: 5, amount: -2.5, pending: true }],
+  barclays: [{ row: 4, amount: -50.05 }],
+  budgets: [{ row: 4, amount: -40 }, { row: 5, amount: -35.5 }, { row: 6, amount: 0 }, { row: 7, amount: '' }],
+  summary: { nCA: 9999, mSAV: 9999, amex: 9999, barclays: 9999, budgetRem: 9999, checkingExpected: 9999, eomSavingsJ: 9999 }
+};
+test("the figures are the rows' sums; the server's summary is not used", () => same(sheetFigures(month, new Set()),
+  { nCA: 987.96, mSAV: 500, amex: -102.5, barclays: -50.05, budgetRem: -75.5, checkingExpected: 912.46, eomSavingsJ: 759.91 }));
+test('a bill switched off in the what-if view is left out of bills and Money Left only', () => same(sheetFigures(month, new Set([5])),
+  { nCA: 987.96, mSAV: 500, amex: -102.5, barclays: -50.05, budgetRem: -40, checkingExpected: 947.96, eomSavingsJ: 795.41 }));
+test('no rows at all: every figure is 0', () => same(sheetFigures({}, new Set()),
+  { nCA: 0, mSAV: 0, amex: 0, barclays: 0, budgetRem: 0, checkingExpected: 0, eomSavingsJ: 0 }));
+const lists = { budgets: [], checking: [], amex: [{ row: 4, amount: -1 }], barclays: [], marcus: [] };
+test('a saved month with every list but no summary can be shown (the figures come from the rows)', () =>
+  assert.strictEqual(usableMonth({ activeMonth: 'X', ...lists }), true));
+test('a cut-short saved month (a list missing, or nothing at all) is passed over, not shown as £0.00', () => {
+  assert.strictEqual(usableMonth({ activeMonth: 'X' }), false);
+  assert.strictEqual(usableMonth({}), false);
+  assert.strictEqual(usableMonth({ ...lists, marcus: undefined }), false);
+});
+test('a saved month with a row whose amount is not a number is passed over', () =>
+  assert.strictEqual(usableMonth({ activeMonth: 'X', ...lists, amex: [{ row: 4, amount: 'lots' }] }), false));
+test('a damaged saved month is passed over', () => {
+  assert.strictEqual(usableMonth(null), false);
+  assert.strictEqual(usableMonth({ budgets: 'damaged' }), false);
+  assert.strictEqual(usableMonth({ checking: [null] }), false);
+  assert.strictEqual(usableMonth({ availableMonths: 'x' }), false);
+});
 
 finish();
