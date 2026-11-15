@@ -5,7 +5,7 @@
 const assert = require('assert');
 const { uiSuite, phone, desk, calls, failSavedNoState, resetFailures, sheetReads, BUSY } = require('../lib/ui');
 
-uiSuite(8147, async ({ browser, errors, open, step, PORT, dropExpectedSyncErrors }) => {
+uiSuite(async ({ browser, errors, open, step, PORT, dropExpectedSyncErrors }) => {
   // ---------------- the copy of the page Apps Script serves ----------------
   {
     const { ctx: cg, page: pg } = await open(phone, 'demo=1&gas=1');

@@ -1,7 +1,8 @@
 // Shared by the screen tests (tests/ui/*.test.js, run by tests/run-all.js): the test page (the real index.html with a
 // pretend backend) served under the app's own script policy, real Chrome, the step counter, and the helpers more than
-// one of them uses. Each test file starts its own server (on its own port), browser and pages, so a failure in one
-// file can't knock on to another.
+// one of them uses. Each test file starts its own server (on a free port), browser and pages, so a failure in one
+// file can't knock on to another. A new step goes in the file for its screen; a new file in tests/ui/ (named
+// x.test.js, its steps inside uiSuite) is picked up by run-all by itself.
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -109,12 +110,13 @@ const desk = { viewport: { width: 1280, height: 800 }, colorScheme: 'light' };
 
 // Runs one screen test file: `body` gets the browser, the step counter and the helpers below, and runs its steps.
 // Afterwards every file checks that none of its pages had an error or fetched anything from another site.
-async function uiSuite(port, body) {
+async function uiSuite(body) {
   const server = http.createServer((req, res) => {
     if (siteRel(req.url) === 'tests/harness.html') res.setHeader('Content-Security-Policy', STRICT_SCRIPTS);
     sendSiteFile(req, res);
   });
-  await new Promise(r => server.listen(port, HOST, r));
+  await new Promise(r => server.listen(0, HOST, r));   // any free port
+  const port = server.address().port;
   const browser = await launchChrome();
   const { step, finish } = makeSteps();
   const errors = [];

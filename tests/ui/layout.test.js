@@ -26,7 +26,7 @@ const contrastOf = (page, sel) => page.evaluate(s => {
   return Math.round((l1 + 0.05) / (l2 + 0.05) * 100) / 100;
 }, sel);
 
-uiSuite(8142, async ({ open, step }) => {
+uiSuite(async ({ open, step }) => {
   let ctx, page;
   // ---------------- layout: widths, wrapping, hit areas, contrast ----------------
   const VIEWS = ['home', 'budgets', 'pending', 'activity'];

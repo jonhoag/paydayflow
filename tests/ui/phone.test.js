@@ -6,7 +6,7 @@
 const assert = require('assert');
 const { uiSuite, phone, desk, SEED_OWED, calls, SAVED_NO_STATE, failSavedNoState, resetFailures, sheetReads, visible, owedCount, lineCounts, hitAreas, toastParts, LOCK_TIMEOUT, BUSY } = require('../lib/ui');
 
-uiSuite(8141, async ({ browser, errors, watch, open, step, PORT, dropExpectedSyncErrors }) => {
+uiSuite(async ({ browser, errors, watch, open, step, PORT, dropExpectedSyncErrors }) => {
   let ctx, page;
   // ---------------- phone ----------------
   ({ ctx, page } = await open(phone));

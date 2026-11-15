@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { uiSuite, root, appSource, phone, desk, monthBars, SEED_OWED, calls, visible } = require('../lib/ui');
 
-uiSuite(8144, async ({ browser, open, step }) => {
+uiSuite(async ({ browser, open, step }) => {
   let ctx, page;
   // ---------------- awkward text ----------------
   ({ ctx, page } = await open(phone, 'evil=1'));

@@ -7,10 +7,10 @@ const fs = require('fs');
 const path = require('path');
 const { uiSuite, root, phone, calls } = require('../lib/ui');
 
-uiSuite(8146, async ({ browser, watch, open, step, PORT }) => {
+uiSuite(async ({ browser, watch, open, step, PORT }) => {
   // ---------------- daily amount, vs last month, Owed message, home-screen shortcuts ----------------
   {
-    // Opens the test page with "today" fixed (timers keep running), like open() above.
+    // Opens the test page with "today" fixed (timers keep running), like open() in tests/lib/ui.js.
     const openAt = async (opts, when, query = 'demo=1') => {
       const c = await browser.newContext(opts);
       const p = watch(await c.newPage());

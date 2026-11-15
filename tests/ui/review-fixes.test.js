@@ -1,12 +1,12 @@
 // Screen tests, real Chrome: Fixes from earlier reviews, checked on a desktop page.
 // Uses the test page (real index.html, pretend backend) under the app's own script policy; see tests/lib/ui.js.
 //
-//   node tests/ui/desktop-review.test.js   (or: node tests/run-all.js screens)
+//   node tests/ui/review-fixes.test.js   (or: node tests/run-all.js screens)
 const assert = require('assert');
 const { awayAndBack } = require('../lib/runner');
 const { uiSuite, appSource, phone, desk, calls, failSavedNoState, resetFailures, visible, owedCount, toastParts } = require('../lib/ui');
 
-uiSuite(8143, async ({ errors, open, step, dropExpectedSyncErrors }) => {
+uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   let ctx, page;
   // ---------------- review fixes (desktop) ----------------
   ({ ctx, page } = await open(desk));

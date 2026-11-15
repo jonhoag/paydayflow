@@ -28,9 +28,9 @@ const publicSuites = [
   ['tailwind.css is current', ['build-css.js', '--check']],
   ['?v= stamps and sw.js file hashes are current', ['build-sw.js', '--check']],
   ['service worker (real Chrome)', ['tests/sw.test.js'], true],
-  // The screens, one file each (tests/ui/), each on its own fresh pages: a failure in one can't knock on to the next.
-  ...['phone', 'layout', 'desktop-review', 'desktop', 'sign-in', 'extras', 'apps-script']
-    .map(f => ['screens: ' + f + ' (real Chrome)', ['tests/ui/' + f + '.test.js'], true]),
+  // The screens: every file in tests/ui/, each on its own fresh pages, so a failure in one can't knock on to the next.
+  ...fs.readdirSync(path.join(__dirname, 'ui')).filter(f => f.endsWith('.test.js')).sort()
+    .map(f => ['screens: ' + f.replace(/\.test\.js$/, '') + ' (real Chrome)', ['tests/ui/' + f], true]),
 ];
 // Node checks first, then the real-Chrome ones (the backend's own end-to-end before the page's).
 const all = [...publicSuites, ...(privateSuites || [])];
