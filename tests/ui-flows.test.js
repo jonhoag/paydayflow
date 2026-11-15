@@ -2760,6 +2760,94 @@ const contrastOf = (page, sel) => page.evaluate(s => {
     });
   }
 
+  // ---------------- fingerprint unlock after a while away (the app sat on the lock screen until a slow read) ----------------
+  {
+    const c8 = await browser.newContext(phone);
+    // Stands in for the phone's fingerprint prompt: answers at once, as if the finger was accepted.
+    await c8.addInitScript(() => {
+      const buf = s => new TextEncoder().encode(s).buffer;
+      navigator.credentials.get = async () => ({ rawId: buf('cid-test'), response: { clientDataJSON: buf('{}'), authenticatorData: buf('a'), signature: buf('s') } });
+    });
+    const p8 = watch(await c8.newPage());
+    const from = errors.length;
+    const SLOW = 4000;   // Apps Script waking up after a while: the first sheet read takes seconds
+    const shown = () => p8.evaluate(() => ({ locked: lockScreenShowing(), msg: document.getElementById('authLockMsg').textContent,
+      reads: MOCK.calls.filter(c => c.action === 'getCachedSheetState').map(c => (c.end ? 'answered' : 'waiting') + (c.aborted ? ' (given up)' : '')),
+      fresh: state.amex.some(r => r.desc === 'Fresh from the server'), nca: document.getElementById('kpiNCA').textContent }));
+    try {
+      await p8.goto(`http://localhost:${PORT}/tests/harness.html?demo=1&latency=50`);
+      await p8.waitForFunction(() => window.MOCK && /£\d/.test(document.getElementById('kpiNCA').textContent) && apiInflight === 0);
+      await p8.evaluate(() => localStorage.setItem('pf_passkey_cid', 'cid-test'));   // fingerprint sign-in is set up here
+
+      await step('fingerprint unlock after a while away: the app opens at once with the saved figures; the slow first read follows', async () => {
+        // Two hours away: the sign-in ran out, and the sheet has changed meanwhile.
+        await p8.evaluate(s => {
+          localStorage.removeItem('pf_google_id_token'); localStorage.removeItem('pf_session');
+          MOCK.db.amex.push({ row: 99, desc: 'Fresh from the server', amount: -7 });
+          MOCK.calls.length = 0;
+          MOCK.nextLatencies = [50, 50, s];   // begin, finish, then the slow read
+        }, SLOW);
+        await awayAndBack(p8, 2 * 60 * 60 * 1000);
+        await p8.waitForFunction(() => MOCK.calls.some(c => c.action === 'getCachedSheetState'), null, { timeout: 6000 });
+        await p8.waitForTimeout(300);
+        const now = await shown();
+        assert.deepStrictEqual(now.reads, ['waiting'], JSON.stringify(now));
+        assert.ok(!now.locked, 'the lock screen waits for the slow read: ' + JSON.stringify(now));
+        assert.ok(/£\d/.test(now.nca) && !now.fresh, 'should show the figures saved on this device meanwhile: ' + JSON.stringify(now));
+        await p8.waitForFunction(() => state.amex.some(r => r.desc === 'Fresh from the server'), null, { timeout: SLOW + 2000 });
+        assert.ok(!(await shown()).locked);
+      });
+
+      await step('fingerprint unlock whose first read turns the new session down: "Access Denied", and no prompt round and round', async () => {
+        try {
+          await p8.evaluate(() => {
+            localStorage.removeItem('pf_google_id_token'); localStorage.removeItem('pf_session');
+            MOCK.calls.length = 0;
+            // Only the sheet read is turned down (as if the server's session key had just changed); the sign-in itself works.
+            const real = window.__realFetch = window.fetch;
+            window.fetch = (url, opts) => JSON.parse(opts.body).action === 'getCachedSheetState'
+              ? Promise.resolve({ text: async () => JSON.stringify({ ok: false, code: 'AUTH_EXPIRED', error: 'AUTH_EXPIRED: Session expired.', authError: true }) })
+              : real(url, opts);
+          });
+          await awayAndBack(p8, 2 * 60 * 60 * 1000);
+          await p8.waitForFunction(() => /^Access Denied/.test(document.getElementById('authLockMsg').textContent), null, { timeout: 6000 });
+          await p8.waitForTimeout(4000);   // longer than the fingerprint prompt's wait for focus
+          const s = await p8.evaluate(() => ({ locked: lockScreenShowing(), msg: document.getElementById('authLockMsg').textContent,
+            asks: MOCK.calls.filter(c => c.action === 'passkeyLoginBegin').length, running: !!passkeyAttempt }));
+          assert.ok(s.locked && s.asks === 1 && !s.running, JSON.stringify(s));
+        } finally { await p8.evaluate(() => { window.fetch = window.__realFetch; }); }
+      });
+
+      await step('Google sign-in still waits for the server to check the account, with "Signing in…" on the lock screen', async () => {
+        await p8.evaluate(() => {
+          clearSession();
+          showLockScreen('Unlock to continue.', { noAuto: true });
+          MOCK.calls.length = 0;
+          MOCK.nextLatencies = [1500];
+          MOCK.gsiCallback({ credential: MOCK.makeToken('owner@example.com') });
+        });
+        await p8.waitForTimeout(300);
+        const now = await shown();
+        assert.ok(now.locked && now.msg === 'Signing in…' && now.reads.join() === 'waiting', JSON.stringify(now));
+        await p8.waitForFunction(() => !lockScreenShowing(), null, { timeout: 3000 });
+      });
+
+      await step('coming back after a while, a request sent before the phone slept no longer holds up the new figures', async () => {
+        // A read sent just before the phone slept, whose reply never comes (and whose time limit didn't count down).
+        await p8.evaluate(() => { MOCK.calls.length = 0; MOCK.nextLatencies = [10 * 60 * 1000]; forceSyncSheet(); });
+        await p8.waitForFunction(() => MOCK.calls.length === 1);
+        await awayAndBack(p8, 2 * 60 * 1000);
+        await p8.waitForFunction(() => MOCK.calls.length === 2 && MOCK.calls[1].end, null, { timeout: 3000 })
+          .catch(async () => assert.fail('the new read waited behind the old one: ' + JSON.stringify(await shown())));
+        assert.deepStrictEqual((await shown()).reads, ['answered (given up)', 'answered']);
+        await p8.waitForFunction(() => apiInflight === 0);
+      });
+    } finally {
+      await c8.close();
+      for (let i = errors.length - 1; i >= from; i--) if (/took too long/.test(errors[i])) errors.splice(i, 1);
+    }
+  }
+
   // ---------------- a Google account the server turns down ----------------
   {
     const c2 = await browser.newContext(desk);
