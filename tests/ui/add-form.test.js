@@ -200,14 +200,6 @@ uiSuite(async ({ watch, open, step }) => {
       assert.deepStrictEqual(r, { kb: (H - 500 - 60) + 'px', kbtop: '60px', inSight: true, scrolls: true, after: ['0px', '0px'] });
     } finally { await resetAddForm(); }
   });
-  await step('Add form: (tidy up) the spends these steps saved are taken back out of the pretend sheet', async () => {
-    await page.evaluate(() => {
-      const ours = /^(Enter key|Card memory) shop$/;
-      Object.values(MOCK.db).filter(Array.isArray).forEach(a => { for (let i = a.length - 1; i >= 0; i--) if (ours.test(a[i].desc)) a.splice(i, 1); });
-      forceSyncSheet();
-    });
-    await page.waitForFunction(() => apiInflight === 0 && !document.getElementById('txListContainer').textContent.includes('Card memory shop'));
-  });
   for (const [w, h] of [[411, 847], [749, 638]]) {
     await step(`Add form at ${w}x${h} (the Fold ${w < 700 ? 'folded' : 'unfolded'}): Amount has the cursor and sits in sight`, async () => {
       const { ctx: c3, page: p3 } = await open({ viewport: { width: w, height: h }, deviceScaleFactor: 2.63, isMobile: true, hasTouch: true });

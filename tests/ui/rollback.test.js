@@ -1,5 +1,6 @@
 // Screen tests, real Chrome: A failed save with the sheet out of reach puts the screen and this phone's saved copy
-// back (audit 1.1).
+// back (audit 1.1), a bill's Undo after a failed delete; and small safety checks: Edit with no description, row
+// numbers, a damaged saved copy, activity rows as buttons, Escape on the Add form.
 // Uses the test page (real index.html, pretend backend) under the app's own script policy; see tests/lib/ui.js.
 //
 //   node tests/ui/rollback.test.js   (or: node tests/run-all.js screens)

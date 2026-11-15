@@ -1,12 +1,13 @@
-// Screen tests, real Chrome: Android's Back gesture, the bill form as a sheet, and the Add sheet's small split
-// controls and their tap areas.
+// Screen tests, real Chrome: Android's Back gesture; screen-reader labels; the bill and spend sheets (saving,
+// deleting and Undo, saves whose figures couldn't be read back, 44px hit areas and the small split controls' tap
+// areas); the "Open Sheet" links.
 // Uses the test page (real index.html, pretend backend) under the app's own script policy; see tests/lib/ui.js.
 //
 //   node tests/ui/back-and-sheets.test.js   (or: node tests/run-all.js screens)
 const assert = require('assert');
 const { uiSuite, phone, calls, failSavedNoState, resetFailures, sheetReads, visible, lineCounts, hitAreas, toastParts } = require('../lib/ui');
 
-uiSuite(async ({ browser, errors, open, step, dropExpectedSyncErrors }) => {
+uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   const { ctx, page } = await open(phone);
   // ---- Back (Android's Back gesture = the browser going back) ----
   const backState = () => page.evaluate(() => ({ depth: (history.state && history.state.pfDepth) || 0, view: document.body.dataset.view,
