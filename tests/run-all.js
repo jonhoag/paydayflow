@@ -3,7 +3,7 @@
 //   --require-private   fail if the backend checks are missing (deploy-backend.ps1 uses this too)
 //   any other words     run only the suites whose names contain one of them, e.g. node tests/run-all.js screens spending
 //   - the page's own checks: spending summary, page logic, tailwind.css and sw.js hash freshness, and in real Chrome
-//     (playwright-core from PW_PATH, or from npm ci --ignore-scripts) the service worker and the screens
+//     (playwright-core from PW_PATH, or from npm ci --ignore-scripts) the service worker and the screens (tests/ui/)
 //   - the backend checks, listed in tests/private/suites.js. They need the private backend files, so they are kept
 //     out of the public repo with them; where that folder is missing they are skipped, and the summary says so.
 const { spawnSync } = require('child_process');
@@ -28,7 +28,9 @@ const publicSuites = [
   ['tailwind.css is current', ['build-css.js', '--check']],
   ['?v= stamps and sw.js file hashes are current', ['build-sw.js', '--check']],
   ['service worker (real Chrome)', ['tests/sw.test.js'], true],
-  ['screens and buttons (real Chrome)', ['tests/ui-flows.test.js'], true],
+  // The screens, one file each (tests/ui/), each on its own fresh pages: a failure in one can't knock on to the next.
+  ...['phone', 'layout', 'desktop-review', 'desktop', 'sign-in', 'extras', 'apps-script']
+    .map(f => ['screens: ' + f + ' (real Chrome)', ['tests/ui/' + f + '.test.js'], true]),
 ];
 // Node checks first, then the real-Chrome ones (the backend's own end-to-end before the page's).
 const all = [...publicSuites, ...(privateSuites || [])];
