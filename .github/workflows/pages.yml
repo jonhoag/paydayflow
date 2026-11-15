@@ -41,7 +41,9 @@ jobs:
         env:
           CHROME_PATH: /usr/bin/google-chrome
       - name: Screens and buttons (real Chrome)
-        run: node tests/ui-flows.test.js
+        # run-all shows a file's output only once it ends, so a file that hangs must not run on for hours.
+        timeout-minutes: 20
+        run: node tests/run-all.js screens
         env:
           CHROME_PATH: /usr/bin/google-chrome
 
