@@ -109,7 +109,7 @@ function getSession() {
   const s = lsJson(SESSION_STORAGE_KEY);
   return s && s.token && s.exp > Date.now() + 60000 ? s : null;
 }
-function saveSession(token, expiresAt) { lsSet(SESSION_STORAGE_KEY, JSON.stringify({ token, exp: expiresAt })); }
+function saveSession(token, expiresAt) { return lsSet(SESSION_STORAGE_KEY, JSON.stringify({ token, exp: expiresAt })); }
 function clearSession() { lsDel(SESSION_STORAGE_KEY); }
 
 // A Google sign-in that hasn't run out. Whose account it is, is for the server to decide: the page doesn't hold the
@@ -196,42 +196,69 @@ function autoUnlockWithPasskey() {
   const timer = setTimeout(() => { waitedLong = true; check(); }, PASSKEY_FOCUS_WAIT_MS);
 }
 
-// Everything that happens once the user is in, whichever way they signed in. `email` is the Google account just
-// chosen, so a refusal can say which account it was.
-let signInInFlight = false;   // a sign-in is waiting for its first figures (a second one meanwhile is ignored)
-function afterSignIn(viaGoogle, email) {
-  passkeyAutoTried = false;   // if the session later expires while the app is open, prompt for the fingerprint again
-  lockAllowsAuto = false;     // and a fingerprint prompt still waiting for focus must not pop up over this sign-in
-  if (viaGoogle) cancelPasskeyAttempt();   // nor one still on its way (its first request may answer late)
+// Everything that happens once the user is in. Both ways open the app with the figures saved on this device and ask
+// for the latest. A fingerprint sign-in was already accepted by the server (it issued the session), so the app shows
+// at once and the latest figures follow behind, as when it opens already signed in: after a while away, Apps Script
+// can take many seconds to answer that first read. A Google account waits on the lock screen until the server has
+// checked it.
+function startSignedIn() {
+  lockAllowsAuto = false;   // a fingerprint prompt still waiting for focus must not pop up over this sign-in
   ssDel(SIGNED_OUT_FLAG);
   openApp();
+  return apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true });
+}
+// The first figures are in. If the session later runs out while the app is open, the lock screen may ask for the
+// fingerprint by itself again. (Not before: a server that turned down the session it had just issued would otherwise
+// be asked round and round.)
+function firstFiguresIn(s) {
+  passkeyAutoTried = false;
+  applyServerState(s);
+}
+// A sign-in the server turned down: the lock screen says why (and which Google account), and doesn't ask by itself.
+function signInRefused(err, email) {
+  const reason = String((err && err.message) || 'Sign-in failed.').replace(/^[A-Z_]+: /, '');
+  showLockScreen('Access Denied: ' + reason + (email ? ' (' + email + ')' : ''), { noAuto: true });
+}
+
+function afterPasskeySignIn() {
+  hideLockScreen();
+  startSignedIn()
+    .then(s => { firstFiguresIn(s); flushOutbox(); })
+    .catch(err => {
+      if (err && (err.auth || err.needsSignIn)) return signInRefused(err);
+      // The app is open and signed in; only this refresh didn't work (the sync status shows it).
+      passkeyAutoTried = false;
+      if (isConnectionError(err)) {
+        // No signal yet, or the server hiccuped: the figures saved here stay, and are fetched again shortly.
+        showToast("Signed in, but couldn't reach the server. Showing the figures saved on this device.");
+        setTimeout(forceSyncSheet, OFFLINE_RESYNC_MS);
+      } else console.error(err);
+    });
+}
+
+let signInInFlight = false;   // a Google sign-in is waiting for the server's check (a second one meanwhile is ignored)
+function afterGoogleSignIn(email) {
+  cancelPasskeyAttempt();   // a fingerprint try still on its way must not land over this (its first request may answer late)
+  setLockMsg('Signing in…', false);
   signInInFlight = true;
-  apiCall('getCachedSheetState', { sheetName: activeMonth, forceRefresh: true })
+  startSignedIn()
     .then(s => {
       signInInFlight = false;
       hideLockScreen();
-      applyServerState(s);
-      if (viaGoogle) onGoogleSignedIn();
+      firstFiguresIn(s);
+      onGoogleSignedIn();
       flushOutbox();
     })
     .catch(err => {
       signInInFlight = false;
       if (isConnectionError(err)) {
-        // No signal yet, or the server hiccuped: that is not a refusal. A fingerprint sign-in was already accepted by
-        // the server, so open the app with the figures saved here, as when opening it offline; they refresh when you
-        // come back to the app. A Google account the server hasn't checked yet stays on the lock screen.
-        if (!viaGoogle && getSession()) {
-          hideLockScreen();
-          showToast("Signed in, but couldn't reach the server. Showing the figures saved on this device.");
-          setTimeout(forceSyncSheet, OFFLINE_RESYNC_MS);
-        } else {
-          if (viaGoogle) lsDel(TOKEN_STORAGE_KEY);   // never checked by the server, so not kept for a reload to use
-          showLockScreen("Couldn't reach the server. Try again in a moment.", { noAuto: true });
-        }
+        // No signal yet, or the server hiccuped: not a refusal, but the account hasn't been checked yet, so the token
+        // isn't kept for a reload to use.
+        lsDel(TOKEN_STORAGE_KEY);
+        showLockScreen("Couldn't reach the server. Try again in a moment.", { noAuto: true });
         return;
       }
-      const reason = String((err && err.message) || 'Sign-in failed.').replace(/^[A-Z_]+: /, '');
-      showLockScreen('Access Denied: ' + reason + (email ? ' (' + email + ')' : ''), { noAuto: true });
+      signInRefused(err, email);
     });
 }
 
@@ -283,7 +310,7 @@ function initGoogleAuthButton() {
           // Nothing can be sent without the saved token, so say why plainly instead of "Authentication required".
           if (!lsSet(TOKEN_STORAGE_KEY, response.credential)) { setLockMsg(STORAGE_REFUSED_MSG, true); return; }
           clearSession();   // a fresh Google sign-in replaces any older fingerprint session
-          afterSignIn(true, String((payload && payload.email) || ''));
+          afterGoogleSignIn(String((payload && payload.email) || ''));
         }
       },
       auto_select: true
@@ -476,8 +503,10 @@ async function unlockWithPasskey(auto) {
       attempt.accepted = true;
       if (label) label.textContent = 'Signing in…';
     });
-    saveSession(s.session, s.expiresAt);
-    afterSignIn(false);
+    // Without the session saved nothing can be sent (and the lock screen would ask again and again): say so plainly.
+    if (!saveSession(s.session, s.expiresAt)) { setLockMsg(STORAGE_REFUSED_MSG, true); return; }
+    passkeyAutoTried = true;   // tapped or not, no prompt by itself until the first figures are in (firstFiguresIn)
+    afterPasskeySignIn();
   } catch (err) {
     // Cancelled (by a tap that asks again, or a Google sign-in): no message, whatever cancelled it has the screen.
     if (attempt.signal.aborted) return;
@@ -897,13 +926,29 @@ const serverError = (json, fallback) => Object.assign(new Error(json.error || fa
 // later, not a refusal.
 const isConnectionError = err => !!(err && (err.network || err.badReply || err.unavailable));
 
+// Requests on their way: when each runs out of time (by the clock), and how to give it up.
+const liveRequests = new Set();
+// A phone that sleeps, or a page Android freezes in the background, may not count the time limit down meanwhile, so a
+// request sent just before can still hold up the queue for most of its 45 s once the app is back. So, coming back,
+// the requests already past their limit by the clock are given up, exactly as if their time limit had run out; after
+// a moment (DROP_OVERDUE_AFTER_MS), so that a reply which arrived while the app was away still lands.
+const DROP_OVERDUE_AFTER_MS = 1500;
+function dropOverdueRequests() {
+  const now = Date.now();
+  const overdue = [...liveRequests].filter(r => now >= r.deadline);
+  if (overdue.length) setTimeout(() => overdue.forEach(r => { if (liveRequests.has(r)) r.abort.abort(); }), DROP_OVERDUE_AFTER_MS);
+}
+
 // One POST to the Apps Script web app; resolves with the parsed { ok, data | error, authError } reply.
 // `opts.timeoutMs` shortens the wait; `opts.signal` lets the caller cancel it.
 async function postToServer(bodyObj, opts = {}) {
   // Give up after a while so one stuck request can't block every request queued behind it.
   const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), opts.timeoutMs || REQUEST_TIMEOUT_MS);
+  const limit = opts.timeoutMs || REQUEST_TIMEOUT_MS;
+  const timer = setTimeout(() => abort.abort(), limit);
   const unlink = chainAbort(opts.signal, abort);
+  const live = { deadline: Date.now() + limit, abort };
+  liveRequests.add(live);
   let rawText;
   try {
     const res = await fetch(APPS_SCRIPT_EXEC_URL, {
@@ -922,6 +967,7 @@ async function postToServer(bodyObj, opts = {}) {
   } finally {
     clearTimeout(timer);
     unlink();
+    liveRequests.delete(live);
   }
   try {
     return JSON.parse(rawText);
@@ -3108,6 +3154,7 @@ async function postToServer(bodyObj, opts = {}) {
     // sign-in ran out while you were away, the lock screen (and fingerprint prompt) appears now, not on your next tap.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+      dropOverdueRequests();   // nothing stale may hold up what coming back (or unlocking) asks for
       updateSyncUi();
       const awayFor = hiddenAt ? Date.now() - hiddenAt : 0;
       hiddenAt = 0;

@@ -230,6 +230,10 @@
     // One pretend device. Its id holds a quote, as a check that ids reach the click handler as data, not as script.
     passkeyList: () => ({ passkeys: [{ id: "dev'1", label: 'Test phone', created: '2026-11-01T10:00:00Z', lastUsed: null }]
       .concat(q.get('evil') ? [{ id: EVIL2, label: EVIL2, created: '2026-11-02T10:00:00Z', lastUsed: '2026-11-03T10:00:00Z' }] : []) }),
+    // Fingerprint sign-in: this pretend server takes any answer from the prompt (the real checks are tested against the
+    // real backend in the private suites). A test stands in for the prompt itself with its own navigator.credentials.get.
+    passkeyLoginBegin: () => ({ challenge: 'bW9jay1jaGFsbGVuZ2U', rpId: location.hostname, timeoutMs: 60000 }),
+    passkeyLoginFinish: () => ({ session: 'mock-session.' + Date.now(), expiresAt: Date.now() + 3600 * 1000 }),
     getCategoryChoices: () => ({ choices: JSON.parse(JSON.stringify(MOCK.categoryChoices)) }),
     setCategoryChoice: p => {
       const k = String(p.merchant || '').trim().toLowerCase();
@@ -246,9 +250,16 @@
     const wait = MOCK.nextLatencies.length ? MOCK.nextLatencies.shift() : MOCK.latency;
     const isWrite = body.action !== 'getCachedSheetState';
     const drop = MOCK.dropNext > 0 ? 'dropNext' : !isWrite && MOCK.dropReadsNext > 0 ? 'dropReadsNext' : null;
+    // Waiting for the reply, which the page may give up on (its time limit, or a cancel), as a real fetch can be.
+    const sleep = ms => new Promise((resolve, reject) => {
+      const sig = opts.signal;
+      const stop = () => { clearTimeout(t); call.end = Date.now(); call.aborted = true; reject(new DOMException('The operation was aborted.', 'AbortError')); };
+      const t = setTimeout(() => { if (sig) sig.removeEventListener('abort', stop); resolve(); }, ms);
+      if (sig) { if (sig.aborted) stop(); else sig.addEventListener('abort', stop, { once: true }); }
+    });
     if (drop) {
       MOCK[drop]--;
-      await new Promise(r => setTimeout(r, wait));
+      await sleep(wait);
       call.end = Date.now();
       throw new TypeError('Failed to fetch');
     }
@@ -273,7 +284,7 @@
       }
     }
     // ...but the reply reaches the browser only after its latency.
-    await new Promise(r => setTimeout(r, wait));
+    await sleep(wait);
     call.end = Date.now();
     if (MOCK.badReplyNext > 0) {   // the work was done, but the reply that comes back can't be read
       MOCK.badReplyNext--;
