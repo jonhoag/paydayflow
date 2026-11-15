@@ -505,6 +505,7 @@ async function unlockWithPasskey(auto) {
     });
     // Without the session saved nothing can be sent (and the lock screen would ask again and again): say so plainly.
     if (!saveSession(s.session, s.expiresAt)) { setLockMsg(STORAGE_REFUSED_MSG, true); return; }
+    passkeyAutoTried = true;   // tapped or not, no prompt by itself until the first figures are in (firstFiguresIn)
     afterPasskeySignIn();
   } catch (err) {
     // Cancelled (by a tap that asks again, or a Google sign-in): no message, whatever cancelled it has the screen.
