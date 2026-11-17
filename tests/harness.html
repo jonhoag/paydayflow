@@ -233,7 +233,11 @@
     // Fingerprint sign-in: this pretend server takes any answer from the prompt (the real checks are tested against the
     // real backend in the private suites). A test stands in for the prompt itself with its own navigator.credentials.get.
     passkeyLoginBegin: () => ({ challenge: 'bW9jay1jaGFsbGVuZ2U', rpId: location.hostname, timeoutMs: 60000 }),
-    passkeyLoginFinish: () => ({ session: 'mock-session.' + Date.now(), expiresAt: Date.now() + 3600 * 1000 }),
+    // As the real server: the very same answer sent again gets back the session it was given, nothing new.
+    passkeyLoginFinish: p => {
+      const key = JSON.stringify(p), done = MOCK.finished = MOCK.finished || {};
+      return done[key] || (done[key] = { session: 'mock-session.' + Date.now(), expiresAt: Date.now() + 3600 * 1000 });
+    },
     getCategoryChoices: () => ({ choices: JSON.parse(JSON.stringify(MOCK.categoryChoices)) }),
     setCategoryChoice: p => {
       const k = String(p.merchant || '').trim().toLowerCase();

@@ -157,12 +157,24 @@ const REQUEST_TIMEOUT_MS = 45000;         // how long any request to the server 
 // The fingerprint's first request is small: give up on it sooner. Just after waking, a phone can send it down a Wi-Fi
 // that hasn't got through yet, where it hangs; the next try goes down whatever works by then.
 const PASSKEY_BEGIN_TIMEOUT_MS = 12000;
+// The last request (finish) runs in about a second on the server, but just after waking its reply can fail to reach
+// the phone. So it is given up after 10 s and the same signed answer sent again (the server hands back the same
+// session for it, never a new one). The server's challenge lasts 120 s from begin (PASSKEY_CHALLENGE_TTL_MS in the
+// backend), so the page stops sending 110 s after begin answered; after that a fresh fingerprint is needed.
+const PASSKEY_FINISH_TIMEOUT_MS = 10000;
+const PASSKEY_ANSWER_WINDOW_MS = 110000;  // from begin's reply; must stay under the backend's 120 s
+const PASSKEY_FINISH_AGAIN_MS = 1000;     // gap before sending it again (or as soon as the phone is back online)
+const PASSKEY_SLOW_MSG = 'Fingerprint accepted. The connection is slow, still trying…';
+const PASSKEY_FINISH_LOST_MSG = 'Your fingerprint was accepted, but the reply didn\'t arrive. Tap "Unlock with fingerprint" to try again, or sign in with Google.';
 const PASSKEY_PROMPT_GRACE_MS = 5000;     // how long past its own time limit a fingerprint prompt may run before it is dropped
 const OFFLINE_RESYNC_MS = 5000;       // signed in without the figures: when to try fetching them again
-// The line under "PaydayFlow Locked": red for a problem, grey for a plain note.
-function setLockMsg(text, isError) {
+// The line under "PaydayFlow Locked": red for a problem, grey for a plain note. `kind` (optional) names a line the
+// fingerprint steps may clear again (see UNLOCK_STEPS): 'fail', 'offline', 'noConnection', 'slow', 'stuck'.
+let lockLineKind = null;
+function setLockMsg(text, isError, kind) {
   const el = document.getElementById('authLockMsg');
   if (!el) return;
+  lockLineKind = kind || null;
   el.textContent = text;
   el.style.color = isError ? '#F87171' : '#94A3B8';
 }
@@ -192,7 +204,7 @@ function autoUnlockWithPasskey(againInMs) {
   if (!againInMs) passkeyNoConnection = 0;   // a fresh start, not a try again
   const online = () => navigator.onLine !== false;
   // (Not over the "prompt is stuck" line: that try can only reload, and only a tap may do that now.)
-  const offlineNote = () => { if (!passkeyNeedsReload) setLockMsg(PASSKEY_OFFLINE_MSG, false); };
+  const offlineNote = () => { if (!passkeyNeedsReload) setLockMsg(PASSKEY_OFFLINE_MSG, false, 'offline'); };
   let due = !againInMs;
   if (due && document.hasFocus() && online()) { unlockWithPasskey(true); return; }
   if (!online()) offlineNote();
@@ -401,6 +413,7 @@ function describePasskeyError(err, auto) {
   if (err && (err.name === 'NotAllowedError' || err.name === 'AbortError')) return auto ? { text: 'Tap "Unlock with fingerprint", or sign in with Google.', error: false } : { text: 'Fingerprint was cancelled or timed out. Try again, or sign in with Google.', error: true };
   if (err && err.name === 'InvalidStateError') return { text: 'This device already has a fingerprint sign-in for PaydayFlow. Remove it in your password manager (or turn it off below) and try again.', error: true };
   if (err && err.name === 'SecurityError') return { text: 'This page address does not match the fingerprint sign-in, so the browser blocked it.', error: true };
+  if (err && err.finishLost) return { text: PASSKEY_FINISH_LOST_MSG, error: false };
   if (err && err.network) return { text: 'No connection yet. Try again in a moment.', error: false };
   if (isConnectionError(err)) return { text: 'The server didn\'t answer properly. Try again in a moment.', error: false };
   return { text: "Fingerprint sign-in didn't work (" + ((err && err.message) || 'unknown error') + '). You can sign in with Google instead.', error: true };
@@ -435,17 +448,19 @@ function chainAbort(from, to) {
 
 // Begin -> the browser's fingerprint prompt -> finish. Resolves with { session, expiresAt }. `signal` (optional)
 // cancels it at any step; `onPrompt` (optional) is called once the server has answered, just before the browser's
-// prompt, and `onAccepted` (optional) once the fingerprint was accepted, before the last request.
-async function passkeyLoginRoundTrip(signal, { onPrompt, onAccepted } = {}) {
+// prompt, `onAccepted` (optional) once the fingerprint was accepted, before the last request, and `onSlow` (optional)
+// if that request's first try got no reply (it is sent again: see sendPasskeyFinish).
+async function passkeyLoginRoundTrip(signal, { onPrompt, onAccepted, onSlow } = {}) {
   const cid = lsGet(PASSKEY_ID_KEY);
   const beginReq = { action: 'passkeyLoginBegin', payload: { credentialId: cid } };
   const beginOpts = { signal, timeoutMs: PASSKEY_BEGIN_TIMEOUT_MS };
   // Just after the phone wakes up, the first request often fails before the connection is back: try once more.
   const begin = await postToServer(beginReq, beginOpts).catch(err => {
     if (!err || !err.network || err.timedOut) throw err;   // not after a long wait: that is long enough
-    return new Promise(r => setTimeout(r, PASSKEY_RETRY_MS)).then(() => postToServer(beginReq, beginOpts));
+    return waitForOnlineOr(PASSKEY_RETRY_MS, signal).then(() => postToServer(beginReq, beginOpts));
   });
   if (!begin.ok) throw serverError(begin, 'Sign-in failed');
+  const giveUpAt = Date.now() + PASSKEY_ANSWER_WINDOW_MS;
   if (onPrompt) onPrompt();
   // The prompt should end by itself after its time limit, but on a phone one that never appeared can leave the
   // request waiting for good, so it is dropped a little after that (or as soon as the caller cancels).
@@ -474,14 +489,47 @@ async function passkeyLoginRoundTrip(signal, { onPrompt, onAccepted } = {}) {
   }
   if (onAccepted) onAccepted();
   const r = cred.response;
-  const fin = await postToServer({ action: 'passkeyLoginFinish', payload: {
+  return sendPasskeyFinish({ action: 'passkeyLoginFinish', payload: {
     credentialId: bytesToB64u(cred.rawId),
     clientDataJSON: bytesToB64u(r.clientDataJSON),
     authenticatorData: bytesToB64u(r.authenticatorData),
     signature: bytesToB64u(r.signature)
-  } }, { signal });
-  if (!fin.ok) throw serverError(fin, 'Sign-in failed');
-  return fin.data;
+  } }, { signal, onSlow, giveUpAt });
+}
+
+// Sends the signed answer, and the very same one again while no reply gets through (see PASSKEY_FINISH_TIMEOUT_MS),
+// or while the server is busy, until `giveUpAt`. Resolves with { session, expiresAt }. `onSlow` (optional) is called
+// once, when the first try didn't get in. Running out of time throws an error marked `finishLost`, and so does a
+// resend the server turns down: an earlier try used up the challenge, but its reply never came back.
+async function sendPasskeyFinish(req, { signal, onSlow, giveUpAt }) {
+  let resent = false, slowSaid = false;   // resent: an earlier try may have used up the challenge
+  for (;;) {
+    let reply = null, lost = null;
+    try {
+      reply = await postToServer(req, { signal, timeoutMs: Math.max(1000, Math.min(PASSKEY_FINISH_TIMEOUT_MS, giveUpAt - Date.now())) });
+    } catch (err) {
+      if (!err || !err.network || (signal && signal.aborted)) throw err;
+      lost = err;
+    }
+    if (reply && reply.ok) return reply.data;
+    if (reply && resent && reply.code === 'AUTH_FAILED') throw Object.assign(serverError(reply, 'Sign-in failed'), { finishLost: true });
+    if (reply && reply.code !== 'BUSY') throw serverError(reply, 'Sign-in failed');
+    if (Date.now() + PASSKEY_FINISH_AGAIN_MS >= giveUpAt) throw Object.assign(lost || serverError(reply, 'Sign-in failed'), { finishLost: true });
+    if (!slowSaid && onSlow) { slowSaid = true; onSlow(); }
+    await waitForOnlineOr(PASSKEY_FINISH_AGAIN_MS, signal);
+    if (lost) resent = true;   // that try may have reached the server (a busy one didn't: the challenge is still unused)
+  }
+}
+
+// Waits `ms`, or less if the phone says it is back online; fails (AbortError) as soon as `signal` (optional) aborts.
+function waitForOnlineOr(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const done = () => { clearTimeout(t); window.removeEventListener('online', done); if (signal) signal.removeEventListener('abort', stop); resolve(); };
+    const stop = () => { done(); reject(new DOMException('Cancelled', 'AbortError')); };
+    const t = setTimeout(done, ms);
+    window.addEventListener('online', done);
+    if (signal) { if (signal.aborted) return stop(); signal.addEventListener('abort', stop); }
+  });
 }
 
 // A stuck fingerprint request belongs to the page, so only reloading it clears it. By itself the lock screen reloads
@@ -502,8 +550,24 @@ function reloadForStuckPrompt(byTap) {
 
 // The fingerprint sign-in running now (its AbortController), or null.
 let passkeyAttempt = null;
-let passkeyFailMsg = null;   // the lock screen line the last failed try left (the next try clears it)
-function setPasskeyFailMsg(text, isError) { setLockMsg(passkeyFailMsg = text, isError); }
+function setPasskeyFailMsg(text, isError) { setLockMsg(text, isError, 'fail'); }   // the next try clears it
+// The lock screen's fingerprint button says which step the try is on, and the line above it never contradicts that.
+// This is the only place that writes the button; each step also says what happens to the line (`line`: its own note;
+// `clears`: lines of those kinds give way). A "trying again" note stays while connecting, since that is what happens.
+const UNLOCK_STEPS = {
+  idle: { label: 'Unlock with fingerprint', clears: ['slow'] },
+  connecting: { label: 'Connecting…', clears: ['fail', 'slow'] },
+  prompting: { label: 'Waiting for fingerprint…', clears: ['noConnection', 'offline'] },
+  finishing: { label: 'Signing in…' },
+  slow: { label: 'Still signing in…', line: PASSKEY_SLOW_MSG }
+};
+function showUnlockStep(step) {
+  const s = UNLOCK_STEPS[step];
+  const label = document.getElementById('passkeyUnlockLabel');
+  if (label) label.textContent = s.label;
+  if (s.line) setLockMsg(s.line, false, step);
+  else if (s.clears && s.clears.includes(lockLineKind)) setLockMsg(LOCK_IDLE_MSG, false);
+}
 function cancelPasskeyAttempt() {
   if (passkeyAttempt) { passkeyAttempt.abort(); passkeyAttempt = null; }
 }
@@ -523,23 +587,18 @@ async function unlockWithPasskey(auto) {
   }
   stopPasskeyWait();   // asked now, so a wait for focus must not ask a second time
   const attempt = passkeyAttempt = new AbortController();
-  const label = document.getElementById('passkeyUnlockLabel');
-  // The button says what this try is waiting for, and the line above it never contradicts that: an earlier try's
-  // complaint gives way (a "trying again" note stays, since that is what is happening).
-  if (label) label.textContent = 'Connecting…';
-  const msg = document.getElementById('authLockMsg');
-  if (msg && msg.textContent === passkeyFailMsg) setLockMsg(LOCK_IDLE_MSG, false);
+  showUnlockStep('connecting');
   try {
     const s = await passkeyLoginRoundTrip(attempt.signal, {
       onPrompt: () => {
         passkeyNoConnection = 0;
-        if (label) label.textContent = 'Waiting for fingerprint…';
-        if (msg && [PASSKEY_NO_CONNECTION_MSG, PASSKEY_OFFLINE_MSG].includes(msg.textContent)) setLockMsg(LOCK_IDLE_MSG, false);
+        showUnlockStep('prompting');
       },
       onAccepted: () => {
         attempt.accepted = true;
-        if (label) label.textContent = 'Signing in…';
-      }
+        showUnlockStep('finishing');
+      },
+      onSlow: () => showUnlockStep('slow')
     });
     // Without the session saved nothing can be sent (and the lock screen would ask again and again): say so plainly.
     if (!saveSession(s.session, s.expiresAt)) { setPasskeyFailMsg(STORAGE_REFUSED_MSG, true); return; }
@@ -550,13 +609,13 @@ async function unlockWithPasskey(auto) {
     if (attempt.signal.aborted) return;
     if (err && err.promptBusy) {
       passkeyNeedsReload = true;
-      if (!reloadForStuckPrompt(false)) setLockMsg(PASSKEY_STUCK_MSG, false);
+      if (!reloadForStuckPrompt(false)) setLockMsg(PASSKEY_STUCK_MSG, false, 'stuck');
       return;
     }
     // No connection yet (often just after waking): the lock screen asks again by itself once it's back. (Not once the
     // fingerprint was accepted: a second prompt popping up by itself would be a surprise; the button is there.)
     if (err && err.network && lockAllowsAuto && !attempt.accepted) {
-      setLockMsg(PASSKEY_NO_CONNECTION_MSG, false);
+      setLockMsg(PASSKEY_NO_CONNECTION_MSG, false, 'noConnection');
       autoUnlockWithPasskey(Math.min(PASSKEY_AGAIN_MAX_MS, PASSKEY_AGAIN_FIRST_MS * 2 ** passkeyNoConnection++));
       return;
     }
@@ -567,7 +626,7 @@ async function unlockWithPasskey(auto) {
     if (passkeyAttempt === attempt) passkeyAttempt = null;
     // The button and the timing belong to a newer try, if one has started meanwhile.
     if (!passkeyAttempt) {
-      if (label) label.textContent = 'Unlock with fingerprint';
+      showUnlockStep('idle');
       // Time spent in the fingerprint prompt doesn't count as being away (Android may show it over the app): if the
       // app is still out of sight when the prompt ends, being away starts now.
       if (document.visibilityState === 'hidden') hiddenAt = Date.now();
@@ -714,12 +773,13 @@ async function testPasskey() {
   btn.disabled = true;
   setPkMessage('Follow your phone\'s prompt…', 'info');
   try {
-    const s = await passkeyLoginRoundTrip();
+    const s = await passkeyLoginRoundTrip(undefined, { onSlow: () => setPkMessage(PASSKEY_SLOW_MSG, 'info') });
     saveSession(s.session, s.expiresAt);
     setPkMessage('It works. Next time the app locks, just use your fingerprint.', 'ok');
     refreshPasskeyDevices();
   } catch (err) {
-    const d = describePasskeyError(err, false);
+    // (Not the lock screen's words for it: this dialog has no "Unlock with fingerprint" button.)
+    const d = err && err.finishLost ? { text: "Your fingerprint was accepted, but the reply didn't arrive. Try again in a moment." } : describePasskeyError(err, false);
     if (d.forget) { lsDel(PASSKEY_ID_KEY); renderPasskeyModal(); }
     setPkMessage(d.text, 'error');
   } finally {
