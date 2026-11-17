@@ -1306,6 +1306,8 @@ async function postToServer(bodyObj, opts = {}) {
       return i === -1 || !y ? 0 : Number(y[1]) * 12 + i;
     }
     const newestFirst = (a, b) => monthSortValue(b) - monthSortValue(a);
+    // The newest month: by name, whatever order the sheet's tabs are in (without names that say, the first tab).
+    const newestMonth = months => months.slice().sort(newestFirst)[0];
     // Totals for every month this device has loaded before (the current one comes from live state), newest first.
     function spendMonthTotals(overrides) {
       const out = [];
@@ -1629,7 +1631,8 @@ async function postToServer(bodyObj, opts = {}) {
       pruneLocalMonths(s.availableMonths);
       const sel = document.getElementById('monthSelector');
       if (s.availableMonths && s.availableMonths.length) {
-        sel.innerHTML = s.availableMonths.map(m => `<option value="${esc(m)}" ${m === activeMonth ? 'selected' : ''}>${esc(m)}</option>`).join('');
+        // Newest first by name (the sheet's tabs can be in any order); names without a month and year go last, as listed.
+        sel.innerHTML = s.availableMonths.slice().sort(newestFirst).map(m => `<option value="${esc(m)}" ${m === activeMonth ? 'selected' : ''}>${esc(m)}</option>`).join('');
       }
       if (SHEET_LINK.test(String(s.sheetUrl || ''))) {   // only ever a link to a Google Sheet
         document.getElementById('rawSheetBtn').href = s.sheetUrl;
@@ -1828,7 +1831,7 @@ async function postToServer(bodyObj, opts = {}) {
     function renderDailyStrip(left) {
       const strip = document.getElementById('dailyStrip');
       const months = state.availableMonths || [];
-      if (!months.length || activeMonth !== months[0] || !isFinite(Number(left))) { strip.classList.add('hidden'); return; }
+      if (!months.length || activeMonth !== newestMonth(months) || !isFinite(Number(left))) { strip.classList.add('hidden'); return; }
       const pay = nextPayday(new Date());
       const fig = (cls, amount, words) => '<span class="font-semibold tabular-nums ' + cls + '">' + fmtGBP(amount) + '</span> <span class="text-slate-500 dark:text-slate-400">' + words + '</span>';
       document.getElementById('dailyLeft').innerHTML = pay.days === 0

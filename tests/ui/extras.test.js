@@ -96,6 +96,28 @@ uiSuite(async ({ browser, watch, open, step, PORT }) => {
       await p.waitForTimeout(400);
       assert.ok(!/vs last month|Same as| · New/.test(await txt(p, '#spendBody')));
     });
+    // Audit 4.12: the sheet's tabs were out of order (November, September, October), and so was the month picker.
+    // (These steps replace the page's month list; the page closes straight after them.)
+    await step('month picker: newest month first whatever order the tabs are in, names without a date last; the month on screen stays picked', async () => {
+      const picked = await p.evaluate(() => {
+        closeSpendModal();
+        applyServerState({ ...state, availableMonths: ['November Payday 2026', 'Notes', 'September Payday 2026', activeMonth, 'October Payday 2026', 'December Payday 2025'] });
+        const sel = document.getElementById('monthSelector');
+        return { order: [...sel.options].map(o => o.value), value: sel.value, active: activeMonth };
+      });
+      // ("Other Payday 2026", the month on screen, has no month word: it goes last with "Notes", in the order listed.)
+      assert.deepStrictEqual(picked.order, ['November Payday 2026', 'October Payday 2026', 'September Payday 2026', 'December Payday 2025', 'Notes', 'Other Payday 2026'], JSON.stringify(picked));
+      assert.strictEqual(picked.value, picked.active);
+      // The daily amount shows on the newest month by the same rule (by name; the first tab when names don't say).
+      assert.deepStrictEqual(await p.evaluate(() => [newestMonth(['September Payday 2026', 'November Payday 2026', 'Notes']), newestMonth(['Test Payday 2026', 'Other Payday 2026'])]),
+        ['November Payday 2026', 'Test Payday 2026']);
+    });
+    await step('dark mode: scrollbars are set to the app\'s greys (computed style), not the bright default; light mode keeps the browser\'s', async () => {
+      const dark = await p.evaluate(() => ({ dark: document.documentElement.classList.contains('dark'), color: getComputedStyle(document.querySelector('#spendModal > div')).scrollbarColor }));
+      assert.ok(dark.dark && dark.color === 'rgb(71, 85, 105) rgba(0, 0, 0, 0)', JSON.stringify(dark));
+      const light = await p.evaluate(() => { document.documentElement.classList.remove('dark'); try { return getComputedStyle(document.querySelector('#spendModal > div')).scrollbarColor; } finally { document.documentElement.classList.add('dark'); } });
+      assert.strictEqual(light, 'auto');
+    });
     await c.close();
 
     ({ c, p } = await openAt(phone, null));
