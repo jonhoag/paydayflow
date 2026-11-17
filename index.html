@@ -76,6 +76,15 @@
        stay in sight while you type; a sheet taller than what is left scrolls. */
     .kb-sheet.fixed { top: var(--kbtop, 0px); bottom: var(--kb, 0px); }
     .kb-sheet > div { max-height: min(92vh, 100%); overflow-y: auto; }
+    /* A form sheet's main button sits on a strip that stays at the bottom of a sheet taller than the screen (the
+       unfolded Fold), with a line above it only while part of the form is under it (.stuck, set by app.js). The strip
+       reaches the sheet's sides (20px = the sheet's p-5) and gives the sheet its bottom padding, so the button sits in
+       the same place whether the strip is stuck or not. A box that gets focus is scrolled clear of the strip (the
+       scroll padding: a little more than the strip's height). Line: the borders' slate-200 / slate-700. */
+    .kb-sheet > div:has(> .sheet-foot) { padding-bottom: 0; scroll-padding-bottom: 96px; }
+    .sheet-foot { position: sticky; bottom: 0; z-index: 5; margin: 0 -20px; padding: 12px 20px 20px; background: inherit; border-top: 1px solid transparent; }
+    .sheet-foot.stuck { border-top-color: #e2e8f0; }
+    .dark .sheet-foot.stuck { border-top-color: #334155; }
     /* Phone bottom bar acts as real views: Home shows everything, the other tabs show one section. */
     @media (max-width: 1023px) {
       body[data-view="budgets"] #heroSection, body[data-view="budgets"] #tilesSection, body[data-view="budgets"] #sec_pending, body[data-view="budgets"] #sec_activity,
@@ -591,9 +600,11 @@
         </label>
       </div>
 
-      <button id="btnSubmitTx" data-action="submitExpense" class="w-full min-h-[44px] rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
-        Save Spend
-      </button>
+      <div class="sheet-foot">
+        <button id="btnSubmitTx" data-action="submitExpense" class="w-full min-h-[44px] rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
+          Save Spend
+        </button>
+      </div>
     </div>
   </div>
 
@@ -647,7 +658,7 @@
         </div>
       </div>
 
-      <div class="flex gap-2 pt-1">
+      <div class="sheet-foot flex gap-2">
         <button type="button" data-action="deleteCurrentTx" class="min-h-[44px] px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 font-bold text-xs transition">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="trash" data-class="w-3.5 h-3.5"></span>Delete</span>
         </button>
@@ -703,7 +714,7 @@
         </div>
       </div>
 
-      <div class="flex gap-2 pt-1">
+      <div class="sheet-foot flex gap-2">
         <button type="button" id="budDeleteBtn" data-action="deleteBudgetFromForm" class="hidden min-h-[44px] px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-bold text-xs transition">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="trash" data-class="w-3.5 h-3.5"></span>Delete</span>
         </button>
@@ -768,15 +779,17 @@
         </details>
       </div>
 
-      <button id="nmCreateBtn" data-action="confirmStartNewMonth" class="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
-        Create Month
-      </button>
+      <div class="sheet-foot">
+        <button id="nmCreateBtn" data-action="confirmStartNewMonth" class="w-full py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
+          Create Month
+        </button>
+      </div>
     </div>
   </div>
 
   <div id="toast" role="status" aria-live="polite" class="hidden fixed left-1/2 -translate-x-1/2 bottom-24 lg:bottom-6 z-[100000] max-w-sm w-[90%] px-4 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-medium shadow-lg text-center"></div>
 
   <!-- The app itself (everything above is only the layout). It runs here, once the page above is in place. -->
-  <script src="app.js?v=a6c18adfe9"></script>
+  <script src="app.js?v=e36c4da6b1"></script>
 </body>
 </html>

@@ -2507,6 +2507,21 @@ async function postToServer(bodyObj, opts = {}) {
       vv.addEventListener('scroll', set);
     })();
 
+    // A form sheet's main button stays in sight on its strip (.sheet-foot in index.html). The line above the strip shows
+    // only while part of the form is under it: a marker just after the strip is out of view exactly then. (The observer
+    // speaks only when that changes, so a closed sheet keeps the line on: a tall one has it as soon as it opens.)
+    (function lineAboveSheetButtons() {
+      if (!('IntersectionObserver' in window)) return;
+      document.querySelectorAll('.sheet-foot').forEach(foot => {
+        const end = document.createElement('div');
+        end.style.cssText = 'margin:0;height:0';   // not spaced like the sheet's other rows
+        foot.after(end);
+        // (2px to spare: scrolled to the end, the marker sits right on the sheet's bottom edge.)
+        new IntersectionObserver(([e]) => foot.classList.toggle('stuck', !e.isIntersecting),
+          { root: foot.parentElement, rootMargin: '0px 0px 2px 0px' }).observe(end);
+      });
+    })();
+
     // ================= ADD TRANSACTION & DYNAMIC GROUP SPLIT =================
     function openAddModal() {
       setTxDirection('spend');
