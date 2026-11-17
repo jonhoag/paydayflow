@@ -282,6 +282,87 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
         assert.deepStrictEqual((await shown()).reads, ['answered (given up)', 'answered']);
         await p8.waitForFunction(() => apiInflight === 0);
       });
+
+      // Waking up after hours away with the connection still coming back (Jon's phone, 2026-11-17: "No connection yet"
+      // under a button stuck on "Waiting for fingerprint…").
+      const lock = () => p8.evaluate(() => ({ locked: lockScreenShowing(), msg: document.getElementById('authLockMsg').textContent,
+        label: document.getElementById('passkeyUnlockLabel').textContent, running: !!passkeyAttempt,
+        begins: MOCK.calls.filter(c => c.action === 'passkeyLoginBegin').map(c => ({ start: c.start, end: c.end })) }));
+      const expire = () => p8.evaluate(() => { localStorage.removeItem('pf_google_id_token'); localStorage.removeItem('pf_session'); MOCK.calls.length = 0; });
+      const NO_CONNECTION = "No connection yet. Trying again as soon as it's back.";
+      // Signed out while away; back with the first request and its quick retry both getting nowhere.
+      const backWithNoConnection = async () => {
+        await expire();
+        await p8.evaluate(() => { MOCK.dropNext = 2; });
+        await awayAndBack(p8, 2 * 60 * 60 * 1000);
+        await p8.waitForFunction(m => document.getElementById('authLockMsg').textContent === m, NO_CONNECTION, { timeout: 4000 });
+      };
+
+      await step('back with no connection yet: the lock screen says so, the button is free to tap, and it asks again by itself once back online', async () => {
+        await backWithNoConnection();
+        const s = await lock();
+        assert.ok(s.locked && s.label === 'Unlock with fingerprint' && !s.running && s.begins.length === 2, JSON.stringify(s));
+        // The phone's connection is back. (As on some phones, the page doesn't report focus: being on screen is enough.)
+        try {
+          await p8.evaluate(() => { document.hasFocus = () => false; window.dispatchEvent(new Event('online')); });
+          await p8.waitForFunction(() => !lockScreenShowing(), null, { timeout: 1500 })
+            .catch(async () => assert.fail('did not ask again when back online: ' + JSON.stringify(await lock())));
+        } finally { await p8.evaluate(() => { delete document.hasFocus; }); }
+        assert.strictEqual((await lock()).begins.length, 3);
+        await p8.waitForFunction(() => apiInflight === 0);
+      });
+
+      await step('still no connection after that (no "online" news, as on a Wi-Fi still connecting): asks again by itself, one try at a time, and gets in', async () => {
+        await expire();
+        await p8.evaluate(() => { MOCK.dropNext = 3; });   // the first try fails; the next one gets through on its quick retry
+        await awayAndBack(p8, 2 * 60 * 60 * 1000);
+        await p8.waitForFunction(() => !lockScreenShowing(), null, { timeout: 8000 })
+          .catch(async () => assert.fail('never asked again by itself: ' + JSON.stringify(await lock())));
+        const { begins } = await lock();
+        assert.strictEqual(begins.length, 4, JSON.stringify(begins));
+        begins.forEach((b, i) => assert.ok(i === 0 || b.start >= begins[i - 1].end, 'two tries at once: ' + JSON.stringify(begins)));
+        await p8.waitForFunction(() => apiInflight === 0);
+      });
+
+      await step('a tap while the connection is still coming back: "Connecting…" (never "Waiting for fingerprint…" under "No connection"), then the prompt', async () => {
+        await expire();
+        await p8.evaluate(() => { MOCK.dropNext = 2; });
+        await awayAndBack(p8, 2 * 60 * 60 * 1000);
+        await p8.waitForFunction(m => document.getElementById('authLockMsg').textContent === m, NO_CONNECTION, { timeout: 4000 });
+        // The tap's first request is slow to answer, and the fingerprint prompt takes a moment.
+        await p8.evaluate(() => {
+          MOCK.nextLatencies = [1200];
+          const real = window.__realGet = navigator.credentials.get;
+          navigator.credentials.get = o => new Promise(r => setTimeout(r, 900)).then(() => real.call(navigator.credentials, o));
+        });
+        try {
+          await p8.click('#passkeyUnlockBtn');
+          await p8.waitForTimeout(400);
+          let s = await lock();
+          assert.ok(s.locked && s.label === 'Connecting…' && s.msg === NO_CONNECTION, 'while connecting: ' + JSON.stringify(s));
+          await p8.waitForFunction(() => document.getElementById('passkeyUnlockLabel').textContent === 'Waiting for fingerprint…', null, { timeout: 2000 });
+          s = await lock();
+          assert.ok(s.locked && s.msg === 'Unlock to continue.', 'in the prompt: ' + JSON.stringify(s));
+          await p8.waitForFunction(() => !lockScreenShowing(), null, { timeout: 3000 });
+          await p8.waitForTimeout(2500);   // past when the automatic try the tap replaced was due
+          assert.strictEqual((await lock()).begins.length, 3, 'the automatic try asked as well as the tap');
+        } finally { await p8.evaluate(() => { navigator.credentials.get = window.__realGet; }); }
+        await p8.waitForFunction(() => apiInflight === 0);
+      });
+
+      await step('back while the phone is still offline: "Waiting for a connection…" at once, nothing sent, and in as soon as it is online', async () => {
+        await expire();
+        await c8.setOffline(true);
+        try {
+          await awayAndBack(p8, 2 * 60 * 60 * 1000);
+          await p8.waitForTimeout(300);
+          const s = await lock();
+          assert.ok(s.locked && s.msg === 'Waiting for a connection…' && s.begins.length === 0, JSON.stringify(s));
+        } finally { await c8.setOffline(false); }
+        await p8.waitForFunction(() => !lockScreenShowing(), null, { timeout: 2000 })
+          .catch(async () => assert.fail('did not ask once online: ' + JSON.stringify(await lock())));
+        await p8.waitForFunction(() => apiInflight === 0);
+      });
     } finally {
       await c8.close();
       for (let i = errors.length - 1; i >= from; i--) if (/took too long/.test(errors[i])) errors.splice(i, 1);
