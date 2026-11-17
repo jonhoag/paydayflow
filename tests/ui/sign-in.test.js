@@ -238,6 +238,117 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
         assert.ok(!(await shown()).locked);
       });
 
+      // What the lock screen shows, and the fingerprint requests sent, while a try runs.
+      const unlockNow = () => p8.evaluate(() => ({ locked: lockScreenShowing(), label: document.getElementById('passkeyUnlockLabel').textContent,
+        msg: document.getElementById('authLockMsg').textContent, prompts: window.__prompts,
+        begins: MOCK.calls.filter(c => c.action === 'passkeyLoginBegin').length,
+        finishes: MOCK.calls.filter(c => c.action === 'passkeyLoginFinish').map(c => ({ aborted: !!c.aborted, payload: JSON.stringify(c.payload) })) }));
+      const countPrompts = () => p8.evaluate(() => {
+        window.__prompts = 0;
+        const real = window.__realGet = window.__realGet || navigator.credentials.get;
+        navigator.credentials.get = o => { window.__prompts++; return real.call(navigator.credentials, o); };
+      });
+
+      await step('fingerprint unlock whose finish reply is slow (9 s): one request, "Signing in…" throughout, then the app opens', async () => {
+        await countPrompts();
+        await p8.evaluate(() => {
+          localStorage.removeItem('pf_google_id_token'); localStorage.removeItem('pf_session');
+          MOCK.calls.length = 0;
+          MOCK.nextLatencies = [50, 9000];   // begin, then a finish that takes 9 s (under its 10 s limit)
+        });
+        await awayAndBack(p8, 2 * 60 * 60 * 1000);
+        await p8.waitForFunction(() => MOCK.calls.some(c => c.action === 'passkeyLoginFinish'), null, { timeout: 6000 });
+        await p8.waitForTimeout(4000);   // well inside the 9 s
+        const mid = await unlockNow();
+        assert.ok(mid.locked && mid.label === 'Signing in…' && mid.finishes.length === 1, JSON.stringify(mid));
+        await p8.waitForFunction(() => !lockScreenShowing() && apiInflight === 0, null, { timeout: 8000 });   // and the first figures are in
+        const end = await unlockNow();
+        assert.ok(end.prompts === 1 && end.begins === 1 && end.finishes.length === 1 && !end.finishes[0].aborted, JSON.stringify(end));
+      });
+
+      await step('fingerprint unlock whose finish reply never arrives: the same answer is sent again after 10 s, no second fingerprint, and the app opens', async () => {
+        await countPrompts();
+        await p8.evaluate(() => {
+          localStorage.removeItem('pf_google_id_token'); localStorage.removeItem('pf_session');
+          MOCK.calls.length = 0;
+          MOCK.nextLatencies = [50, 60 * 60 * 1000, 2500];   // begin, a finish whose reply is lost, the same again (answers)
+        });
+        await awayAndBack(p8, 2 * 60 * 60 * 1000);
+        await p8.waitForFunction(() => MOCK.calls.filter(c => c.action === 'passkeyLoginFinish').length === 2, null, { timeout: 16000 })
+          .catch(async e => { throw new Error(e.message + ' ' + JSON.stringify(await unlockNow())); });
+        const mid = await unlockNow();
+        assert.ok(mid.locked && mid.label === 'Still signing in…' && /accepted/.test(mid.msg), JSON.stringify(mid));
+        await p8.waitForFunction(() => !lockScreenShowing() && apiInflight === 0, null, { timeout: 6000 });   // and the first figures are in
+        const end = await unlockNow();
+        assert.ok(end.prompts === 1 && end.begins === 1, 'one fingerprint, one begin: ' + JSON.stringify(end));
+        assert.ok(end.finishes.length === 2 && end.finishes[0].aborted && end.finishes[1].payload === end.finishes[0].payload, JSON.stringify(end));
+      });
+
+      await step('fingerprint unlock whose finish meets a busy server, or a resend the server turns down: busy is tried again; turned down says the reply was lost (not red)', async () => {
+        const finishReplies = async replies => {
+          await countPrompts();
+          await p8.evaluate(r => {
+            localStorage.removeItem('pf_google_id_token'); localStorage.removeItem('pf_session');
+            MOCK.calls.length = 0;
+            const real = window.__realFetch = window.fetch;
+            const left = r.slice();
+            window.fetch = (url, opts) => {
+              const body = JSON.parse(opts.body);
+              if (body.action !== 'passkeyLoginFinish' || !left.length) return real(url, opts);
+              MOCK.calls.push({ action: 'passkeyLoginFinish', payload: body.payload });
+              const next = left.shift();
+              if (next === 'lost') return Promise.reject(new TypeError('Failed to fetch'));
+              return Promise.resolve({ text: async () => JSON.stringify({ ok: false, code: next, error: next + ': no', authError: next === 'AUTH_FAILED' }) });
+            };
+          }, replies);
+        };
+        try {
+          await finishReplies(['lost', 'BUSY']);   // then the real (mock) server answers
+          await awayAndBack(p8, 2 * 60 * 60 * 1000);
+          await p8.waitForFunction(() => !lockScreenShowing() && apiInflight === 0, null, { timeout: 10000 });
+          const a = await unlockNow();
+          assert.ok(a.prompts === 1 && a.finishes.length === 3, JSON.stringify(a));
+        } finally { await p8.evaluate(() => { window.fetch = window.__realFetch; }); }
+        try {
+          await finishReplies(['lost', 'AUTH_FAILED']);
+          await awayAndBack(p8, 2 * 60 * 60 * 1000);
+          await p8.waitForFunction(() => /reply didn't arrive/.test(document.getElementById('authLockMsg').textContent), null, { timeout: 10000 });
+          const b = await p8.evaluate(() => ({ color: document.getElementById('authLockMsg').style.color, locked: lockScreenShowing(),
+            label: document.getElementById('passkeyUnlockLabel').textContent, n: MOCK.calls.filter(c => c.action === 'passkeyLoginFinish').length }));
+          assert.ok(b.locked && b.label === 'Unlock with fingerprint' && b.n === 2 && !/248, 113, 113/.test(b.color), JSON.stringify(b));
+        } finally { await p8.evaluate(() => { window.fetch = window.__realFetch; }); }
+        await p8.evaluate(() => unlockWithPasskey(false));   // a tap gets in
+        await p8.waitForFunction(() => !lockScreenShowing() && apiInflight === 0, null, { timeout: 6000 });
+      });
+
+      await step('fingerprint unlock whose finish never gets through: once its time is up (110 s from begin) it says the fingerprint was accepted, and a tap asks again', async () => {
+        await countPrompts();
+        try {
+          await p8.evaluate(() => {
+            localStorage.removeItem('pf_google_id_token'); localStorage.removeItem('pf_session');
+            MOCK.calls.length = 0;
+            // The finish fails at once (no connection), and meanwhile the clock passes its 110 s: no more tries.
+            const real = window.__realFetch = window.fetch, realNow = window.__realNow = Date.now;
+            let skew = 0;
+            Date.now = () => realNow() + skew;
+            window.fetch = (url, opts) => {
+              if (JSON.parse(opts.body).action !== 'passkeyLoginFinish') return real(url, opts);
+              MOCK.calls.push({ action: 'passkeyLoginFinish', payload: JSON.parse(opts.body).payload, aborted: true });
+              skew += 120 * 1000;
+              return Promise.reject(new TypeError('Failed to fetch'));
+            };
+          });
+          await awayAndBack(p8, 2 * 60 * 60 * 1000);
+          await p8.waitForFunction(() => /reply didn't arrive/.test(document.getElementById('authLockMsg').textContent), null, { timeout: 8000 });
+          await p8.waitForTimeout(4000);   // longer than the automatic prompt's wait: it must not ask again by itself
+          const s = await unlockNow();
+          assert.ok(s.locked && s.label === 'Unlock with fingerprint' && s.prompts === 1 && s.begins === 1 && s.finishes.length === 1, JSON.stringify(s));
+        } finally { await p8.evaluate(() => { window.fetch = window.__realFetch; Date.now = window.__realNow; }); }
+        await p8.evaluate(() => unlockWithPasskey(false));   // a tap
+        await p8.waitForFunction(() => !lockScreenShowing() && apiInflight === 0, null, { timeout: 6000 });   // and the first figures are in
+        assert.strictEqual((await unlockNow()).prompts, 2);
+      });
+
       await step('fingerprint unlock whose first read turns the new session down: "Access Denied", and no prompt round and round', async () => {
         try {
           await p8.evaluate(() => {
