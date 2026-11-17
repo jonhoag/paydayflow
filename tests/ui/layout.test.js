@@ -182,6 +182,51 @@ uiSuite(async ({ open, step }) => {
         assert.ok(full > r.sec_budgets.w * 1.8, 'the Bills tab should use the full width: ' + full);
       });
     }
+    // Audit 4.3: on the unfolded Fold the Add sheet with a group split and Start New Month are taller than the screen.
+    await step(`${w}px: every form sheet shows its main button without scrolling, on top, with a line above it only while part of the form is under it`, async () => {
+      const sheets = [
+        ['addModal', 'btnSubmitTx', () => { openAddModal(); document.getElementById('inpAmount').value = '42.50'; selectSplit('custom'); document.getElementById('chip_lee').click(); }, () => closeAddModal()],
+        ['newMonthModal', 'nmCreateBtn', () => openNewMonthModal(), () => closeNewMonthModal()],
+        ['editTxModal', 'btnSaveEditTx', () => openEditTxModal('amex', 4, 'start', 0), () => closeEditTxModal()],
+        ['budgetModal', 'budSaveBtn', () => openBudgetForm(), () => closeBudgetForm()]
+      ];
+      const frames = () => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+      const seen = [];
+      for (const [id, btn, openIt, closeIt] of sheets) {
+        await page.evaluate(openIt);
+        await frames();   // the line follows the scroll (an observer, which reports after a frame)
+        const look = () => page.evaluate(([id, btn]) => {
+          const d = document.querySelector('#' + id + ' > div'), b = document.getElementById(btn), foot = b.closest('.sheet-foot');
+          const s = d.getBoundingClientRect(), r = b.getBoundingClientRect();
+          const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return { tall: d.scrollHeight > d.clientHeight + 1, line: !!foot && getComputedStyle(foot).borderTopColor !== 'rgba(0, 0, 0, 0)',
+            inSight: r.top >= s.top && r.bottom <= Math.min(s.bottom, innerHeight), onTop: !!top && b.contains(top), gap: Math.round(s.bottom - r.bottom) };
+        }, [id, btn]);
+        const first = await look();
+        await page.evaluate(id => { const d = document.querySelector('#' + id + ' > div'); d.scrollTop = d.scrollHeight; }, id);
+        await frames();
+        const end = await look();
+        if (id === 'addModal') {
+          // A box that gets focus while it sits behind the strip (in the sheet's view, so the browser wouldn't scroll
+          // for it by itself) is scrolled clear of the strip.
+          const box = await page.evaluate(() => {
+            const d = document.querySelector('#addModal > div'), i = [...document.querySelectorAll('#dynamicSplitRows .split-amt')].pop();
+            d.scrollTop += i.getBoundingClientRect().bottom - (d.getBoundingClientRect().bottom - 10);
+            i.focus();
+            const r = i.getBoundingClientRect();
+            return i === document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          });
+          assert.ok(box, 'a split amount box with focus is under the button strip');
+        }
+        await page.evaluate(closeIt);
+        seen.push(id + ':' + (first.tall ? 'tall' : 'short'));
+        assert.ok(first.inSight && first.onTop && end.inSight && end.onTop, id + ' button hidden: ' + JSON.stringify({ first, end }));
+        assert.strictEqual(first.line, first.tall, id + ': the line only while part of the form is under the button: ' + JSON.stringify(first));
+        assert.strictEqual(end.line, false, id + ': no line once scrolled to the end: ' + JSON.stringify(end));
+        assert.ok(Math.abs(first.gap - end.gap) <= 1 && first.gap >= 19 && first.gap <= 22, id + ': the button moved, or its space below changed: ' + JSON.stringify({ first, end }));
+      }
+      if (w === UNFOLDED) assert.ok(seen.includes('addModal:tall') && seen.includes('newMonthModal:tall'), 'the tall sheets were not tall: ' + seen);
+    });
     await ctx.close();
   }
 }).catch(e => { console.error(e); process.exit(1); });
