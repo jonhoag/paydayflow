@@ -203,7 +203,7 @@ function autoUnlockWithPasskey(againInMs) {
   stopPasskeyWait();   // only one wait at a time
   if (!againInMs) passkeyNoConnection = 0;   // a fresh start, not a try again
   const online = () => navigator.onLine !== false;
-  // (Not over the "prompt is stuck" line: that try can only reload, and only a tap may do that now.)
+  // (Not over the "prompt is stuck" line: that try can only reload, which waits for a connection anyway.)
   const offlineNote = () => { if (!passkeyNeedsReload) setLockMsg(PASSKEY_OFFLINE_MSG, false, 'offline'); };
   let due = !againInMs;
   if (due && document.hasFocus() && online()) { unlockWithPasskey(true); return; }
@@ -533,15 +533,18 @@ function waitForOnlineOr(ms, signal) {
 }
 
 // A stuck fingerprint request belongs to the page, so only reloading it clears it. By itself the lock screen reloads
-// only while the app is on screen and hasn't opened in this page yet (nothing typed can be lost), and not again within
-// PASSKEY_RELOAD_GAP_MS, so it can never loop; otherwise a tap on the button (`byTap`) reloads.
+// only while it is showing, on screen, with no sheet open under it (so nothing typed can be lost; spends saved offline
+// are kept on the device and survive it), and not again within PASSKEY_RELOAD_GAP_MS, so it can never loop; otherwise a
+// tap on the button (`byTap`) reloads. (A phone can hold a fingerprint request from a prompt that never showed, say one
+// asked for while the screen went off, until the page is reloaded; with the app left open overnight that is the norm.)
+const sheetOpenUnderLock = () => !!document.querySelector('.kb-sheet:not(.hidden)');   // every sheet has kb-sheet (a test checks)
 const PASSKEY_RELOAD_KEY = 'pf_pk_reloaded';   // sessionStorage: when this tab last reloaded for a stuck request
 const PASSKEY_RELOAD_GAP_MS = 60 * 1000;
 let passkeyNeedsReload = false;
 const PASSKEY_STUCK_MSG = 'The fingerprint prompt is stuck. Tap "Unlock with fingerprint" to reload and try again, or sign in with Google.';
 function reloadForStuckPrompt(byTap) {
   if (apiInflight > 0) return false;   // a save on its way finishes first
-  if (!byTap && (appUiReady || document.visibilityState !== 'visible')) return false;
+  if (!byTap && (!lockScreenShowing() || sheetOpenUnderLock() || document.visibilityState !== 'visible')) return false;
   if (!byTap && Date.now() - (Number(ssGet(PASSKEY_RELOAD_KEY)) || 0) < PASSKEY_RELOAD_GAP_MS) return false;
   if (!ssSet(PASSKEY_RELOAD_KEY, String(Date.now())) && !byTap) return false;   // no record means no guard against a loop: only a tap may reload then
   location.reload();
