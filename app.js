@@ -1094,8 +1094,9 @@ async function postToServer(bodyObj, opts = {}) {
     };
     // The four accounts in the order the screen lists them.
     const ACCTS = ['amex', 'barclays', 'checking', 'marcus'];
+    function accountCard(acct) { return ACCOUNT_CARDS[acct] || ACCOUNT_CARDS.marcus; }
     function getBankLogo(acct) {
-      const c = ACCOUNT_CARDS[acct] || ACCOUNT_CARDS.marcus;
+      const c = accountCard(acct);
       return `<span class="inline-flex items-center justify-center shrink-0 text-white font-bold" title="${c.name}" style="width:30px;height:20px;border-radius:4px;font-size:9.5px;letter-spacing:.04em;background:linear-gradient(135deg,${c.from},${c.to})">${c.label}</span>`;
     }
 
@@ -1600,11 +1601,14 @@ async function postToServer(bodyObj, opts = {}) {
       setSectionOpen(key, document.getElementById(SECTIONS[key].body).classList.contains('hidden'));
     }
 
+    // Smooth scrolling, unless the phone or computer asks for less motion.
+    const REDUCED_MOTION_MQ = window.matchMedia('(prefers-reduced-motion: reduce)');
+    function scrollMotion() { return REDUCED_MOTION_MQ.matches ? 'auto' : 'smooth'; }
     function jumpToSection(target) {
-      if (target === 'top') return window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (target === 'top') return window.scrollTo({ top: 0, behavior: scrollMotion() });
       if (!SECTIONS[target]) return;
       setSectionOpen(target, true);
-      document.getElementById(SECTIONS[target].sec).scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById(SECTIONS[target].sec).scrollIntoView({ behavior: scrollMotion(), block: 'start' });
     }
 
     // Escape text from the sheet before it goes into innerHTML.
@@ -2500,7 +2504,7 @@ async function postToServer(bodyObj, opts = {}) {
       const visible = showEvery ? filtered : filtered.slice(0, phoneHome ? HOME_TX_PREVIEW : TX_PREVIEW);
       // Like Bills: tap a row to edit it (no pencil). A row that is still saving can't be edited yet.
       document.getElementById('txListContainer').innerHTML = visible.map(r => `
-        <${r.pending ? 'div' : 'button'} ${r.pending ? '' : `type="button" data-action="openEditTxForRow" data-acct="${esc(r.acct)}" data-row="${r.row}" aria-label="Edit ${esc(displayName(r.desc))}"`}
+        <${r.pending ? 'div' : 'button'} ${r.pending ? '' : `type="button" data-action="openEditTxForRow" data-acct="${esc(r.acct)}" data-row="${r.row}" aria-label="Edit ${esc(displayName(r.desc))}, ${fmtSigned(r.amount)}, ${accountCard(r.acct).name}"`}
              class="tx-row w-[calc(100%+0.75rem)] text-left py-2.5 px-1.5 -mx-1.5 min-h-[48px] rounded-lg flex items-center justify-between gap-2 text-sm transition ${r.pending ? 'opacity-60' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer'}">
           <span class="flex items-center gap-3 min-w-0">
             ${getBankLogo(r.acct)}
@@ -2731,7 +2735,7 @@ async function postToServer(bodyObj, opts = {}) {
             <input type="text" inputmode="decimal" autocomplete="off" aria-label="Their share (£)" value="${entry.amount || ''}" placeholder="0.00" data-input="updatePersonRowAmt" data-idx="${idx}"
                    class="split-amt w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg pl-6 pr-2.5 py-1.5 text-xs tabular-nums font-semibold text-slate-900 dark:text-white" />
           </div>
-          <button type="button" data-action="removePersonRow" data-idx="${idx}" class="hit hit-32 text-slate-500 dark:text-slate-400 hover:text-rose-500 px-1.5 font-bold">✕</button>
+          <button type="button" data-action="removePersonRow" data-idx="${idx}" aria-label="Take ${esc(displayName(entry.person) || 'this person')} off the split" class="hit hit-32 text-slate-500 dark:text-slate-400 hover:text-rose-500 px-1.5 font-bold">✕</button>
         </div>
       `).join('');
     }
@@ -2774,6 +2778,11 @@ async function postToServer(bodyObj, opts = {}) {
       return '';
     }
 
+    // Each part stays on one line, so on a narrow screen the summary wraps between parts, never inside one.
+    function splitPillParts(parts) {
+      return parts.map(p => `<span class="whitespace-nowrap">${p}</span>`).join(' • ');
+    }
+
     function updateSplitSummary() {
       clearFieldError('dynamicSplitRows');
       const { gross, isRefund, splits, marcusShare } = buildSplitData();
@@ -2788,24 +2797,24 @@ async function postToServer(bodyObj, opts = {}) {
       if (isRefund) {
         const parts = [`You keep: <strong class="text-emerald-500">+${fmtGBP(Math.max(0, myNet))}</strong>`];
         if (splits.length === 1) {
-          parts.push(`Pay ${esc(splits[0].person)}:<strong class="text-rose-500">−${fmtGBP(splits[0].amount)}</strong>`);
+          parts.push(`Pay ${esc(displayName(splits[0].person))}: <strong class="text-rose-500">−${fmtGBP(splits[0].amount)}</strong>`);
         } else if (splits.length > 1) {
           const spSum = splits.reduce((a, b) => a + b.amount, 0);
           parts.push(`Pay ${splits.length} people: <strong class="text-rose-500">−${fmtGBP(spSum)}</strong>`);
         }
         if (marcusShare > 0) parts.push(`To Marcus: <strong class="text-rose-500">−${fmtGBP(marcusShare)}</strong>`);
-        document.getElementById('cleanSplitPill').innerHTML = parts.join(' • ');
+        document.getElementById('cleanSplitPill').innerHTML = splitPillParts(parts);
         return;
       }
       const parts = [`You pay: <strong>${fmtGBP(Math.max(0, myNet))}</strong>`];
       if (splits.length === 1) {
-        parts.push(`${esc(splits[0].person)}: <strong>${fmtGBP(splits[0].amount)}</strong>`);
+        parts.push(`${esc(displayName(splits[0].person))}: <strong>${fmtGBP(splits[0].amount)}</strong>`);
       } else if (splits.length > 1) {
         const spSum = splits.reduce((a, b) => a + b.amount, 0);
         parts.push(`${splits.length} people owe: <strong>${fmtGBP(spSum)}</strong>`);
       }
       if (marcusShare > 0) parts.push(`Marcus: <strong>${fmtGBP(marcusShare)}</strong>`);
-      document.getElementById('cleanSplitPill').innerHTML = parts.join(' • ');
+      document.getElementById('cleanSplitPill').innerHTML = splitPillParts(parts);
     }
 
     function submitExpense() {
