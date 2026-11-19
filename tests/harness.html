@@ -173,6 +173,7 @@
       if (i > -1) { delete timesOf(d)[p.acct + '|' + d[p.acct][i].row]; d[p.acct].splice(i, 1); }
       return snapshot(d, n);
     },
+    signOutEverywhere: () => ({ signedOutAt: Date.now() }),   // the page only needs it to go through
     toggleNeedFlag: (p, d, n) => { const it = d.checking.find(r => r.row === Number(p.row)); checkExpect(it, p); if (it) it.need = !!p.setNeed; return snapshot(d, n); },
     // Like the server: every row is checked before any is changed.
     settleAllNeeds: (p, d, n) => {

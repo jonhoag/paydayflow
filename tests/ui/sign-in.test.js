@@ -163,12 +163,57 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
     });
     await c3.close();
 
+    ({ ctx: c3, page: p3 } = await open(phone));
+    await step('sign out everywhere: the first tap only asks again; nothing is sent until the second', async () => {
+      await seed(p3);
+      await p3.evaluate(() => openSignOutModal());
+      assert.ok(await visible(p3, '#soEverywhereBtn'), 'no "Sign out everywhere" in the sheet');
+      await p3.click('#soEverywhereBtn');
+      assert.strictEqual(await p3.textContent('#soEverywhereBtn'), 'Tap again to sign out everywhere');
+      assert.deepStrictEqual(await calls(p3, 'signOutEverywhere'), [], 'sent on the first tap');
+      await p3.waitForTimeout(4300);   // the second tap must come within 4 s
+      assert.strictEqual(await p3.textContent('#soEverywhereBtn'), 'Sign out everywhere');
+    });
+    await step('sign out everywhere: if the server refuses, nothing changes here and it says so', async () => {
+      const before = await keys(p3);
+      await p3.evaluate(() => { MOCK.failNext = 1; });
+      await p3.click('#soEverywhereBtn');
+      await p3.click('#soEverywhereBtn');
+      await p3.waitForFunction(() => !document.getElementById('soMsg').classList.contains('hidden'));
+      assert.ok(/Couldn't sign out everywhere .*Nothing was cleared on this device\. Try again\./.test(await p3.textContent('#soMsg')), await p3.textContent('#soMsg'));
+      assert.deepStrictEqual(await keys(p3), before, 'something was cleared');
+      assert.ok(!(await locked(p3)), 'locked although nothing was signed out');
+    });
+    await step('sign out everywhere: not while spends wait to be sent (they would be lost); nothing is sent', async () => {
+      const sent = (await calls(p3, 'signOutEverywhere')).length;
+      await p3.evaluate(() => { localStorage.setItem('pf_outbox', JSON.stringify([{ id: 'w9', payload: { merchant: 'x' } }])); openSignOutModal(); });
+      await p3.click('#soEverywhereBtn');
+      await p3.click('#soEverywhereBtn');
+      assert.ok(/Send the spends waiting on this device first/.test(await p3.textContent('#soMsg')), await p3.textContent('#soMsg'));
+      assert.strictEqual((await calls(p3, 'signOutEverywhere')).length, sent, 'sent although spends were waiting');
+      assert.ok((await keys(p3)).includes('pf_outbox'), 'the waiting spend was cleared');
+      await p3.evaluate(() => { localStorage.removeItem('pf_outbox'); openSignOutModal(); });
+    });
+    await step('sign out everywhere: tells the server, then signs out here like a plain sign-out (fingerprint kept)', async () => {
+      const sent = (await calls(p3, 'signOutEverywhere')).length;
+      await p3.click('#soEverywhereBtn');
+      await p3.click('#soEverywhereBtn');
+      await p3.waitForEvent('load');
+      await afterReload(p3);
+      assert.ok(await locked(p3), 'should be locked');
+      assert.deepStrictEqual(await keys(p3), ['pf_passkey_cid', 'pf_passkey_offer_dismissed', 'pf_theme_mode']);
+      assert.strictEqual(await p3.textContent('#authLockMsg'), 'Signed out. Nothing is saved on this device any more.');
+      assert.ok(sent >= 1, 'the refused try was not sent, so the step before proves nothing');
+    });
+    await c3.close();
+
     ({ ctx: c3, page: p3 } = await open({ ...phone, viewport: { width: 344, height: 780 } }));
     await step('sign out sheet fits a 344px phone: no button label wraps, even "Tap again"', async () => {
       await seed(p3);
       await p3.evaluate(() => { localStorage.setItem('pf_outbox', JSON.stringify([{ id: 'w3', payload: { merchant: 'x' } }])); openSignOutModal(); });
       await p3.click('#soBtn');
-      const lines = await p3.evaluate(() => ['soBtn', 'soForgetBtn', 'soSendBtn'].map(id => {
+      await p3.click('#soEverywhereBtn');   // armed: its "Tap again" label must fit too
+      const lines = await p3.evaluate(() => ['soBtn', 'soForgetBtn', 'soEverywhereBtn', 'soSendBtn'].map(id => {
         const r = document.createRange(); r.selectNodeContents(document.getElementById(id));
         return id + ':' + new Set([...r.getClientRects()].filter(x => x.width > 0).map(x => Math.round(x.top))).size;
       }));
