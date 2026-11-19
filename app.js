@@ -848,7 +848,17 @@ function renderSignOutModal() {
   document.getElementById('soForgetBlock').classList.toggle('hidden', !here);
   document.getElementById('soBtn').textContent = soArmed === 'keep' ? 'Tap again to sign out anyway' : 'Sign out';
   document.getElementById('soForgetBtn').textContent = soArmed === 'forget' ? 'Tap again to sign out anyway' : 'Sign out and forget this device';
-  ['soBtn', 'soForgetBtn', 'soSendBtn'].forEach(id => { document.getElementById(id).disabled = soBusy; });
+  document.getElementById('soEverywhereBtn').textContent = soArmed === 'everywhere' ? 'Tap again to sign out everywhere' : 'Sign out everywhere';
+  ['soBtn', 'soForgetBtn', 'soEverywhereBtn', 'soSendBtn'].forEach(id => { document.getElementById(id).disabled = soBusy; });
+}
+// The first tap of a button that needs two: arms `which` for 4 s. True if it armed (so the caller stops there).
+function armSignOut(which) {
+  if (soArmed === which) return false;
+  soArmed = which;
+  clearTimeout(soArmTimer);
+  soArmTimer = setTimeout(() => { soArmed = null; renderSignOutModal(); }, 4000);
+  renderSignOutModal();
+  return true;
 }
 function openSignOutModal() {
   closeMenu();
@@ -899,14 +909,7 @@ async function signOut(forget) {
     soBusy = false;
     renderSignOutModal();
   }
-  const which = forget ? 'forget' : 'keep';
-  if (loadOutbox().length && soArmed !== which) {
-    soArmed = which;
-    clearTimeout(soArmTimer);
-    soArmTimer = setTimeout(() => { soArmed = null; renderSignOutModal(); }, 4000);
-    renderSignOutModal();
-    return;
-  }
+  if (loadOutbox().length && armSignOut(forget ? 'forget' : 'keep')) return;
   clearTimeout(soArmTimer);
   soArmed = null;
   const cid = lsGet(PASSKEY_ID_KEY);
@@ -925,11 +928,53 @@ async function signOut(forget) {
       return;
     }
   }
+  finishSignOut(forget);
+}
+// The sign-out itself, on this device: what it saved goes, the other tabs lock, and the page starts afresh.
+function finishSignOut(forget) {
   clearThisDevice(forget);
   lsSet(SIGNED_OUT_NOTICE, String(Date.now()));   // tells this app's other open tabs (see below)
   ssSet(SIGNED_OUT_FLAG, '1');
   stopGoogleAutoSignIn();
   location.reload();
+}
+// Sign out everywhere: always two taps. The server then refuses every sign-in made before now, on every device (each
+// one has to sign in again; fingerprint devices stay set up), and this device signs out as a plain sign-out would.
+// Not while spends wait to be sent: afterwards nothing here could send them. If the server can't be told, nothing is
+// cleared here and it says so.
+async function signOutEverywhere() {
+  if (soBusy) return;
+  if (apiInflight) {   // a save still on its way may yet end up waiting to send
+    soBusy = true;
+    renderSignOutModal();
+    await apiQueue;
+    await new Promise(r => setTimeout(r, 0));
+    soBusy = false;
+    renderSignOutModal();
+  }
+  if (loadOutbox().length) {
+    soArmed = null;
+    renderSignOutModal();
+    setSoMessage('Send the spends waiting on this device first (Send now, above), then sign out everywhere.');
+    return;
+  }
+  if (armSignOut('everywhere')) return;
+  clearTimeout(soArmTimer);
+  soArmed = null;
+  soBusy = true;
+  setSoMessage('');
+  renderSignOutModal();
+  try {
+    await apiCall('signOutEverywhere', {});
+  } catch (err) {
+    soBusy = false;
+    renderSignOutModal();
+    setSoMessage(err && (err.auth || err.needsSignIn)
+      ? 'Sign in again, then tap "Sign out everywhere" once more. Nothing has changed yet.'
+      : "Couldn't sign out everywhere (" + ((err && err.message) || 'unknown error') + '). Nothing was cleared on this device. Try again.');
+    return;
+  }
+  finishSignOut(false);
 }
 // Signed out in another tab: this one locks too, the same way, so it can't go on showing the figures or save them
 // again.
@@ -3416,6 +3461,7 @@ async function postToServer(bodyObj, opts = {}) {
       sendWaitingBeforeSignOut: () => sendWaitingBeforeSignOut(),
       signOut: () => signOut(false),
       signOutAndForget: () => signOut(true),
+      signOutEverywhere: () => signOutEverywhere(),
       // bills
       openBudgetForm: () => openBudgetForm(),
       openBudgetFormForRow: el => openBudgetFormForRow(rowOf(el)),
