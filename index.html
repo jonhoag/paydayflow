@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Styles are pre-built into tailwind.css (see build-css.js); the service worker keeps a copy for offline use. -->
-  <link rel="stylesheet" href="tailwind.css?v=ae92c5cffe">
+  <link rel="stylesheet" href="tailwind.css?v=6f8ceb16a6">
   <style>
     /* Inter, served from this site (SIL Open Font License: fonts/OFL.txt): one variable file per set of characters,
        fetched only when the page uses them. Text shows in the fallback font until it arrives. */
@@ -116,6 +116,11 @@
       #sec_pending { grid-column: 1; grid-row: 2; }
       #sec_activity { grid-column: 2; grid-row: 1 / span 2; }
     }
+    /* Reduce motion when the phone or computer asks for it: sheets, toasts and scrolling still work, without the movement.
+       The sync icon's spin is left alone: it is the only sign (besides its colour) that a sync is under way. */
+    @media (prefers-reduced-motion: reduce) {
+      *:not(.animate-spin), ::before, ::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+    }
   </style>
 </head>
 <body data-view="home" class="bg-[#F4F7FA] dark:bg-[#0B0F19] text-slate-800 dark:text-slate-100 min-h-screen flex flex-col lg:flex-row pb-20 lg:pb-0">
@@ -194,7 +199,7 @@
     <header class="sticky top-0 z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3.5 lg:px-8 py-2.5 flex items-center justify-between gap-2">
       <div class="relative flex items-center min-w-0 flex-1 max-w-xs">
         <select id="monthSelector" aria-label="Month" data-change="switchMonth"
-                class="w-full appearance-none bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold text-xs sm:text-sm rounded-xl pl-3 pr-7 py-2 border border-slate-200 dark:border-slate-700 truncate focus:outline-none cursor-pointer">
+                class="w-full appearance-none bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold text-xs sm:text-sm rounded-xl pl-3 pr-7 py-2 border border-slate-200 dark:border-slate-700 truncate focus:outline-none focus:border-emerald-500 cursor-pointer">
           <option value="">—</option>
         </select>
         <span class="pointer-events-none absolute right-2.5 text-slate-500 dark:text-slate-400 text-xs">▼</span>
@@ -245,6 +250,7 @@
 
     <!-- Page Canvas -->
     <main class="max-w-5xl mx-auto p-3.5 lg:p-6 flex flex-col gap-3.5">   <!-- gap, not space-y: hidden cards (caption, offers) leave no space -->
+      <h1 class="sr-only">PaydayFlow</h1>
 
       <!-- Sync status lives in the sync button's colour and label (updateSyncUi). Words show only when a sync failed. -->
       <button id="syncStatus" data-action="syncNow" class="hidden text-xs text-rose-700 dark:text-rose-400 -mb-1 px-1 whitespace-nowrap text-left">
@@ -421,7 +427,7 @@
               </div>
             </div></div>
             <input id="txSearch" type="text" aria-label="Search activity" placeholder="Filter merchant..." data-input="renderTransactions"
-                   class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none" />
+                   class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
             </div>
             <!-- With the filters folded away, each one still on shows here; tap it to clear it -->
             <div id="txActive" class="hidden flex flex-wrap gap-2"></div>
@@ -595,7 +601,7 @@
 
       <!-- Summary Pill -->
       <div class="bg-slate-50 dark:bg-slate-800/80 rounded-xl px-3 py-2.5 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
-        <div id="cleanSplitPill" class="font-medium text-slate-700 dark:text-slate-200 truncate">Personal spend • <strong>£0.00</strong></div>
+        <div id="cleanSplitPill" class="font-medium text-slate-700 dark:text-slate-200 leading-snug min-w-0">Personal spend • <strong>£0.00</strong></div>
         <label id="needToggleWrap" class="hit hidden flex items-center gap-1.5 text-slate-500 dark:text-slate-300 cursor-pointer font-medium shrink-0 ml-2">
           <input id="chkNeed" type="checkbox" checked class="rounded text-emerald-500" />
           <span>Add to "Owed"</span>
@@ -792,6 +798,6 @@
   <div id="toast" role="status" aria-live="polite" class="hidden fixed left-1/2 -translate-x-1/2 bottom-24 lg:bottom-6 z-[100000] max-w-sm w-[90%] px-4 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-medium shadow-lg text-center"></div>
 
   <!-- The app itself (everything above is only the layout). It runs here, once the page above is in place. -->
-  <script src="app.js?v=c565fff30e"></script>
+  <script src="app.js?v=218b8fc791"></script>
 </body>
 </html>

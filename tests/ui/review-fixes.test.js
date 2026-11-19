@@ -168,7 +168,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
       submitExpense();
     });
     await page.waitForFunction(() => apiInflight === 0 && state.amex.filter(r => r.desc === 'Twin cafe' && !r.pending).length === 2);
-    const names = await page.$$eval('#txListContainer > .tx-row', els => els.map(e => e.getAttribute('aria-label') || e.textContent));
+    const names = await page.$$eval('#txListContainer > .tx-row', els => els.map(e => (e.getAttribute('aria-label') || e.textContent).replace(/, [+−]?£.*$/, '')));   // the name only, not the amount and account
     assert.strictEqual(names[0], 'Edit Twin cafe', JSON.stringify(names));
     const twin = names.indexOf('Edit Twin cafe', 1), between = names.indexOf('Edit Between shop');
     assert.ok(twin === -1 || (between > -1 && twin > between), 'the earlier purchase jumped to the top too: ' + JSON.stringify(names));
@@ -243,7 +243,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     await page.fill('#editTxDesc', 'Twin cafe');
     await page.click('#editTxModal button:has-text("Save")');
     await page.waitForFunction(() => apiInflight === 0 && !state.amex.some(r => r.desc === 'Edit me'));
-    const order = await page.$$eval('#txListContainer > .tx-row', els => els.map(e => Number(e.dataset.row) + ' ' + e.getAttribute('aria-label')));
+    const order = await page.$$eval('#txListContainer > .tx-row', els => els.map(e => Number(e.dataset.row) + ' ' + e.getAttribute('aria-label').replace(/, [+−]?£.*$/, '')));
     assert.strictEqual(order[0], rows[0] + ' Edit Twin cafe', 'the edited entry is not at the top: ' + JSON.stringify(order));
     const twin = order.indexOf(rows[1] + ' Edit Twin cafe'), between = order.indexOf(rows[2] + ' Edit Between shop');
     assert.ok(twin === -1 || (between > -1 && twin > between), 'the identical entry in another row moved too: ' + JSON.stringify(order));
