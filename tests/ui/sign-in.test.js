@@ -208,6 +208,22 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
     await c3.close();
 
     ({ ctx: c3, page: p3 } = await open({ ...phone, viewport: { width: 344, height: 780 } }));
+    await step('fingerprint dialog: a device waiting for approval is tagged, its status line says so, and the tag shows in full at 344px', async () => {
+      await p3.evaluate(() => { localStorage.setItem('pf_passkey_cid', "dev'1"); MOCK.devicePending = true; openPasskeyModal(); });
+      await p3.waitForFunction(() => /waiting for approval/.test(document.getElementById('pkDevices').textContent));
+      const s = await p3.evaluate(() => {
+        const tags = [...document.querySelectorAll('#pkDevices span')];
+        const tag = tags.find(e => e.textContent === 'waiting for approval'), mine = tags.find(e => e.textContent === 'this device');
+        const box = tag.closest('div').getBoundingClientRect(), r = tag.getBoundingClientRect();
+        return { status: document.getElementById('pkStatus').textContent, inside: r.right <= box.right + 0.5 && r.left >= box.left - 0.5,
+          oneLine: Math.abs(r.height - mine.getBoundingClientRect().height) < 1, amber: /amber/.test(tag.className) };
+      });
+      assert.deepStrictEqual(s, { status: 'Fingerprint sign-in on this device is waiting for your approval in the email. No email? Tap "Turn off", then set it up again.', inside: true, oneLine: true, amber: true }, JSON.stringify(s));
+      await p3.evaluate(() => { MOCK.devicePending = false; refreshPasskeyDevices(); });
+      await p3.waitForFunction(() => document.getElementById('pkStatus').textContent === 'Fingerprint sign-in is on for this device.');
+      assert.ok(!/waiting for approval/.test(await p3.textContent('#pkDevices')));
+      await p3.evaluate(() => { closePasskeyModal(); localStorage.removeItem('pf_passkey_cid'); });
+    });
     await step('sign out sheet fits a 344px phone: no button label wraps, even "Tap again"', async () => {
       await seed(p3);
       await p3.evaluate(() => { localStorage.setItem('pf_outbox', JSON.stringify([{ id: 'w3', payload: { merchant: 'x' } }])); openSignOutModal(); });
@@ -412,6 +428,24 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
             asks: MOCK.calls.filter(c => c.action === 'passkeyLoginBegin').length, running: !!passkeyAttempt }));
           assert.ok(s.locked && s.asks === 1 && !s.running, JSON.stringify(s));
         } finally { await p8.evaluate(() => { window.fetch = window.__realFetch; }); }
+      });
+
+      await step('a device still waiting for approval: the lock screen says to tap Approve in the email (not red), keeps the device, no prompt', async () => {
+        try {
+          await countPrompts();
+          await p8.evaluate(() => {
+            localStorage.removeItem('pf_google_id_token'); localStorage.removeItem('pf_session');
+            MOCK.calls.length = 0; MOCK.devicePending = true;
+          });
+          await p8.click('#passkeyUnlockBtn');   // (after the step before, the lock screen doesn't ask by itself)
+          await p8.waitForFunction(() => /switched on yet/.test(document.getElementById('authLockMsg').textContent), null, { timeout: 6000 })
+            .catch(async e => { throw new Error(e.message + ' | ' + await p8.evaluate(() => document.getElementById('authLockMsg').textContent + ' | ' + JSON.stringify(MOCK.calls.map(c => c.action)))); });
+          const s = await p8.evaluate(() => { const m = document.getElementById('authLockMsg');
+            return { locked: lockScreenShowing(), msg: m.textContent, red: /rose/.test(m.className), cid: localStorage.getItem('pf_passkey_cid'),
+              button: !document.getElementById('passkeyUnlockBtn').classList.contains('hidden'), prompts: window.__prompts }; });
+          assert.deepStrictEqual(s, { locked: true, msg: "This device's fingerprint isn't switched on yet. Tap \"Approve\" in the email, then try again.",
+            red: false, cid: 'cid-test', button: true, prompts: 0 });
+        } finally { await p8.evaluate(() => { MOCK.devicePending = false; }); }
       });
 
       await step('Google sign-in still waits for the server to check the account, with "Signing in…" on the lock screen', async () => {

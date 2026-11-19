@@ -95,8 +95,8 @@
   const nextRow = arr => Math.max(3, ...arr.map(r => r.row)) + 1;
   // Refusals carry a code, like the real server's (ERROR CODES in Code.js; tests/private/mock-contract.test.js checks the
   // list matches). MOCK.failWith and MOCK.authError are { code, error }, or just words, which are sent as ERROR.
-  const ERROR_CODES = ['AUTH_REQUIRED', 'AUTH_EXPIRED', 'AUTH_FAILED', 'AUTH_THROTTLED', 'AUTH_PASSKEY_UNKNOWN', 'FORBIDDEN',
-    'AUTH_UNAVAILABLE', 'BUSY', 'STALE', 'SAVED_NO_STATE', 'EXISTS', 'REAUTH'];
+  const ERROR_CODES = ['AUTH_REQUIRED', 'AUTH_EXPIRED', 'AUTH_FAILED', 'AUTH_THROTTLED', 'AUTH_PASSKEY_UNKNOWN', 'AUTH_PASSKEY_PENDING',
+    'FORBIDDEN', 'AUTH_UNAVAILABLE', 'BUSY', 'STALE', 'SAVED_NO_STATE', 'EXISTS', 'REAUTH'];
   const coded = (code, error) => Object.assign(new Error(error), { code });
   const refusal = f => {
     const r = f && typeof f === 'object' ? { ok: false, code: f.code || 'ERROR', error: f.error || f.message } : { ok: false, code: 'ERROR', error: f };
@@ -116,6 +116,7 @@
     latency: Number(q.get('latency') || 300),
     nextLatencies: [],    // consumed one per request before falling back to `latency`
     failNext: 0,          // number of upcoming write calls that should fail
+    devicePending: false, // the fingerprint device waits for approval in the email: sign-in refused, the list says so
     failWith: 'Mock server failure',   // what the server says when it fails one of them (or { code, error })
     failAfterWriteNext: 0,   // number of upcoming write calls that do their work, then reply with an error
     badReplyNext: 0,      // number of upcoming calls that get a page that isn't JSON (like Google's error page)
@@ -229,11 +230,14 @@
     // Remembered for this tab, because Sign out reloads the page (and with it this pretend server).
     passkeyRemove: p => { try { sessionStorage.setItem('mock_passkey_removed', String(p.credentialId)); } catch (e) {} return { passkeys: [] }; },
     // One pretend device. Its id holds a quote, as a check that ids reach the click handler as data, not as script.
-    passkeyList: () => ({ passkeys: [{ id: "dev'1", label: 'Test phone', created: '2026-11-01T10:00:00Z', lastUsed: null }]
+    passkeyList: () => ({ passkeys: [{ id: "dev'1", label: 'Test phone', created: '2026-11-01T10:00:00Z', lastUsed: null, pending: MOCK.devicePending }]
       .concat(q.get('evil') ? [{ id: EVIL2, label: EVIL2, created: '2026-11-02T10:00:00Z', lastUsed: '2026-11-03T10:00:00Z' }] : []) }),
     // Fingerprint sign-in: this pretend server takes any answer from the prompt (the real checks are tested against the
     // real backend in the private suites). A test stands in for the prompt itself with its own navigator.credentials.get.
-    passkeyLoginBegin: () => ({ challenge: 'bW9jay1jaGFsbGVuZ2U', rpId: location.hostname, timeoutMs: 60000 }),
+    passkeyLoginBegin: () => {
+      if (MOCK.devicePending) throw coded('AUTH_PASSKEY_PENDING', 'AUTH_PASSKEY_PENDING: This device is waiting for approval in the email.');
+      return { challenge: 'bW9jay1jaGFsbGVuZ2U', rpId: location.hostname, timeoutMs: 60000 };
+    },
     // As the real server: the very same answer sent again gets back the session it was given, nothing new.
     passkeyLoginFinish: p => {
       const key = JSON.stringify(p), done = MOCK.finished = MOCK.finished || {};

@@ -402,10 +402,14 @@ function deviceLabel() {
   return browser + (os ? ' on ' + os : '') + ' (' + new Date().toLocaleDateString('en-GB') + ')';
 }
 
+// A new device works only once its owner has tapped Approve in the email the server sent (security M1).
+const PASSKEY_PENDING_MSG = 'This device\'s fingerprint isn\'t switched on yet. Tap "Approve" in the email, then try again.';
+const PASSKEY_APPROVE_MSG = 'Nearly done: tap "Approve" in the email just sent to you, then fingerprint works on this device.';
 // Words for the person, not the browser, for the ways a fingerprint step can fail.
 function describePasskeyError(err, auto) {
   const code = err && err.code;
   if (code === 'AUTH_PASSKEY_UNKNOWN') return { text: 'Fingerprint sign-in was turned off for this device. Sign in with Google to set it up again.', error: true, forget: true };
+  if (code === 'AUTH_PASSKEY_PENDING') return { text: PASSKEY_PENDING_MSG, error: false, wait: true };
   if (code === 'AUTH_THROTTLED') return { text: 'Fingerprint sign-in is paused for a few minutes after too many tries. You can still sign in with Google.', error: true };
   // (The lock screen words this itself, since its button reloads; this is for the fingerprint dialog's "Test it now".)
   if (err && err.promptBusy) return { text: 'The fingerprint prompt is stuck. Reload the page and try again.', error: false };
@@ -700,16 +704,21 @@ function dismissPasskeyOffer() {
 
 // ---- the "Fingerprint sign-in" dialog ----
 let pkConfirmId = null, pkConfirmTimer = null;
+const PENDING_LOOK = 'bg-amber-500/15 text-amber-700 dark:text-amber-300';   // waiting for approval in the email
+const PK_MESSAGE_LOOKS = { error: 'bg-rose-500/10 text-rose-600 dark:text-rose-400', ok: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+  wait: PENDING_LOOK, info: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' };
 function setPkMessage(text, kind) {
   const el = document.getElementById('pkMsg');
   if (!el) return;
   el.textContent = text || '';
-  el.className = text ? 'text-xs rounded-xl px-3 py-2 ' + (kind === 'error' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400' : kind === 'ok' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300') : 'hidden';
+  el.className = text ? 'text-xs rounded-xl px-3 py-2 ' + (PK_MESSAGE_LOOKS[kind] || PK_MESSAGE_LOOKS.info) : 'hidden';
 }
 function renderPasskeyModal() {
   const here = passkeyEnrolledHere();
   const supported = passkeySupported();
+  const waiting = here && pkDevices && pkDevices.some(d => d.id === lsGet(PASSKEY_ID_KEY) && d.pending);
   document.getElementById('pkStatus').textContent = !supported ? "This browser can't use fingerprint sign-in."
+    : waiting ? 'Fingerprint sign-in on this device is waiting for your approval in the email. No email? Tap "Turn off", then set it up again.'
     : here ? 'Fingerprint sign-in is on for this device.' : 'Fingerprint sign-in is off for this device.';
   document.getElementById('pkSetupBtn').classList.toggle('hidden', !supported || here);
   document.getElementById('pkTestBtn').classList.toggle('hidden', !here);
@@ -724,7 +733,7 @@ function renderPasskeyDevices() {
   document.getElementById('pkDevices').innerHTML = pkDevices.length ? pkDevices.map(d => `
       <div class="py-2 flex items-center justify-between gap-2 text-xs">
         <div class="min-w-0">
-          <div class="font-medium text-slate-800 dark:text-slate-100 truncate">${esc(d.label)}${d.id === mine ? ' <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">this device</span>' : ''}</div>
+          <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0"><span class="font-medium text-slate-800 dark:text-slate-100 truncate min-w-0">${esc(d.label)}</span>${d.id === mine ? '<span class="text-xs px-1.5 py-0.5 rounded-full whitespace-nowrap bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">this device</span>' : ''}${d.pending ? `<span class="text-xs px-1.5 py-0.5 rounded-full whitespace-nowrap ${PENDING_LOOK}">waiting for approval</span>` : ''}</div>
           <div class="text-xs text-slate-500 dark:text-slate-400">Added ${esc(new Date(d.created).toLocaleDateString('en-GB'))}${d.lastUsed ? ' · last used ' + esc(relTime(new Date(d.lastUsed).getTime())) : ''}</div>
         </div>
         <button data-id="${esc(d.id)}" data-action="removePasskeyDevice" class="h-10 px-3 rounded-lg text-xs font-semibold ${pkConfirmId === d.id ? 'bg-rose-500 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}">${pkConfirmId === d.id ? 'Tap again' : 'Remove'}</button>
@@ -736,6 +745,7 @@ async function refreshPasskeyDevices() {
   try {
     pkDevices = (await apiCall('passkeyList', {})).passkeys;
     renderPasskeyDevices();
+    renderPasskeyModal();   // the status line says if this device still waits for approval
   } catch (err) {
     pkDevices = null;
     list.innerHTML = '<div class="py-3 text-xs text-slate-500 dark:text-slate-400">Couldn\'t load the device list. Sign in again to see it.</div>';
@@ -760,7 +770,7 @@ async function runPasskeySetup() {
     const done = await setUpPasskey();
     if (done) {
       document.getElementById('passkeyOffer').classList.add('hidden');
-      setPkMessage('Set up! Tap "Test it now" to try it. (You\'ll get an email about it too.)', 'ok');
+      setPkMessage(PASSKEY_APPROVE_MSG, 'wait');
       renderPasskeyModal();
       refreshPasskeyDevices();
     }
@@ -784,7 +794,7 @@ async function testPasskey() {
     // (Not the lock screen's words for it: this dialog has no "Unlock with fingerprint" button.)
     const d = err && err.finishLost ? { text: "Your fingerprint was accepted, but the reply didn't arrive. Try again in a moment." } : describePasskeyError(err, false);
     if (d.forget) { lsDel(PASSKEY_ID_KEY); renderPasskeyModal(); }
-    setPkMessage(d.text, 'error');
+    setPkMessage(d.text, d.wait ? 'wait' : 'error');
   } finally {
     btn.disabled = false;
   }
