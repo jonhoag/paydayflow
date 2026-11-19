@@ -66,6 +66,8 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   const UNDO_OWED = ['lee Undo cafe', 'jo Undo bus'];
   const sheetOwed = () => page.evaluate(n => MOCK.db.checking.filter(r => n.includes(r.desc)).map(r => r.need), UNDO_OWED);
   const toastHidden = () => page.evaluate(() => document.getElementById('toast').classList.contains('hidden'));
+  // Undo of "All paid back" is one save: settleAllNeeds with setNeed: true (never a tick per row).
+  const reticks = async () => (await calls(page, 'settleAllNeeds')).filter(c => c.setNeed === true);
   await step('"All paid back" says what it did, with Undo; Undo marks them owed again, on screen and in the sheet', async () => {
     await page.evaluate(names => {
       const ch = MOCK.db.checking;
@@ -74,7 +76,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
       forceSyncSheet();
     }, UNDO_OWED);
     await page.waitForFunction(() => apiInflight === 0 && state.checking.filter(r => r.need).length === 2);
-    const toggles = (await calls(page, 'toggleNeedFlag')).length;
+    const toggles = (await calls(page, 'toggleNeedFlag')).length, before = (await reticks()).length;
     await page.click('#btnSettleAll');
     assert.deepStrictEqual(await toastParts(page), ['Marked 2 items paid back', 'Undo']);
     await page.waitForFunction(() => apiInflight === 0);
@@ -83,20 +85,22 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     assert.strictEqual(await owedCount(page), 2, 'Undo did not show them owed at once');
     await page.waitForFunction(() => apiInflight === 0);
     assert.deepStrictEqual(await sheetOwed(), [true, true], 'Undo did not mark them owed in the sheet');
-    const sent = (await calls(page, 'toggleNeedFlag')).slice(toggles);
-    assert.deepStrictEqual(sent.map(t => [t.setNeed, t.expect && t.expect.desc]).sort(), UNDO_OWED.map(d => [true, d]).sort(), JSON.stringify(sent));
+    const sent = (await reticks()).slice(before);
+    assert.strictEqual(sent.length, 1, 'Undo should be one save: ' + JSON.stringify(sent));
+    assert.deepStrictEqual(sent[0].expect.map(e => e.desc).sort(), UNDO_OWED.slice().sort(), JSON.stringify(sent));
+    assert.strictEqual((await calls(page, 'toggleNeedFlag')).length, toggles, 'Undo also ticked rows one by one');
     assert.strictEqual(await owedCount(page), 2);
   });
   await step('"All paid back" that didn\'t go through: Undo tapped before the reply sends nothing', async () => {
     const from = errors.length;
     try {
-      const toggles = (await calls(page, 'toggleNeedFlag')).length;
+      const toggles = (await calls(page, 'toggleNeedFlag')).length, before = (await reticks()).length;
       await page.evaluate(() => { MOCK.failNext = 1; MOCK.nextLatencies = [600]; });
       await page.click('#btnSettleAll');
       await page.click('#toastAction');   // while "All paid back" is still on its way
       await page.waitForFunction(() => apiInflight === 0 && MOCK.calls.filter(c => c.action === 'getCachedSheetState' && c.end).length > 0);
       await page.waitForTimeout(300);
-      assert.strictEqual((await calls(page, 'toggleNeedFlag')).length, toggles, 'Undo sent ticks for a change that never happened');
+      assert.strictEqual((await calls(page, 'toggleNeedFlag')).length + (await reticks()).length, toggles + before, 'Undo sent ticks for a change that never happened');
       assert.deepStrictEqual(await sheetOwed(), [true, true]);
     } finally { await resetFailures(page); dropExpectedSyncErrors(from); }
   });
@@ -124,7 +128,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     await page.waitForFunction(() => apiInflight === 0);
     assert.deepStrictEqual(await sheetOwed(), [true, true], 'the Undo that came back did not work');
   });
-  await step('Undo of "All paid back" carries on past a row changed on another device meanwhile', async () => {
+  await step('Undo of "All paid back" with a row changed on another device meanwhile ticks none, and shows the sheet', async () => {
     await page.waitForFunction(() => apiInflight === 0);
     await page.click('#btnSettleAll');
     await page.waitForFunction(() => apiInflight === 0);
@@ -132,8 +136,8 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     await page.evaluate(d => { MOCK.db.checking.find(r => r.desc === d).amount = 99; }, UNDO_OWED[1]);
     await page.click('#toastAction');
     await page.waitForFunction(() => apiInflight === 0 && MOCK.calls.filter(c => c.action === 'getCachedSheetState').slice(-1)[0].end);
-    assert.strictEqual((await calls(page, 'toggleNeedFlag')).slice(-2)[0].expect.desc, UNDO_OWED[1], 'the changed row was not sent first, so this proves nothing');
-    assert.deepStrictEqual(await sheetOwed(), [true, false], 'the row after the refused one was not ticked again');
+    assert.deepStrictEqual(await sheetOwed(), [false, false], 'a row was ticked again although another had changed');
+    assert.strictEqual(await owedCount(page), 0, 'the screen still shows them owed after the refusal');
     dropExpectedStale();
     await page.evaluate(d => { const r = MOCK.db.checking.find(x => x.desc === d); r.amount = 5.5; r.need = true; forceSyncSheet(); }, UNDO_OWED[1]);
     await page.waitForFunction(() => apiInflight === 0);
