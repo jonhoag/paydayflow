@@ -179,7 +179,7 @@
       const rows = (p.rows || []).map(Number);
       if (rows.length && (!Array.isArray(p.expect) || p.expect.length !== rows.length)) throw coded('STALE', 'STALE: This entry was changed on another device.');
       const its = rows.map((row, i) => { const it = d.checking.find(r => r.row === row); checkExpect(it, { expect: p.expect[i] }); return it; });
-      its.forEach(it => { it.need = false; });
+      its.forEach(it => { it.need = p.setNeed === true; });   // setNeed: true = Undo of "All paid back"
       return snapshot(d, n);
     },
     updateBudgetRow: (p, d, n) => { const it = d.budgets.find(b => b.row === Number(p.row)); checkExpect(it, p, 'name'); if (it) it.amount = Number(p.newAmount); return snapshot(d, n); },
