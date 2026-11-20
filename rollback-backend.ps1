@@ -8,8 +8,8 @@
 # "git revert -m 1 <merge commit>" if the page itself needs to go back too.
 param(
   [Parameter(Mandatory = $true)][int]$Version,
-  # The live "Github Hosted" deployment.
-  [string]$DeploymentId = 'AKfycbwiuLsruSCA-k2EeMn8bH6AZygi0ISA2WDTB_UJmetDOJdU6S4qLE21WmjyJK1ktCMrUA'
+  # The live web app deployment (the project made on 2026-11-20).
+  [string]$DeploymentId = 'AKfycbzyLGUviP0rnBXDDuNb9cPbWa6tkQXnNC0AR81YSDuxF2EoHE3wXQn596YoLmr8m7Ki'
 )
 
 $ErrorActionPreference = 'Stop'

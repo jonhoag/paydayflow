@@ -26,8 +26,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# The "Github Hosted V12" deployment; its /exec URL is hard-coded in index.html, so it is redeployed in place.
-$liveDeploymentId = 'AKfycbwiuLsruSCA-k2EeMn8bH6AZygi0ISA2WDTB_UJmetDOJdU6S4qLE21WmjyJK1ktCMrUA'
+# The live web app deployment (the project made on 2026-11-20, after the first one began holding requests back); its
+# /exec URL is hard-coded in app.js and index.html, so it is redeployed in place.
+$liveDeploymentId = 'AKfycbzyLGUviP0rnBXDDuNb9cPbWa6tkQXnNC0AR81YSDuxF2EoHE3wXQn596YoLmr8m7Ki'
 if (-not $DeploymentId) { $DeploymentId = $liveDeploymentId }
 $root = $PSScriptRoot
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
