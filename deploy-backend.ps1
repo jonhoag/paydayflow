@@ -26,11 +26,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-# The live web app deployment (the project made on 2026-11-20, after the first one began holding requests back); its
-# /exec URL is hard-coded in app.js and index.html, so it is redeployed in place.
-$liveDeploymentId = 'AKfycbzyLGUviP0rnBXDDuNb9cPbWa6tkQXnNC0AR81YSDuxF2EoHE3wXQn596YoLmr8m7Ki'
-if (-not $DeploymentId) { $DeploymentId = $liveDeploymentId }
 $root = $PSScriptRoot
+# The live web app deployment: the one whose /exec URL the website uses (app.js; index.html's policy must match), so it
+# is redeployed in place.
+$liveDeploymentId = [regex]::Match([IO.File]::ReadAllText("$root\app.js"), "APPS_SCRIPT_EXEC_URL = 'https://script\.google\.com/macros/s/([\w-]+)/exec'").Groups[1].Value
+if (-not $liveDeploymentId) { throw 'Could not find APPS_SCRIPT_EXEC_URL in app.js. Nothing was pushed.' }
+if (-not $DeploymentId) { $DeploymentId = $liveDeploymentId }
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $liveScriptId = (Get-Content "$root\.clasp.json" -Raw | ConvertFrom-Json).scriptId
 $recordFile = Join-Path $root '.deployed-backend.json'
@@ -79,6 +80,8 @@ function Assert-LiveUnchanged {
   $dir = Get-LiveCopy
   $live = Get-Fingerprints $dir
   $changed = @($pushedFiles | Where-Object { $live[$_] -ne $recorded.files.$_ })
+  # A file this script never pushes (say a helper added by hand for a one-off job) would stay on live unseen.
+  $changed += @(Get-ChildItem $dir -File | Where-Object { $_.Name -ne '.clasp.json' -and $pushedFiles -notcontains $_.Name } | ForEach-Object { $_.Name + ' (not ours)' })
   if ($changed.Count) {
     throw ('The live script has changed since the last deploy from this PC (' + ($changed -join ', ') + '), for example in the Apps Script editor. Nothing was pushed. The live copy is in ' + $dir + ' for comparison.')
   }
