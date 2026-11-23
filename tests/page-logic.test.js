@@ -145,7 +145,7 @@ test('a damaged saved month is passed over', () => {
 // ---- splitPersonKey: a name typed for a share, as the sheet keeps it (Owed reads the first word as the person) ----
 test('a two-word name is kept as one person on Owed', () => {
   assert.strictEqual(splitPersonKey('  Mary   Jane '), 'mary-jane');
-  same(owedPerson(splitPersonKey('Mary Jane') + ' Tesco'), { key: 'mary-jane', name: 'Mary-jane', what: 'Tesco' });
+  same(owedPerson(splitPersonKey('Mary Jane') + ' Tesco'), { key: 'mary-jane', name: 'Mary-Jane', what: 'Tesco' });
 });
 test('a one-word name is just lower-cased; nothing typed is nothing', () => {
   assert.strictEqual(splitPersonKey(' Sam '), 'sam');
@@ -155,24 +155,30 @@ test('a one-word name is just lower-cased; nothing typed is nothing', () => {
 
 // ---- postReadToServer: a read with no reply in time is sent once more (a stuck request at Google, 2026-11-20) ----
 // Runs the real function against a stand-in postToServer that plays back the given outcomes in turn, on a pretend
-// clock: a try that got no reply in time uses up its whole time limit, plus `lateMs` if its limit ran out late.
+// clock: a try that got no reply in time uses up its whole time limit, plus `lateMs` if its limit ran out late (a
+// negative lateMs: the phone's clock was put back meanwhile).
+// A pretend clock for the sandbox: `Date` to hand it, `at(ms)` / `advance(ms)` to move it.
+function fakeClock() {
+  const c = { now: 1e6 };
+  return { Date: { now: () => c.now }, at: ms => { c.now = 1e6 + ms; }, advance: ms => { c.now += ms; } };
+}
 function readWith(outcomes) {
   const tries = [];
-  const clock = { now: 1e6 };
-  const box = { tries, outcomes: outcomes.slice(), Date: { now: () => clock.now } };
+  const clock = fakeClock();
+  const box = { tries, outcomes: outcomes.slice(), Date: clock.Date, advance: clock.advance };
   vm.createContext(box);
   vm.runInContext(['REQUEST_TIMEOUT_MS', 'READ_FIRST_TRY_MS', 'postReadToServer'].map(appPart).join('\n') + `
     async function postToServer(body, opts) {
       tries.push({ body, timeoutMs: opts && opts.timeoutMs });
       const { result, lateMs } = outcomes.shift();
       if (Object.prototype.toString.call(result) === '[object Error]') {   // made outside this sandbox
-        if (result.timedOut) this.advance(opts.timeoutMs + (lateMs || 0));
+        if (result.timedOut) advance(opts.timeoutMs + (lateMs || 0));
         throw result;
       }
       return result;
     }
     this.run = body => postReadToServer(body);
-    this.limits = { first: READ_FIRST_TRY_MS, all: REQUEST_TIMEOUT_MS };`, Object.assign(box, { advance: ms => { clock.now += ms; } }));
+    this.limits = { first: READ_FIRST_TRY_MS, all: REQUEST_TIMEOUT_MS };`, box);
   return { run: box.run, tries, limits: box.limits };
 }
 const noReplyInTime = (afterSleep, lateMs) => ({ lateMs, result: Object.assign(new Error('The server took too long to respond.'), { network: true, timedOut: true, afterSleep: !!afterSleep }) });
@@ -196,6 +202,11 @@ const body = { action: 'getCachedSheetState', payload: { sheetName: 'X' } };
     const r = readWith([noReplyInTime(false, 2500), answered]);
     assert.strictEqual(await r.run(body), reply);
     same(r.tries.map(t => t.timeoutMs), [r.limits.first, r.limits.all - r.limits.first - 2500]);
+  });
+  await test('the phone clock put back during the first try: the second still waits no longer than usual', async () => {
+    const r = readWith([noReplyInTime(false, -60000), answered]);
+    assert.strictEqual(await r.run(body), reply);
+    same(r.tries.map(t => t.timeoutMs), [r.limits.first, r.limits.all - r.limits.first]);
   });
   await test('a read with no reply twice fails after the second try (not a third)', async () => {
     const r = readWith([noReplyInTime(), noReplyInTime(), answered]);
@@ -232,12 +243,12 @@ const body = { action: 'getCachedSheetState', payload: { sheetName: 'X' } };
   // The real functions, with a pretend clock and timers (run only when a test says so) and a fetch that never answers
   // unless told to. So a test can play out exactly what happens when the phone wakes.
   function wire() {
-    const clock = { now: 1e6 };
+    const clock = fakeClock();
     const timers = [];
     const fetches = [];
     const box = {
-      Date: { now: () => clock.now }, AbortController, JSON, Error,
-      setTimeout: (fn, ms) => { const t = { fn, at: clock.now + ms, done: false }; timers.push(t); return t; },
+      Date: clock.Date, AbortController,
+      setTimeout: (fn, ms) => { const t = { fn, at: clock.Date.now() + ms, done: false }; timers.push(t); return t; },
       clearTimeout: t => { if (t) t.done = true; },
       fetch: (url, opts) => new Promise((resolve, reject) => {
         const f = { answer: text => resolve({ text: async () => text }) };
@@ -252,11 +263,11 @@ const body = { action: 'getCachedSheetState', payload: { sheetName: 'X' } };
     const fire = t => { if (!t.done) { t.done = true; t.fn(); } };
     return {
       ...box.api, timers, fetches,
-      at: ms => { clock.now = 1e6 + ms; },
-      // the request's own time limit (the first timer it set)
+      at: clock.at,
+      // the request's own time limit: the first timer postToServer sets (it sets no other before it)
       ownLimit: () => timers[0],
       // every timer due by now, in order
-      runDue: () => timers.filter(t => !t.done && t.at <= clock.now).sort((a, b) => a.at - b.at).forEach(fire),
+      runDue: () => timers.filter(t => !t.done && t.at <= clock.Date.now()).sort((a, b) => a.at - b.at).forEach(fire),
       fire,
     };
   }

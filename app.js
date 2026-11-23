@@ -1164,7 +1164,8 @@ async function postReadToServer(bodyObj) {
     return await postToServer(bodyObj, { timeoutMs: READ_FIRST_TRY_MS });
   } catch (err) {
     if (!err || !err.timedOut || err.afterSleep) throw err;
-    const left = REQUEST_TIMEOUT_MS - (Date.now() - sentAt);
+    // (never more than the usual second wait, even if the phone's clock was put back meanwhile)
+    const left = Math.min(REQUEST_TIMEOUT_MS - READ_FIRST_TRY_MS, REQUEST_TIMEOUT_MS - (Date.now() - sentAt));
     if (left <= 0) throw err;
     return postToServer(bodyObj, { timeoutMs: left });
   }
@@ -2303,7 +2304,7 @@ async function postReadToServer(bodyObj) {
     }
     function owedPerson(desc) {
       const parts = String(desc || '').trim().split(/\s+/);
-      return { key: (parts[0] || '').toLowerCase(), name: displayName(parts[0] || ''), what: displayName(parts.slice(1).join(' ')) || displayName(desc) };
+      return { key: (parts[0] || '').toLowerCase(), name: displayName(parts[0] || '').replace(/-([a-z])/g, (m, c) => '-' + c.toUpperCase()), what: displayName(parts.slice(1).join(' ')) || displayName(desc) };
     }
     function groupOwed(pending) {
       const groups = Object.create(null);   // keyed by sheet text: "constructor" is just a name here
@@ -2726,7 +2727,7 @@ async function postReadToServer(bodyObj) {
     }
 
     function togglePersonChip(personKey) {
-      const idx = customSplitEntries.findIndex(e => e.person.toLowerCase() === personKey.toLowerCase());
+      const idx = customSplitEntries.findIndex(e => splitPersonKey(e.person) === splitPersonKey(personKey));
       if (idx > -1) {
         customSplitEntries.splice(idx, 1);
       } else {
@@ -2781,7 +2782,7 @@ async function postReadToServer(bodyObj) {
     // add up to the amount.
     function applyEqualGroupSplit() {
       autoEqualActive = true;
-      const isMarcus = e => e.person.toLowerCase() === 'marcus';
+      const isMarcus = e => splitPersonKey(e.person) === 'marcus';
       const people = customSplitEntries.filter(e => !isMarcus(e));
       const marcus = customSplitEntries.filter(isMarcus).reduce((a, e) => a + (e.amount || 0), 0);
       const pence = Math.max(0, Math.round(((amountIn('inpAmount') || 0) - marcus) * 100));
@@ -2803,7 +2804,7 @@ async function postReadToServer(bodyObj) {
       PEOPLE.concat('marcus').forEach(p => {
         const btn = document.getElementById('chip_' + p);
         if (!btn) return;
-        btn.className = customSplitEntries.some(e => e.person.toLowerCase() === p) ? CHIP_ON : chipOff(p);
+        btn.className = customSplitEntries.some(e => splitPersonKey(e.person) === p) ? CHIP_ON : chipOff(p);
       });
 
       const container = document.getElementById('dynamicSplitRows');
