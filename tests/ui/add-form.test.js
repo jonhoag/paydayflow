@@ -135,6 +135,15 @@ uiSuite(async ({ watch, open, step }) => {
       assert.deepStrictEqual(await page.evaluate(() => buildSplitData().splits), []);
     } finally { await resetAddForm(); }
   });
+  await step('group split: a two-word name is saved as one person ("Mary Jane" -> mary-jane), so Owed groups it right', async () => {
+    try {
+      await page.evaluate(() => openAddModal());
+      await page.fill('#inpAmount', '20');
+      await page.evaluate(() => selectSplit('custom'));
+      await page.fill('#dynamicSplitRows .split-name', ' Mary  Jane ');
+      assert.deepStrictEqual(await page.evaluate(() => buildSplitData().splits.map(s => s.person)), ['mary-jane']);
+    } finally { await resetAddForm(); }
+  });
   await step('group split: Marcus is never given a share by itself; without "Include me" the shares add up exactly', async () => {
     try {
       const shares = () => page.$$eval('#dynamicSplitRows .split-amt', i => i.map(x => x.value));

@@ -10,8 +10,8 @@ const vm = require('vm');
 const assert = require('assert');
 const { step: test, finish } = require('./lib/steps').makeSteps();
 
-const UNDER_TEST = ['parseAmount', 'equalShares', 'getNextMonthName', 'failureKind', 'serverError', 'describePasskeyError', 'sheetFigures', 'usableMonth'];
-const NEEDS = ['MONTHS', 'isConnectionError', 'ACCTS', 'MONTH_LISTS', 'sumAmounts'];
+const UNDER_TEST = ['parseAmount', 'equalShares', 'getNextMonthName', 'failureKind', 'serverError', 'describePasskeyError', 'sheetFigures', 'usableMonth', 'splitPersonKey', 'owedPerson'];
+const NEEDS = ['displayName', 'MONTHS', 'isConnectionError', 'ACCTS', 'MONTH_LISTS', 'sumAmounts'];
 
 const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
 // One part of app.js by its name, as written there: a function (from "function name(" to the closing brace at the
@@ -25,7 +25,7 @@ function appPart(name) {
 const sandbox = {};
 vm.createContext(sandbox);
 vm.runInContext(NEEDS.concat(UNDER_TEST).map(appPart).join('\n') + '\nthis.api = { ' + UNDER_TEST.join(', ') + ' };', sandbox);
-const { parseAmount, equalShares, getNextMonthName, failureKind, serverError, describePasskeyError, sheetFigures, usableMonth } = sandbox.api;
+const { parseAmount, equalShares, getNextMonthName, failureKind, serverError, describePasskeyError, sheetFigures, usableMonth, splitPersonKey, owedPerson } = sandbox.api;
 
 const same = (a, b) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), b);   // arrays made inside the sandbox
 
@@ -142,24 +142,46 @@ test('a damaged saved month is passed over', () => {
   assert.strictEqual(usableMonth({ availableMonths: 'x' }), false);
 });
 
+// ---- splitPersonKey: a name typed for a share, as the sheet keeps it (Owed reads the first word as the person) ----
+test('a two-word name is kept as one person on Owed', () => {
+  assert.strictEqual(splitPersonKey('  Mary   Jane '), 'mary-jane');
+  same(owedPerson(splitPersonKey('Mary Jane') + ' Tesco'), { key: 'mary-jane', name: 'Mary-Jane', what: 'Tesco' });
+});
+test('a one-word name is just lower-cased; nothing typed is nothing', () => {
+  assert.strictEqual(splitPersonKey(' Sam '), 'sam');
+  assert.strictEqual(splitPersonKey(''), '');
+  assert.strictEqual(splitPersonKey(undefined), '');
+});
+
 // ---- postReadToServer: a read with no reply in time is sent once more (a stuck request at Google, 2026-11-20) ----
-// Runs the real function against a stand-in postToServer that plays back the given outcomes in turn.
+// Runs the real function against a stand-in postToServer that plays back the given outcomes in turn, on a pretend
+// clock: a try that got no reply in time uses up its whole time limit, plus `lateMs` if its limit ran out late (a
+// negative lateMs: the phone's clock was put back meanwhile).
+// A pretend clock for the sandbox: `Date` to hand it, `at(ms)` / `advance(ms)` to move it.
+function fakeClock() {
+  const c = { now: 1e6 };
+  return { Date: { now: () => c.now }, at: ms => { c.now = 1e6 + ms; }, advance: ms => { c.now += ms; } };
+}
 function readWith(outcomes) {
   const tries = [];
-  const box = { tries, outcomes: outcomes.slice() };
+  const clock = fakeClock();
+  const box = { tries, outcomes: outcomes.slice(), Date: clock.Date, advance: clock.advance };
   vm.createContext(box);
   vm.runInContext(['REQUEST_TIMEOUT_MS', 'READ_FIRST_TRY_MS', 'postReadToServer'].map(appPart).join('\n') + `
     async function postToServer(body, opts) {
       tries.push({ body, timeoutMs: opts && opts.timeoutMs });
-      const { result } = outcomes.shift();
-      if (Object.prototype.toString.call(result) === '[object Error]') throw result;   // made outside this sandbox
+      const { result, lateMs } = outcomes.shift();
+      if (Object.prototype.toString.call(result) === '[object Error]') {   // made outside this sandbox
+        if (result.timedOut) advance(opts.timeoutMs + (lateMs || 0));
+        throw result;
+      }
       return result;
     }
     this.run = body => postReadToServer(body);
     this.limits = { first: READ_FIRST_TRY_MS, all: REQUEST_TIMEOUT_MS };`, box);
   return { run: box.run, tries, limits: box.limits };
 }
-const noReplyInTime = afterSleep => ({ result: Object.assign(new Error('The server took too long to respond.'), { network: true, timedOut: true, afterSleep: !!afterSleep }) });
+const noReplyInTime = (afterSleep, lateMs) => ({ lateMs, result: Object.assign(new Error('The server took too long to respond.'), { network: true, timedOut: true, afterSleep: !!afterSleep }) });
 const reply = { ok: true, data: { activeMonth: 'X' } };
 const answered = { result: reply };
 const body = { action: 'getCachedSheetState', payload: { sheetName: 'X' } };
@@ -175,6 +197,16 @@ const body = { action: 'getCachedSheetState', payload: { sheetName: 'X' } };
     assert.strictEqual(await r.run(body), reply);
     same(r.tries.map(t => t.timeoutMs), [r.limits.first, r.limits.all - r.limits.first]);
     assert.strictEqual(r.tries[1].body, body, 'the very same request is sent again');
+  });
+  await test('a first time limit that ran out a little late leaves the second try only what is left of the old limit', async () => {
+    const r = readWith([noReplyInTime(false, 2500), answered]);
+    assert.strictEqual(await r.run(body), reply);
+    same(r.tries.map(t => t.timeoutMs), [r.limits.first, r.limits.all - r.limits.first - 2500]);
+  });
+  await test('the phone clock put back during the first try: the second still waits no longer than usual', async () => {
+    const r = readWith([noReplyInTime(false, -60000), answered]);
+    assert.strictEqual(await r.run(body), reply);
+    same(r.tries.map(t => t.timeoutMs), [r.limits.first, r.limits.all - r.limits.first]);
   });
   await test('a read with no reply twice fails after the second try (not a third)', async () => {
     const r = readWith([noReplyInTime(), noReplyInTime(), answered]);
@@ -205,6 +237,89 @@ const body = { action: 'getCachedSheetState', payload: { sheetName: 'X' } };
   test('only the reads (SHEET_READS) go through postReadToServer; saves are sent once with the full wait', () => {
     assert.ok(/SHEET_READS\.includes\(action\) \? postReadToServer\(/.test(app), 'apiCallNow picks by SHEET_READS');
     assert.strictEqual(app.split('postReadToServer(').length - 1, 2, 'defined once and called once');
+  });
+
+  // ---- postToServer + dropOverdueRequests: when a given-up request counts as "after the phone slept" ----
+  // The real functions, with a pretend clock and timers (run only when a test says so) and a fetch that never answers
+  // unless told to. So a test can play out exactly what happens when the phone wakes.
+  function wire() {
+    const clock = fakeClock();
+    const timers = [];
+    const fetches = [];
+    const box = {
+      Date: clock.Date, AbortController,
+      setTimeout: (fn, ms) => { const t = { fn, at: clock.Date.now() + ms, done: false }; timers.push(t); return t; },
+      clearTimeout: t => { if (t) t.done = true; },
+      fetch: (url, opts) => new Promise((resolve, reject) => {
+        const f = { answer: text => resolve({ text: async () => text }) };
+        fetches.push(f);
+        opts.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      }),
+    };
+    vm.createContext(box);
+    vm.runInContext(['APPS_SCRIPT_EXEC_URL', 'REQUEST_TIMEOUT_MS', 'liveRequests', 'DROP_OVERDUE_AFTER_MS', 'LATE_TIMER_MS',
+      'chainAbort', 'dropOverdueRequests', 'postToServer'].map(appPart).join('\n') +
+      '\nthis.api = { postToServer, dropOverdueRequests, DROP_OVERDUE_AFTER_MS, LATE_TIMER_MS };', box);
+    const fire = t => { if (!t.done) { t.done = true; t.fn(); } };
+    return {
+      ...box.api, timers, fetches,
+      at: clock.at,
+      // the request's own time limit: the first timer postToServer sets (it sets no other before it)
+      ownLimit: () => timers[0],
+      // every timer due by now, in order
+      runDue: () => timers.filter(t => !t.done && t.at <= clock.Date.now()).sort((a, b) => a.at - b.at).forEach(fire),
+      fire,
+    };
+  }
+  const tick = () => new Promise(r => setImmediate(r));
+  // Settled at once (a promise given up before the test looks at it must not count as unhandled).
+  const send = (w, opts) => { const p = w.postToServer({}, opts); return { p: p.then(v => ({ v }), e => ({ e })) }; };
+  const given = async (w, r) => { const { e } = await r.p; assert.ok(e, 'it should have been given up'); return e; };
+  const answeredWith = async r => { const { v, e } = await r.p; assert.ok(!e, e && e.message); return v; };
+
+  await test('a time limit that runs out on time is an ordinary wait (the read may be sent again)', async () => {
+    const w = wire();
+    const p = send(w, { timeoutMs: 15000 });
+    w.at(15000); w.runDue(); await tick();
+    const e = await given(w, p);
+    assert.strictEqual(e.timedOut, true);
+    assert.strictEqual(e.afterSleep, false);
+  });
+  await test('a time limit that ran out over LATE_TIMER_MS late counts as after the phone slept', async () => {
+    const w = wire();
+    const p = send(w, { timeoutMs: 15000 });
+    w.at(15000 + w.LATE_TIMER_MS + 1); w.fire(w.ownLimit()); await tick();
+    assert.strictEqual((await given(w, p)).afterSleep, true);
+  });
+  await test('waking just past the limit: coming back marks it overdue at once, so its own limit running out next counts as after sleep', async () => {
+    const w = wire();
+    const p = send(w, { timeoutMs: 15000 });
+    w.at(15500);
+    w.dropOverdueRequests();        // the page comes back into view first...
+    w.fire(w.ownLimit());           // ...then the request's own limit, already past, runs out (before the 1.5 s drop)
+    await tick();
+    const e = await given(w, p);
+    assert.strictEqual(e.timedOut, true);
+    assert.strictEqual(e.afterSleep, true, 'not an ordinary wait: the read must not be sent again');
+  });
+  await test('coming back, a reply that arrives within DROP_OVERDUE_AFTER_MS still lands', async () => {
+    const w = wire();
+    const p = send(w, { timeoutMs: 15000 });
+    w.at(15500);
+    w.dropOverdueRequests();
+    w.fetches[0].answer('{"ok":true,"data":1}');
+    const got = await answeredWith(p);
+    assert.strictEqual(got.ok, true);
+    w.at(15500 + w.DROP_OVERDUE_AFTER_MS); w.runDue();   // the drop finds it already finished: nothing to give up
+  });
+  await test('coming back, a request still within its limit is left alone', async () => {
+    const w = wire();
+    const p = send(w, { timeoutMs: 15000 });
+    w.at(5000);
+    w.dropOverdueRequests();
+    w.at(5000 + w.DROP_OVERDUE_AFTER_MS); w.runDue();
+    w.fetches[0].answer('{"ok":true}');
+    assert.strictEqual((await answeredWith(p)).ok, true);
   });
   finish();
 })();
