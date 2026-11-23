@@ -1710,7 +1710,7 @@ async function postReadToServer(bodyObj) {
     }
     function openBudgetFormForRow(row) {
       const b = state.budgets.find(x => x.row === row && !x.pending);
-      if (b) openBudgetForm(b.row, b.name, b.amount, b.isRecurring);
+      if (b) openBudgetForm(b.row, b.name, b.amount, b.isRecurring, b.originalBudget);
     }
 
     // Display only: a real minus sign (−), which lines up with + and digits better than a hyphen.
@@ -2111,14 +2111,19 @@ async function postReadToServer(bodyObj) {
     // What the bill form showed when it opened: a save or delete from it is checked against this, not against whatever
     // the screen holds by the time you tap (the figures can refresh while the form is open).
     let budFormExpect = null;
+    // A paid bill being edited (shown as 0, with its amount remembered): it is saved as still paid, so renaming it or
+    // changing its monthly setting doesn't un-pay it. Restore is what un-pays a bill.
+    let budFormPaid = false;
     // The bill form is the sheet #budgetModal: "Add bill" or "Edit <name>" with Delete. The cursor goes to Amount when
-    // it is empty (Add, or Restore of a paid bill whose amount wasn't remembered), like Add Transaction.
-    function openBudgetForm(row = '', name = '', amount = '', isRecurring = false) {
+    // it is empty (Add, or Restore of a paid bill whose amount wasn't remembered), like Add Transaction. A paid bill
+    // shows the amount it would go back to (`restoreAmount`, its originalBudget).
+    function openBudgetForm(row = '', name = '', amount = '', isRecurring = false, restoreAmount = 0) {
       ['inpBudAmt', 'inpBudName'].forEach(clearFieldError);   // filled in code below, which clears no old message by itself
       budFormExpect = row ? { name, amount: Number(amount) } : null;
+      budFormPaid = !!row && Number(amount || 0) === 0 && Number(restoreAmount || 0) !== 0;
       document.getElementById('editBudRow').value = row;
       document.getElementById('inpBudName').value = name;
-      const numAmt = Number(amount || 0);
+      const numAmt = budFormPaid ? Number(restoreAmount) : Number(amount || 0);
       document.getElementById('inpBudAmt').value = numAmt !== 0 ? Math.abs(numAmt) : '';
       setBudFormType(row ? isRecurring : false);
       setBudFormSign(numAmt > 0 ? 1 : -1);
@@ -2140,6 +2145,7 @@ async function postReadToServer(bodyObj) {
     function closeBudgetForm() {
       document.getElementById('budgetModal').classList.add('hidden');
       budFormExpect = null;
+      budFormPaid = false;
     }
 
     // Shows a new bill straight away (marked pending until the server confirms it and gives it a real row). A `paid`
@@ -2167,13 +2173,14 @@ async function postReadToServer(bodyObj) {
       const expect = row ? budFormExpect : null;
       if (row && !expect) return;
       const isRecurring = budFormIsRecurring;
+      const paid = !!row && budFormPaid;
       closeBudgetForm();
       mutate('the bill', () => {
         if (!row) return takeOut(state.budgets, addBudgetOptimistic(name, signedAmt, isRecurring));
         const existing = findBudget(Number(row), expect);
         if (!existing) return;
         const undo = keepFields(existing, ['name', 'amount', 'originalBudget', 'isRecurring']);
-        Object.assign(existing, { name, amount: signedAmt, originalBudget: signedAmt, isRecurring });
+        Object.assign(existing, { name, amount: paid ? 0 : signedAmt, originalBudget: signedAmt, isRecurring });
         return undo;
       }, () => apiCall('saveBudgetItem', {
         sheetName: activeMonth,
@@ -2181,7 +2188,8 @@ async function postReadToServer(bodyObj) {
         name,
         amount: signedAmt,
         isRecurring,
-        expect
+        expect,
+        paid
       }));
     }
 
