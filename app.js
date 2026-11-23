@@ -154,6 +154,10 @@ const PASSKEY_OFFLINE_MSG = 'Waiting for a connection…';
 const PASSKEY_NO_CONNECTION_MSG = "No connection yet. Trying again as soon as it's back.";
 const LOCK_IDLE_MSG = 'Unlock to continue.';
 const REQUEST_TIMEOUT_MS = 45000;         // how long any request to the server may take before it is given up
+// Reading the figures takes the server 0.5-3 s, but Google can hold a request for a minute before it even starts
+// (seen 2026-11-20 on about 1 in 8). So a read with no reply after 15 s is sent once more, and the two together wait
+// no longer than one request did before. Only reads: asking twice changes nothing.
+const READ_FIRST_TRY_MS = 15000;
 // The fingerprint's first request is small: give up on it sooner. Just after waking, a phone can send it down a Wi-Fi
 // that hasn't got through yet, where it hangs; the next try goes down whatever works by then.
 const PASSKEY_BEGIN_TIMEOUT_MS = 12000;
@@ -1001,6 +1005,8 @@ window.addEventListener('storage', e => {
     // lastSyncFailed is null (fine), 'reach' (no reply, none that could be read, or a read the server couldn't answer)
     // or 'refused' (the server turned a change down). Fingerprint requests aren't about the sheet, so they don't count.
     let apiInflight = 0, lastSyncAt = null, lastSyncFailed = null;
+    // The reads: a failed one shows as 'reach' in the sync status, and a slow one is sent again (postReadToServer).
+    // So only actions that change nothing on the server belong here.
     const SHEET_READS = ['getCachedSheetState', 'getCategoryChoices'];
     // What a failed request means: 'signin' (the lock screen deals with it), 'reach' (no usable reply), 'busy' (the
     // sheet was busy with another save, so the server did nothing), 'saved' (the change is in the sheet, but its new
@@ -1061,7 +1067,8 @@ window.addEventListener('storage', e => {
   }
 
   const auth = needGoogle ? { idToken: lsGet(TOKEN_STORAGE_KEY) } : getAuthFields();
-  const json = await postToServer({ action, payload, ...auth });
+  const body = { action, payload, ...auth };
+  const json = await (SHEET_READS.includes(action) ? postReadToServer(body) : postToServer(body));
 
   if (!json.ok) {
     const apiErr = serverError(json, 'API request failed');
@@ -1096,10 +1103,11 @@ const liveRequests = new Set();
 // the requests already past their limit by the clock are given up, exactly as if their time limit had run out; after
 // a moment (DROP_OVERDUE_AFTER_MS), so that a reply which arrived while the app was away still lands.
 const DROP_OVERDUE_AFTER_MS = 1500;
+const LATE_TIMER_MS = 3000;   // a time limit that ran out later than this was asleep too (see postToServer)
 function dropOverdueRequests() {
   const now = Date.now();
   const overdue = [...liveRequests].filter(r => now >= r.deadline);
-  if (overdue.length) setTimeout(() => overdue.forEach(r => { if (liveRequests.has(r)) r.abort.abort(); }), DROP_OVERDUE_AFTER_MS);
+  if (overdue.length) setTimeout(() => overdue.forEach(r => { if (liveRequests.has(r)) { r.overdue = true; r.abort.abort(); } }), DROP_OVERDUE_AFTER_MS);
 }
 
 // One POST to the Apps Script web app; resolves with the parsed { ok, data | error, authError } reply.
@@ -1126,6 +1134,8 @@ async function postToServer(bodyObj, opts = {}) {
     const netErr = new Error(e && e.name === 'AbortError' ? 'The server took too long to respond.' : (e && e.message) || 'Network error');
     netErr.network = true;   // never reached a reply, so the save may be retried later (the server ignores repeats)
     netErr.timedOut = !!(e && e.name === 'AbortError');
+    // Given up on coming back after the phone slept (or the page was frozen), rather than after an ordinary wait.
+    netErr.afterSleep = netErr.timedOut && !!(live.overdue || Date.now() > live.deadline + LATE_TIMER_MS);
     throw netErr;
   } finally {
     clearTimeout(timer);
@@ -1137,6 +1147,18 @@ async function postToServer(bodyObj, opts = {}) {
   } catch (e) {
     console.warn('Unreadable reply from the server:', rawText.slice(0, 200));
     throw Object.assign(new Error('The server sent back something unexpected. Try again in a moment.'), { badReply: true });
+  }
+}
+
+// A read (see READ_FIRST_TRY_MS): sent again once if the first try got no reply in time. Any other failure is final,
+// and so is a try given up after the phone slept (afterSleep): coming back, the page asks afresh anyway, and the
+// sign-in the read was sent with may have run out meanwhile.
+async function postReadToServer(bodyObj) {
+  try {
+    return await postToServer(bodyObj, { timeoutMs: READ_FIRST_TRY_MS });
+  } catch (err) {
+    if (!err || !err.timedOut || err.afterSleep) throw err;
+    return postToServer(bodyObj, { timeoutMs: REQUEST_TIMEOUT_MS - READ_FIRST_TRY_MS });
   }
 }
 
