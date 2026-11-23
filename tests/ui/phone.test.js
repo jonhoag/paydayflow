@@ -143,6 +143,26 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     assert.ok(restored && restored.newAmount < 0, 'Restore should put the amount back: ' + JSON.stringify(restored));
   });
 
+  await step('bills: editing a paid bill (a new name) keeps it paid; its form shows the amount it would go back to', async () => {
+    await page.evaluate(() => setView('home'));
+    await page.click('#upcomingBudgetsList button[aria-label^="Mark"]');
+    await page.waitForTimeout(250);
+    const bill = await page.evaluate(() => { const b = state.budgets.find(x => Number(x.amount) === 0 && x.originalBudget && !x.pending); return { row: b.row, name: b.name, orig: b.originalBudget }; });
+    await page.evaluate(() => { document.querySelector('#clearedBudgetsList').closest('details').open = true; });
+    await page.click(`#clearedBudgetsList button[data-action="openBudgetFormForRow"][data-row="${bill.row}"]`);   // its name in the Paid list
+    assert.strictEqual(Number(await page.inputValue('#inpBudAmt')), Math.abs(bill.orig), 'the form should show the amount to restore');
+    await page.fill('#inpBudName', bill.name + ' x');
+    await page.click('#budSaveBtn');
+    await page.waitForTimeout(250);
+    const saved = (await calls(page, 'saveBudgetItem')).pop();
+    assert.ok(saved && saved.paid === true && saved.amount === bill.orig, 'expected a save as still paid: ' + JSON.stringify(saved));
+    const now = () => page.evaluate(r => { const b = state.budgets.find(x => x.row === r); return [b.name, Number(b.amount), b.originalBudget]; }, bill.row);
+    assert.deepStrictEqual(await now(), [bill.name + ' x', 0, bill.orig], 'the bill was un-paid');
+    await page.evaluate(r => restoreBudget(r), bill.row);   // back as it was, for the steps after
+    await page.waitForTimeout(250);
+    assert.strictEqual((await now())[1], bill.orig);
+  });
+
   await step('bills: tapping a name opens its edit form; the skip icon still works', async () => {
     await page.click('#upcomingBudgetsList button[aria-label^="Edit"]');
     assert.ok(await visible(page, '#budgetModal'), 'edit form did not open');

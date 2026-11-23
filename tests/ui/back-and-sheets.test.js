@@ -396,5 +396,23 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
       assert.notStrictEqual(await page.evaluate(() => document.activeElement.id), 'inpBudAmt', 'editing a bill with an amount should not pop the keyboard');
     } finally { await page.evaluate(() => closeBudgetForm()); }
   });
+  await step('bills: Restore of a paid bill with no remembered amount, then Save, un-pays it with the amount typed', async () => {
+    const bill = await page.evaluate(() => {
+      const b = state.budgets.find(x => !x.pending && Number(x.amount) !== 0);
+      // Paid, with nothing remembered (as on an old sheet), on the page and in the pretend backend alike.
+      Object.assign(b, { amount: 0, originalBudget: 0 });
+      Object.assign(MOCK.db.budgets.find(x => x.row === b.row), { amount: 0, originalBudget: 0 });
+      renderAll();
+      return { row: b.row, name: b.name };
+    });
+    await page.evaluate(r => restoreBudget(r), bill.row);
+    assert.ok(await visible(page, '#budgetModal'), 'Restore should open the form to ask for an amount');
+    await page.fill('#inpBudAmt', '12.34');
+    await page.click('#budSaveBtn');
+    await page.waitForTimeout(250);
+    const saved = (await calls(page, 'saveBudgetItem')).pop();
+    assert.ok(saved && saved.paid === false && saved.amount === -12.34, 'expected an un-paid save of -12.34: ' + JSON.stringify(saved));
+    assert.strictEqual(await page.evaluate(r => Number(state.budgets.find(x => x.row === r).amount), bill.row), -12.34);
+  });
   await ctx.close();
 }).catch(e => { console.error(e); process.exit(1); });
