@@ -148,7 +148,8 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     await page.click('#upcomingBudgetsList button[aria-label^="Mark"]');
     await page.waitForTimeout(250);
     const bill = await page.evaluate(() => { const b = state.budgets.find(x => Number(x.amount) === 0 && x.originalBudget && !x.pending); return { row: b.row, name: b.name, orig: b.originalBudget }; });
-    await page.evaluate(r => openBudgetFormForRow(r), bill.row);
+    await page.evaluate(() => { document.querySelector('#clearedBudgetsList').closest('details').open = true; });
+    await page.click(`#clearedBudgetsList button[data-action="openBudgetFormForRow"][data-row="${bill.row}"]`);   // its name in the Paid list
     assert.strictEqual(Number(await page.inputValue('#inpBudAmt')), Math.abs(bill.orig), 'the form should show the amount to restore');
     await page.fill('#inpBudName', bill.name + ' x');
     await page.click('#budSaveBtn');
