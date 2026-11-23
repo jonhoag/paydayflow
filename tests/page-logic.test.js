@@ -1,5 +1,5 @@
 // Unit tests for small pieces of page logic in app.js that need no screen: reading an amount, equal split shares,
-// the next month's name, what a failed request means, what a fingerprint failure says, and the month's figures. Each is read out of app.js by its name (appPart), so the
+// the next month's name, what a failed request means, when a read is sent again, what a fingerprint failure says, and the month's figures. Each is read out of app.js by its name (appPart), so the
 // tests check the code the page runs, wherever it sits in the file. (The spending maths is one block between markers
 // instead, tested by spending.test.js; these helpers are spread through the file, and moving them together just for
 // the tests would be churn.) To test another function: add its name to UNDER_TEST, and anything it needs to NEEDS.
@@ -17,8 +17,8 @@ const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8').replac
 // One part of app.js by its name, as written there: a function (from "function name(" to the closing brace at the
 // same indent) or a const on one line. There must be exactly one, so the test can't pick up the wrong one.
 function appPart(name) {
-  const found = [...app.matchAll(new RegExp('^( *)function ' + name + '\\(.*\\n[\\s\\S]*?^\\1\\}$', 'gm')),
-    ...app.matchAll(new RegExp('^ *const ' + name + ' = .*;$', 'gm'))];
+  const found = [...app.matchAll(new RegExp('^( *)(?:async )?function ' + name + '\\(.*\\n[\\s\\S]*?^\\1\\}$', 'gm')),
+    ...app.matchAll(new RegExp('^ *const ' + name + ' = .*;(?: *//.*)?$', 'gm'))];
   if (found.length !== 1) throw new Error('found ' + name + ' ' + found.length + ' times in app.js (expected once)');
   return found[0][0];
 }
@@ -142,4 +142,69 @@ test('a damaged saved month is passed over', () => {
   assert.strictEqual(usableMonth({ availableMonths: 'x' }), false);
 });
 
-finish();
+// ---- postReadToServer: a read with no reply in time is sent once more (a stuck request at Google, 2026-11-20) ----
+// Runs the real function against a stand-in postToServer that plays back the given outcomes in turn.
+function readWith(outcomes) {
+  const tries = [];
+  const box = { tries, outcomes: outcomes.slice() };
+  vm.createContext(box);
+  vm.runInContext(['REQUEST_TIMEOUT_MS', 'READ_FIRST_TRY_MS', 'postReadToServer'].map(appPart).join('\n') + `
+    async function postToServer(body, opts) {
+      tries.push({ body, timeoutMs: opts && opts.timeoutMs });
+      const { result } = outcomes.shift();
+      if (Object.prototype.toString.call(result) === '[object Error]') throw result;   // made outside this sandbox
+      return result;
+    }
+    this.run = body => postReadToServer(body);
+    this.limits = { first: READ_FIRST_TRY_MS, all: REQUEST_TIMEOUT_MS };`, box);
+  return { run: box.run, tries, limits: box.limits };
+}
+const noReplyInTime = afterSleep => ({ result: Object.assign(new Error('The server took too long to respond.'), { network: true, timedOut: true, afterSleep: !!afterSleep }) });
+const reply = { ok: true, data: { activeMonth: 'X' } };
+const answered = { result: reply };
+const body = { action: 'getCachedSheetState', payload: { sheetName: 'X' } };
+(async () => {
+  await test('a read that is answered is sent once, with the short wait', async () => {
+    const r = readWith([answered]);
+    assert.strictEqual(await r.run(body), reply);
+    same(r.tries, [{ body, timeoutMs: r.limits.first }]);
+    assert.ok(r.limits.first < r.limits.all);
+  });
+  await test('a read with no reply in time is sent once more, and the two waits add up to the old limit', async () => {
+    const r = readWith([noReplyInTime(), answered]);
+    assert.strictEqual(await r.run(body), reply);
+    same(r.tries.map(t => t.timeoutMs), [r.limits.first, r.limits.all - r.limits.first]);
+    assert.strictEqual(r.tries[1].body, body, 'the very same request is sent again');
+  });
+  await test('a read with no reply twice fails after the second try (not a third)', async () => {
+    const r = readWith([noReplyInTime(), noReplyInTime(), answered]);
+    await assert.rejects(r.run(body), e => e.timedOut === true);
+    assert.strictEqual(r.tries.length, 2);
+  });
+  await test('a first try given up after the phone slept (dropOverdueRequests) is not sent again', async () => {
+    const r = readWith([noReplyInTime(true), answered]);
+    await assert.rejects(r.run(body), e => e.timedOut === true);
+    assert.strictEqual(r.tries.length, 1);
+  });
+  await test('no connection at all (a quick failure, not a wait) is not sent again', async () => {
+    const r = readWith([{ result: Object.assign(new Error('Failed to fetch'), { network: true, timedOut: false }) }, answered]);
+    await assert.rejects(r.run(body), e => e.network === true);
+    assert.strictEqual(r.tries.length, 1);
+  });
+  await test('an unreadable reply is not sent again', async () => {
+    const r = readWith([{ result: Object.assign(new Error('unexpected'), { badReply: true }) }, answered]);
+    await assert.rejects(r.run(body), e => e.badReply === true);
+    assert.strictEqual(r.tries.length, 1);
+  });
+  await test('a refusal is a reply: passed back as it is, not sent again', async () => {
+    const refused = { ok: false, code: 'AUTH_EXPIRED', authError: true };
+    const r = readWith([{ result: refused }, answered]);
+    assert.strictEqual(await r.run(body), refused);
+    assert.strictEqual(r.tries.length, 1);
+  });
+  test('only the reads (SHEET_READS) go through postReadToServer; saves are sent once with the full wait', () => {
+    assert.ok(/SHEET_READS\.includes\(action\) \? postReadToServer\(/.test(app), 'apiCallNow picks by SHEET_READS');
+    assert.strictEqual(app.split('postReadToServer(').length - 1, 2, 'defined once and called once');
+  });
+  finish();
+})();
