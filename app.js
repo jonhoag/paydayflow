@@ -1101,13 +1101,16 @@ const liveRequests = new Set();
 // A phone that sleeps, or a page Android freezes in the background, may not count the time limit down meanwhile, so a
 // request sent just before can still hold up the queue for most of its 45 s once the app is back. So, coming back,
 // the requests already past their limit by the clock are given up, exactly as if their time limit had run out; after
-// a moment (DROP_OVERDUE_AFTER_MS), so that a reply which arrived while the app was away still lands.
+// a moment (DROP_OVERDUE_AFTER_MS), so that a reply which arrived while the app was away still lands. They are marked
+// overdue at once, though: a request's own time limit, also past by then, may run out before that moment, and must
+// still count as given up after the phone slept (postToServer), not as an ordinary wait.
 const DROP_OVERDUE_AFTER_MS = 1500;
 const LATE_TIMER_MS = 3000;   // a time limit that ran out later than this was asleep too (see postToServer)
 function dropOverdueRequests() {
   const now = Date.now();
   const overdue = [...liveRequests].filter(r => now >= r.deadline);
-  if (overdue.length) setTimeout(() => overdue.forEach(r => { if (liveRequests.has(r)) { r.overdue = true; r.abort.abort(); } }), DROP_OVERDUE_AFTER_MS);
+  overdue.forEach(r => { r.overdue = true; });
+  if (overdue.length) setTimeout(() => overdue.forEach(r => { if (liveRequests.has(r)) r.abort.abort(); }), DROP_OVERDUE_AFTER_MS);
 }
 
 // One POST to the Apps Script web app; resolves with the parsed { ok, data | error, authError } reply.
@@ -1152,13 +1155,18 @@ async function postToServer(bodyObj, opts = {}) {
 
 // A read (see READ_FIRST_TRY_MS): sent again once if the first try got no reply in time. Any other failure is final,
 // and so is a try given up after the phone slept (afterSleep): coming back, the page asks afresh anyway, and the
-// sign-in the read was sent with may have run out meanwhile.
+// sign-in the read was sent with may have run out meanwhile. The second try gets what is left of REQUEST_TIMEOUT_MS
+// since the first was sent, so the two together never wait longer than one request used to (a first time limit
+// that ran out a little late leaves a little less).
 async function postReadToServer(bodyObj) {
+  const sentAt = Date.now();
   try {
     return await postToServer(bodyObj, { timeoutMs: READ_FIRST_TRY_MS });
   } catch (err) {
     if (!err || !err.timedOut || err.afterSleep) throw err;
-    return postToServer(bodyObj, { timeoutMs: REQUEST_TIMEOUT_MS - READ_FIRST_TRY_MS });
+    const left = REQUEST_TIMEOUT_MS - (Date.now() - sentAt);
+    if (left <= 0) throw err;
+    return postToServer(bodyObj, { timeoutMs: left });
   }
 }
 
@@ -2288,6 +2296,11 @@ async function postReadToServer(bodyObj) {
       for (const ch of String(name)) h += ch.charCodeAt(0);
       return PERSON_COLOURS[h % PERSON_COLOURS.length];
     }
+    // A name typed for a share, as the sheet stores it: lower case, one word. Owed reads the first word of
+    // "<person> <what>" as the person, so "Mary Jane" is kept as "mary-jane", not taken for Mary owing "Jane Tesco".
+    function splitPersonKey(name) {
+      return String(name || '').trim().toLowerCase().replace(/\s+/g, '-');
+    }
     function owedPerson(desc) {
       const parts = String(desc || '').trim().split(/\s+/);
       return { key: (parts[0] || '').toLowerCase(), name: displayName(parts[0] || ''), what: displayName(parts.slice(1).join(' ')) || displayName(desc) };
@@ -2829,7 +2842,7 @@ async function postReadToServer(bodyObj) {
         marcusShare = gross;
       } else if (formSplit === 'custom') {
         customSplitEntries.forEach(e => {
-          const p = (e.person || '').trim().toLowerCase();
+          const p = splitPersonKey(e.person);
           const amt = e.amount || 0;
           if (amt > 0 && p) {
             if (p === 'marcus') marcusShare += amt;
