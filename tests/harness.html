@@ -108,7 +108,7 @@
   // `name`, everything else by `desc`.
   const checkExpect = (it, p, key = 'desc') => {
     if (p.expect && (!it || it[key] !== p.expect[key] || Math.abs(it.amount - p.expect.amount) >= 0.005)) {
-      throw coded('STALE', 'STALE: This entry was changed on another device.');
+      throw coded('STALE', 'This entry was changed on another device.');
     }
   };
 
@@ -179,7 +179,7 @@
     // Like the server: every row is checked before any is changed.
     settleAllNeeds: (p, d, n) => {
       const rows = (p.rows || []).map(Number);
-      if (rows.length && (!Array.isArray(p.expect) || p.expect.length !== rows.length)) throw coded('STALE', 'STALE: This entry was changed on another device.');
+      if (rows.length && (!Array.isArray(p.expect) || p.expect.length !== rows.length)) throw coded('STALE', 'This entry was changed on another device.');
       const its = rows.map((row, i) => { const it = d.checking.find(r => r.row === row); checkExpect(it, { expect: p.expect[i] }); return it; });
       its.forEach(it => { it.need = p.setNeed === true; });   // setNeed: true = Undo of "All paid back"
       return snapshot(d, n);
@@ -199,7 +199,7 @@
     startNewMonth: (p, d, n) => {
       const name = String(p.newMonthName || '').trim();
       if (!name || name.length > 85 || name.charAt(0) === '_' || name === n) throw new Error('Invalid month name.');
-      if (dbs[name] && p.replaceExisting !== true) throw coded('EXISTS', 'EXISTS: There is already a month called "' + name + '". Nothing was changed.');
+      if (dbs[name] && p.replaceExisting !== true) throw coded('EXISTS', 'There is already a month called "' + name + '". Nothing was changed.');
       if (!Array.isArray(p.keepBudgetRows)) throw new Error('Say which bills to carry over (keepBudgetRows).');
       const was = snapshot(d, n).summary, now = Date.now();
       const pay = Number(p.paycheck) || 0, sav = Math.abs(Number(p.savingsAmount) || 0);
@@ -235,7 +235,7 @@
     // Fingerprint sign-in: this pretend server takes any answer from the prompt (the real checks are tested against the
     // real backend in the private suites). A test stands in for the prompt itself with its own navigator.credentials.get.
     passkeyLoginBegin: () => {
-      if (MOCK.devicePending) throw coded('AUTH_PASSKEY_PENDING', 'AUTH_PASSKEY_PENDING: This device is waiting for approval in the email.');
+      if (MOCK.devicePending) throw coded('AUTH_PASSKEY_PENDING', 'This device is waiting for approval in the email.');
       return { challenge: 'bW9jay1jaGFsbGVuZ2U', rpId: location.hostname, timeoutMs: 60000 };
     },
     // As the real server: the very same answer sent again gets back the session it was given, nothing new.
