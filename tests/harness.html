@@ -138,6 +138,10 @@
   const handlers = {
     getCachedSheetState: (p, d, n) => snapshot(d, n),
     addTransactionBundle: (p, d, n) => {
+      // A card payment (payFrom): money in on the card, the same out of payFrom; refused, writing nothing, if it is from
+      // the card itself, money out, or split.
+      if (p.payFrom && (!['amex', 'barclays', 'checking', 'marcus'].includes(p.payFrom) || p.payFrom === p.account || !p.isRefund || Math.abs(Number(p.marcusShare) || 0) > 0 || (p.splits || []).length))
+        throw new Error('A card payment is money in on the card, with no split.');
       // Like the server, a repeat of a spend already saved (same clientId) is ignored.
       if (p.clientId && seenClientIds.has(p.clientId)) return snapshot(d, n);
       if (p.clientId) seenClientIds.add(p.clientId);
@@ -146,6 +150,7 @@
       const now = Date.now(), sign = p.isRefund ? -1 : 1, money = x => +Math.abs(Number(x) || 0).toFixed(2);
       const add = (...a) => pushRow(d, ...a);
       add(p.account, p.merchant, -sign * money(p.grossAmount), false, now);
+      if (p.payFrom) add(p.payFrom, p.merchant, -money(p.grossAmount), false, now - 1);
       const mAmt = money(p.marcusShare);
       if (mAmt > 0) {
         add('marcus', p.merchant, -sign * mAmt, false, now - 1);

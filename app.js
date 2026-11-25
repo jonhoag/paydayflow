@@ -1410,7 +1410,7 @@ window.addEventListener('storage', e => {
     // A new sheet goes in SHEETS (with its close function) and gets the kb-sheet class; a test checks the two match.
     const SHEETS = [['spendModal', closeSpendModal], ['addModal', closeAddModal], ['editTxModal', closeEditTxModal],
       ['newMonthModal', closeNewMonthModal], ['passkeyModal', closePasskeyModal], ['signOutModal', closeSignOutModal],
-      ['budgetModal', closeBudgetForm]];
+      ['budgetModal', closeBudgetForm], ['payModal', closePayModal]];
     const sheetOpen = id => !document.getElementById(id).classList.contains('hidden');
     // Closes the first open sheet in SHEETS (two are never open together). True if one was open, even if it stayed
     // open (Sign out while busy), so that Back doesn't go on to change the tab as well.
@@ -1778,6 +1778,13 @@ window.addEventListener('storage', e => {
       const money = n => state.loading ? '£—' : fmtGBP(n);
       document.getElementById('kpiAmex').textContent = money(s.amex);
       document.getElementById('kpiBarclays').textContent = money(s.barclays);
+      // A card tile can be tapped to pay it off only while it owes something (never at £0 or in credit).
+      [['payTileAmex', 'amex'], ['payTileBarclays', 'barclays']].forEach(([id, card]) => {
+        const tile = document.getElementById(id), owes = !state.loading && cardOwes(card) > 0;
+        tile.disabled = !owes;
+        tile.setAttribute('aria-label', accountCard(card).name + ' ' + money(s[card]) + (owes ? ', pay it off' : ''));
+      });
+      if (payCard && !document.getElementById('payModal').classList.contains('hidden')) renderPaySheet();
       document.getElementById('kpiNCA').textContent = money(s.nCA);
       document.getElementById('kpiMarcus').textContent = money(s.mSAV);
       document.getElementById('kpiSurplus').textContent = money(s.eomSavingsJ);
@@ -2768,6 +2775,90 @@ window.addEventListener('storage', e => {
       });
     }
 
+    // ================= PAY OFF A CARD =================
+    // A tap on the Amex or Barclays tile: money in on the card and the same amount out of the account it was paid from,
+    // sent as one new spend (addTransactionBundle with payFrom), so it is queued offline and never saved twice like any
+    // other. Both rows are named "<Card> CC Payment", which Spending leaves out. The first account in each list is the
+    // usual one and is picked when the sheet opens.
+    const PAY_FROM = { barclays: ['checking', 'marcus'], amex: ['barclays', 'checking'] };
+    const PICK_ON = 'min-h-[44px] rounded-xl border border-emerald-500 bg-emerald-500/10 text-slate-900 dark:text-white';
+    const PICK_OFF = 'min-h-[44px] rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
+    let payCard = null, payFrom = null, payWhole = true;
+
+    const balanceOf = acct => sumAmounts(state[acct]);
+    // What the card owes (0 if nothing, or if it is in credit): what "Whole" pays, and the most a payment may be.
+    const cardOwes = card => Math.max(0, -balanceOf(card));
+    // The amount the sheet would pay now: the whole balance, or what is typed (NaN if that isn't an amount).
+    const payAmountNow = () => payWhole ? cardOwes(payCard) : amountIn('payAmount');
+
+    function openPayCard(card) {
+      if (!PAY_FROM[card] || state.loading || !(cardOwes(card) > 0)) return;
+      payCard = card;
+      payFrom = PAY_FROM[card][0];
+      payWhole = true;
+      document.getElementById('payAmount').value = '';
+      clearFieldError('payAmount');
+      document.getElementById('payLogo').innerHTML = getBankLogo(card);
+      document.getElementById('payTitle').textContent = 'Pay off ' + accountCard(card).name;
+      renderPaySheet();
+      document.getElementById('payModal').classList.remove('hidden');
+    }
+    function closePayModal() { document.getElementById('payModal').classList.add('hidden'); }
+
+    function setPayWhole(how) {
+      payWhole = how === 'whole';
+      renderPaySheet();
+      if (!payWhole) document.getElementById('payAmount').focus();
+    }
+    function selectPayFrom(acct) {
+      if (!PAY_FROM[payCard].includes(acct)) return;
+      payFrom = acct;
+      renderPaySheet();
+    }
+
+    function renderPaySheet() {
+      if (!payCard) return;
+      const owes = cardOwes(payCard), amt = payAmountNow(), name = a => accountCard(a).name;
+      document.getElementById('payWholeAmt').textContent = fmtGBP(owes);
+      markChoice('payHow_', ['whole', 'part'], payWhole ? 'whole' : 'part', PICK_ON + ' whitespace-nowrap', PICK_OFF + ' whitespace-nowrap');
+      document.getElementById('payAmountBox').classList.toggle('hidden', payWhole);
+      document.getElementById('payFromList').innerHTML = PAY_FROM[payCard].map(a => {
+        const on = a === payFrom;
+        return `<button type="button" role="radio" aria-checked="${on}" data-action="selectPayFrom" data-arg="${a}"
+          class="w-full flex items-center gap-3 rounded-xl px-3 min-h-[48px] text-left ${on ? 'border border-emerald-500 bg-emerald-500/10' : 'border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800'}">
+          ${getBankLogo(a)}<span class="text-sm font-semibold text-slate-900 dark:text-white">${name(a)}</span>
+          <span class="ml-auto text-xs tabular-nums text-slate-500 dark:text-slate-400">${fmtGBP(balanceOf(a))}</span>
+          <span class="shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-full ${on ? 'bg-emerald-500 text-slate-950' : 'border border-slate-300 dark:border-slate-600'}">${on ? icon('check', 'w-3 h-3') : ''}</span>
+        </button>`;
+      }).join('');
+      const ok = amt > 0;
+      const after = (a, change) => `<span class="whitespace-nowrap">${name(a)} <strong class="tabular-nums">${fmtGBP(+(balanceOf(a) + change).toFixed(2))}</strong></span>`;
+      document.getElementById('payAfter').innerHTML = ok
+        ? `<span class="text-slate-500 dark:text-slate-400">After this:</span> ${after(payCard, amt)} • ${after(payFrom, -amt)}`
+        : '<span class="text-slate-500 dark:text-slate-400">Type how much you paid.</span>';
+      document.getElementById('btnPay').textContent = ok ? 'Pay ' + fmtGBP(amt) : 'Pay';
+    }
+
+    function submitPayCard() {
+      const owes = cardOwes(payCard);
+      let amt = owes;
+      if (!payWhole) {
+        amt = checkedAmount('payAmount', true);
+        if (amt === null) return;
+        if (amt - owes > 0.005) return showFieldError('payAmount', `That's more than ${accountCard(payCard).name} owes (${fmtGBP(owes)})`);
+      }
+      if (!(amt > 0)) return closePayModal();   // nothing owed any more (the figures changed while the sheet was open)
+      amt = +amt.toFixed(2);
+      const desc = accountCard(payCard).name + ' CC Payment', now = Date.now();
+      addPendingTx(payCard, 99, desc, amt, false, now);   // made-up rows until the server says where each went
+      addPendingTx(payFrom, 100, desc, -amt, false, now);
+      closePayModal();
+      savePhoneCache(activeMonth, state);
+      renderAll();
+      sendNewSpend({ sheetName: activeMonth, merchant: desc, grossAmount: amt, isRefund: true, account: payCard,
+        payFrom, splits: [], marcusShare: 0, markNeed: false, clientId: newClientId() });
+    }
+
     // ================= EDIT OR MOVE TRANSACTION MODAL =================
     function setEditTxSign(sign) {
       editTxSign = sign < 0 ? -1 : 1;
@@ -3228,6 +3319,13 @@ window.addEventListener('storage', e => {
       applyEqualGroupSplit: () => applyEqualGroupSplit(),
       includeMeChanged: () => { if (autoEqualActive) applyEqualGroupSplit(); },
       submitExpense: () => submitExpense(),
+      // pay off a card
+      openPayCard: el => openPayCard(el.dataset.arg),
+      closePayModal: () => closePayModal(),
+      setPayWhole: el => setPayWhole(el.dataset.arg),
+      selectPayFrom: el => selectPayFrom(el.dataset.arg),
+      renderPaySheet: () => renderPaySheet(),
+      submitPayCard: () => submitPayCard(),
       // Edit sheet
       closeEditTxModal: () => closeEditTxModal(),
       setEditTxSign: el => setEditTxSign(Number(el.dataset.arg)),
