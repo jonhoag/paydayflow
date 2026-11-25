@@ -13,7 +13,7 @@ uiSuite(async ({ browser, errors, open, step, PORT, dropExpectedSyncErrors }) =>
     const gasRows = m => pg.evaluate(m => Object.values(MOCK.db).filter(Array.isArray).flat().filter(r => r && r.desc === m).length, m);
     const gasSettled = v => pg.waitForFunction(v => apiInflight === 0 && document.getElementById('syncBtn').dataset.sync === v, v, { timeout: 8000 });
     const gasAdd = async (amount, merchant) => {
-      await pg.click('nav button[aria-label="Add transaction"]');
+      await pg.click('nav button[aria-label="Add spend"]');
       await pg.fill('#inpAmount', amount);
       await pg.fill('#inpMerchant', merchant);
       await pg.click('#btnSubmitTx');

@@ -178,7 +178,7 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT, dropExpectedSyncError
     await page.evaluate(() => closeEditTxModal());
   });
   await step('Escape closes the Add form', async () => {
-    await page.click('nav button[aria-label="Add transaction"]');
+    await page.click('nav button[aria-label="Add spend"]');
     await page.keyboard.press('Escape');
     assert.ok(!(await visible(page, '#addModal')));
   });

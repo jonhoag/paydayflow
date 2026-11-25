@@ -40,9 +40,12 @@ uiSuite(async ({ browser, watch, open, step, PORT }) => {
     await step('What-If: skipping a bill shows the badge and takes it out of Money Left and the Bills total', async () => {
       const before = await p.evaluate(() => ({ left: sheetFigures(state, skippedBudgetRows).eomSavingsJ, bills: document.getElementById('budLeftVal').textContent }));
       const b = await p.evaluate(() => state.budgets.find(x => Number(x.amount) < 0));
-      await p.click(`#upcomingBudgetsList button[aria-label="Simulate skipping ${b.name}"]`);
+      await p.click('#bf_whatif');
+      await p.click(`#upcomingBudgetsList button[role="switch"][aria-label="Count ${b.name} in Money Left"]`);
       const after = await p.evaluate(() => ({ left: sheetFigures(state, skippedBudgetRows).eomSavingsJ, bills: document.getElementById('budLeftVal').textContent, badge: !document.getElementById('simBadge').classList.contains('hidden') }));
-      await p.click(`#upcomingBudgetsList button[aria-label="Simulate skipping ${b.name}"]`);
+      assert.strictEqual(await p.getAttribute(`#upcomingBudgetsList button[aria-label="Count ${b.name} in Money Left"]`, 'aria-checked'), 'false');
+      await p.click('#bf_whatif');   // turning What if off counts it again
+      assert.strictEqual(await p.evaluate(() => sheetFigures(state, skippedBudgetRows).eomSavingsJ), before.left, 'What if off did not count the bill again');
       assert.ok(after.badge, 'no What-If badge');
       assert.strictEqual(Math.round((after.left - before.left) * 100), Math.round(-b.amount * 100));
       assert.ok(/ to pay$/.test(after.bills) && after.bills !== before.bills, JSON.stringify([before, after]));

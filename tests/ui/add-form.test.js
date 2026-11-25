@@ -21,7 +21,7 @@ uiSuite(async ({ watch, open, step }) => {
   });
   await step('Add form: opens with the cursor in Amount; Enter moves to Description; Enter there saves', async () => {
     try {
-      await page.click('nav button[aria-label="Add transaction"]');
+      await page.click('nav button[aria-label="Add spend"]');
       assert.strictEqual((await addForm()).focus, 'inpAmount');
       assert.deepStrictEqual(await page.$eval('#inpAmount', i => [i.type, i.inputMode, i.enterKeyHint]), ['text', 'decimal', 'next']);
       await page.keyboard.type('6.40');
@@ -40,7 +40,7 @@ uiSuite(async ({ watch, open, step }) => {
   await step('Add form: Save with something missing says what, under the box, and sends nothing', async () => {
     try {
       const sent = (await calls(page, 'addTransactionBundle')).length;
-      await page.click('nav button[aria-label="Add transaction"]');
+      await page.click('nav button[aria-label="Add spend"]');
       await page.click('#btnSubmitTx');
       let f = await addForm();
       assert.deepStrictEqual([f.amtErr, f.focus], ['Add the amount', 'inpAmount']);
@@ -84,7 +84,7 @@ uiSuite(async ({ watch, open, step }) => {
   });
   await step('Add form: starts on the card the last spend went on, also after the app is opened again', async () => {
     try {
-      await page.click('nav button[aria-label="Add transaction"]');
+      await page.click('nav button[aria-label="Add spend"]');
       await page.click('#acct_barclays');
       await page.fill('#inpAmount', '1.75');
       await page.fill('#inpMerchant', 'Card memory shop');
@@ -213,7 +213,7 @@ uiSuite(async ({ watch, open, step }) => {
     await step(`Add form at ${w}x${h} (the Fold ${w < 700 ? 'folded' : 'unfolded'}): Amount has the cursor and sits in sight`, async () => {
       const { ctx: c3, page: p3 } = await open({ viewport: { width: w, height: h }, deviceScaleFactor: 2.63, isMobile: true, hasTouch: true });
       try {
-        await p3.click('nav button[aria-label="Add transaction"]');
+        await p3.click('nav button[aria-label="Add spend"]');
         const r = await p3.evaluate(() => { const a = document.getElementById('inpAmount').getBoundingClientRect(), s = document.querySelector('#addModal > div').getBoundingClientRect();
           return { focus: document.activeElement.id, inSight: a.top >= 0 && a.bottom <= innerHeight, sheetFits: s.top >= 0 && s.bottom <= innerHeight + 1 }; });
         assert.deepStrictEqual(r, { focus: 'inpAmount', inSight: true, sheetFits: true });

@@ -50,7 +50,6 @@ const ICON_PATHS = {
   sparkle: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17v4M17 19h4"/>',
   'arrow-up-right': '<path d="M7 17 17 7M8 7h9v9"/>',
   'arrow-down-left': '<path d="M17 7 7 17M16 17H7V8"/>',
-  skip: '<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>',
   more: '<circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/>',
   refresh: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/>',
   contrast: '<circle cx="12" cy="12" r="9"/><path d="M12 3v18a9 9 0 0 0 0-18z" fill="currentColor"/>',
@@ -1143,14 +1142,14 @@ window.addEventListener('storage', e => {
     const SPEND_CATEGORIES = ['Groceries', 'Eating out', 'Transport', 'Bills & subscriptions', 'Shopping', 'Travel', 'Entertainment', 'Health', 'Other'];
     // First matching rule wins, so the specific ones ("uber eats", "sains petrol") sit above the general ones.
     const SPEND_RULES = [
-      ['Eating out', /uber ?eats|deliveroo|just ?eat|mcdo|mcdonald|burger|\bwolf\b|spoons|pretzel|cafe|café|kebab|wasabi|\btea\b|coffee|pizza|restaurant|takeaway|\bpub\b/],
+      ['Eating out', /uber ?eats|deliveroo|just ?eat|mcdo|mcdonald|burger|\bwolf\b|spoons|pretzel|cafe|café|kebab|wasabi|\btea\b|coffee|pizza|restaurant|takeaway|\bpub\b|greggs|chipotle|fish and chips|breakfast/],
       ['Travel', /airport|hotel|airbnb|flight|ryanair|easyjet|ferry|holiday/],
-      ['Transport', /petrol|\btfl\b|taxi|\bbus\b|train|fuel|\buber\b|trainline|railcard/],
-      ['Groceries', /waitrose|sainsbur|sains|tesco|lidl|aldi|\bcoop\b|co-op|\bm&s\b|asda|morrisons|iceland|ocado|nespresso|grocer/],
-      ['Bills & subscriptions', /spotify|netflix|disney|\bsky\b|windscribe|curve|\bsub\b|subscription|premium|\byt\b|youtube|\bo2\b|\bee\b|broadband|phone|energy|water|insurance|monthly fee/],
-      ['Entertainment', /comedy|cinema|theatre|\bgig\b|ticket|\bpsn\b|steam|\bgame/],
-      ['Health', /pharmacy|\bboots\b|dentist|optician|vitality|doctor|\bgp\b/],
-      ['Shopping', /amazon|ebay|vinted|primark|home barg|the works|\bdhl\b|oxfam|argos|post office|savers|temu|\bwise\b/]
+      ['Transport', /petrol|\btfl\b|taxi|\bbus\b|train|fuel|\buber\b|trainline|railcard|stagecoach|parking/],
+      ['Groceries', /waitrose|sainsbur|sains|tesco|lidl|aldi|\bcoop\b|co-op|\bm&s\b|asda|morrisons|iceland|ocado|nespresso|grocer|asian shop|beer hawk/],
+      ['Bills & subscriptions', /spotify|netflix|disney|\bsky\b|windscribe|curve|\bsub\b|subscription|premium|\byt\b|youtube|\bo2\b|\bee\b|broadband|phone|energy|water|insurance|monthly fee|claude|yearly fee|\bhp\b/],
+      ['Entertainment', /comedy|cinema|theatre|\bgig\b|ticket|\bpsn\b|steam|\bgame|\bwow\b|warcraft|festival/],
+      ['Health', /pharmacy|\bboots\b|dentist|dental|optician|vision express|vitality|doctor|\bgp\b|haircut|\bgym\b/],
+      ['Shopping', /amazon|ebay|vinted|primark|home barg|the works|\bdhl\b|oxfam|argos|post office|savers|temu|\bwise\b|tk ?maxx|sostrene|smiths|shelter/]
     ];
     // Your own extra words for a category (local places), which the backend sends once you're signed in, so they
     // aren't in this public page. Each counts as part of its category's rule above, in the same order.
@@ -1615,10 +1614,13 @@ window.addEventListener('storage', e => {
       renderAll();
     }
 
-    // Saved copies of months that are no longer in the sheet are deleted from this device.
+    // Saved copies of months that are no longer in the sheet are deleted from this device, and so are all but the newest
+    // KEEP_MONTHS (enough for the Spending bars), so old figures don't sit on the phone for ever (security L4). The
+    // month on screen is always kept.
+    const KEEP_MONTHS = 6;
     function pruneLocalMonths(available) {
       if (!Array.isArray(available) || !available.length) return;
-      const keep = new Set(available);
+      const keep = new Set(available.slice().sort(newestFirst).slice(0, KEEP_MONTHS).concat(activeMonth));
       lsKeys().forEach(k => {
         const prefix = [CACHE_PREFIX, TX_TS_PREFIX].find(p => k.indexOf(p) === 0);
         if (prefix && !keep.has(k.slice(prefix.length))) lsDel(k);
@@ -1676,7 +1678,7 @@ window.addEventListener('storage', e => {
       el.className = 'fixed left-1/2 -translate-x-1/2 bottom-24 lg:bottom-6 z-[100000] max-w-sm w-[90%] px-4 py-2.5 rounded-xl text-white text-xs font-medium shadow-lg flex items-center justify-between gap-3 '
         + (opts.kind === 'info' ? 'bg-slate-800 border border-slate-600' : 'bg-rose-600');
       el.innerHTML = '<span class="flex-1 text-left"></span>'
-        + (opts.actionLabel ? '<button id="toastAction" class="font-bold text-emerald-300 px-2.5 h-9 -my-1.5 -mr-2 rounded-lg inline-flex items-center gap-1">' + icon(opts.actionIcon || 'undo', 'w-3.5 h-3.5') + esc(opts.actionLabel) + '</button>' : '');
+        + (opts.actionLabel ? '<button id="toastAction" class="hit font-bold text-emerald-300 px-2.5 h-9 -my-1.5 -mr-2 rounded-lg inline-flex items-center gap-1">' + icon(opts.actionIcon || 'undo', 'w-3.5 h-3.5') + esc(opts.actionLabel) + '</button>' : '');
       el.firstChild.textContent = msg;
       clearTimeout(toastTimer);
       if (opts.actionLabel) {
@@ -1806,7 +1808,22 @@ window.addEventListener('storage', e => {
       markToggle('bsign_', ['neg', 'pos'], budFormSign < 0 ? 'neg' : 'pos', 'pos');
     }
 
+    // "What if": a chip in the Bills filter row. While it is on, each unpaid bill has a switch that leaves it out of
+    // Money Left and the Bills total (on screen only: nothing is saved). Turning the chip off counts every bill again.
+    let whatIfMode = false;
+    const WHAT_IF_ON = 'hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300';
+    const WHAT_IF_OFF = 'hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400';
+    function setWhatIfMode(on) {
+      whatIfMode = !!on;
+      if (!whatIfMode) skippedBudgetRows.clear();
+      const chip = document.getElementById('bf_whatif');
+      chip.className = whatIfMode ? WHAT_IF_ON : WHAT_IF_OFF;
+      chip.setAttribute('aria-pressed', String(whatIfMode));
+      document.getElementById('whatIfHint').classList.toggle('hidden', !whatIfMode);
+      renderAll();
+    }
     function toggleWhatIf(row) {
+      if (!whatIfMode) return;
       if (skippedBudgetRows.has(row)) skippedBudgetRows.delete(row);
       else skippedBudgetRows.add(row);
       renderAll();
@@ -1838,7 +1855,18 @@ window.addEventListener('storage', e => {
       document.getElementById('paidFold').classList.toggle('hidden', cleared.length === 0);
 
       // Tap a bill's name to edit it (Delete lives inside the edit form, with Undo, so it can't be hit by accident).
-      // The icon on the left is the "what if I skip this" toggle; Paid is the only button on the right.
+      // On the left, the bill's kind (monthly or one-off); in What if mode, a switch that counts it in Money Left or not,
+      // with that icon in its knob. Paid is the only button on the right.
+      const kindIcon = (b, cls) => icon(b.isRecurring ? 'repeat' : 'sparkle', cls);
+      const kindTone = b => b.isRecurring ? 'text-indigo-400' : 'text-amber-400';
+      const lead = (b, isSkipped) => !whatIfMode || b.pending
+        ? `<span class="w-10 h-10 -ml-2 shrink-0 inline-flex items-center justify-center ${kindTone(b)}" aria-hidden="true">${kindIcon(b, 'w-4 h-4')}</span>`
+        : `<button data-action="toggleWhatIf" data-row="${b.row}" role="switch" aria-checked="${!isSkipped}" aria-label="Count ${esc(b.name)} in Money Left"
+                   class="w-10 h-10 shrink-0 inline-flex items-center">
+             <span class="w-9 h-5 rounded-full p-0.5 flex items-center transition-colors ${isSkipped ? 'bg-slate-300 dark:bg-slate-700' : 'bg-emerald-500 justify-end'}">
+               <span class="w-4 h-4 rounded-full bg-white inline-flex items-center justify-center ${isSkipped ? 'text-slate-400' : kindTone(b)}">${kindIcon(b, 'w-2.5 h-2.5')}</span>
+             </span>
+           </button>`;
       const nameBtn = (b, cls) => b.pending
         ? `<span class="min-w-0 truncate ${cls}">${esc(b.name)}</span>`
         : `<button data-action="openBudgetFormForRow" data-row="${b.row}" aria-label="Edit ${esc(b.name)}" class="min-w-0 flex-1 truncate text-left py-2 ${cls}">${esc(b.name)}</button>`;
@@ -1848,16 +1876,13 @@ window.addEventListener('storage', e => {
       document.getElementById('upcomingBudgetsList').innerHTML = upcoming.length ? shown.map(b => {
         const isSkipped = skippedBudgetRows.has(b.row);
         return `
-          <div class="py-1 flex items-center justify-between gap-2 text-sm ${isSkipped ? 'opacity-40 line-through' : ''}">
+          <div class="py-1 flex items-center justify-between gap-2 text-sm">
             <div class="flex items-center gap-1 min-w-0 flex-1">
-              <button data-action="toggleWhatIf" data-row="${b.row}" title="Tap to simulate skipping" aria-label="Simulate skipping ${esc(b.name)}"
-                      class="w-10 h-10 -ml-2 shrink-0 inline-flex items-center justify-center ${b.isRecurring ? 'text-indigo-400' : 'text-amber-400'}">
-                ${isSkipped ? icon('skip', 'w-4 h-4') : icon(b.isRecurring ? 'repeat' : 'sparkle', 'w-4 h-4')}
-              </button>
-              ${nameBtn(b, 'font-medium text-slate-800 dark:text-slate-100')}
+              ${lead(b, isSkipped)}
+              ${nameBtn(b, 'font-medium ' + (isSkipped ? 'text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100'))}
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <span class="tabular-nums font-semibold whitespace-nowrap ${moneyTone(b.amount)}">${fmtSigned(b.amount)}</span>
+              <span class="tabular-nums font-semibold whitespace-nowrap ${isSkipped ? 'line-through text-slate-400 dark:text-slate-500' : moneyTone(b.amount)}">${fmtSigned(b.amount)}</span>
               ${b.pending ? SAVING_TAG : `
               <button data-action="markBudgetPaid" data-row="${b.row}" aria-label="Mark ${esc(b.name)} paid"
                       class="hit ${pill} border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950">
@@ -1889,7 +1914,7 @@ window.addEventListener('storage', e => {
     // changing its monthly setting doesn't un-pay it. Restore is what un-pays a bill.
     let budFormPaid = false;
     // The bill form is the sheet #budgetModal: "Add bill" or "Edit <name>" with Delete. The cursor goes to Amount when
-    // it is empty (Add, or Restore of a paid bill whose amount wasn't remembered), like Add Transaction. A paid bill
+    // it is empty (Add, or Restore of a paid bill whose amount wasn't remembered), like Add spend. A paid bill
     // (isPaidBill) is opened with `restoreAmount`, the amount it would go back to, which the form shows.
     function openBudgetForm(row = '', name = '', amount = '', isRecurring = false, restoreAmount = 0) {
       ['inpBudAmt', 'inpBudName'].forEach(clearFieldError);   // filled in code below, which clears no old message by itself
@@ -1902,7 +1927,8 @@ window.addEventListener('storage', e => {
       setBudFormType(row ? isRecurring : false);
       setBudFormSign(numAmt > 0 ? 1 : -1);
       document.getElementById('budFormTitle').textContent = row ? 'Edit ' + displayName(name) : 'Add bill';
-      document.getElementById('budSaveBtn').textContent = row ? 'Save Changes' : 'Save Bill';
+      document.getElementById('budPaidTag').classList.toggle('hidden', !budFormPaid);
+      document.getElementById('budSaveBtn').textContent = row ? 'Save changes' : 'Save bill';
       document.getElementById('budDeleteBtn').classList.toggle('hidden', !row);
       document.getElementById('budgetModal').classList.remove('hidden');
       if (!numAmt) document.getElementById('inpBudAmt').focus();   // the number pad comes straight up
@@ -2483,7 +2509,7 @@ window.addEventListener('storage', e => {
       markToggle('dir_', ['spend', 'refund'], dir, 'refund');
 
       document.getElementById('needToggleWrap').classList.toggle('hidden', formSplit === '100_me');
-      document.getElementById('btnSubmitTx').textContent = isRefund ? 'Save Refund / Money In (+)' : 'Save Spend';
+      document.getElementById('btnSubmitTx').textContent = isRefund ? 'Save money in' : 'Save spend';
       updateSplitSummary();
     }
 
@@ -2496,7 +2522,7 @@ window.addEventListener('storage', e => {
       if ((s === 'half' || s === 'all') && !QUICK_SPLIT) s = '100_me';
       formSplit = s;
       markChoice('sp_', ['100_me', 'half', 'all', 'custom', 'marcus'], s,
-        'px-2.5 py-1.5 rounded-xl bg-emerald-500 text-slate-950', 'px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300');
+        'hit hit-32 px-2.5 py-1.5 rounded-xl bg-emerald-500 text-slate-950', 'hit hit-32 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300');
       document.getElementById('customSplitBox').classList.toggle('hidden', s !== 'custom');
       document.getElementById('needToggleWrap').classList.toggle('hidden', s === '100_me');
       // A group split shares the amount equally from the start, and again as people are added or taken off, until
@@ -2592,7 +2618,7 @@ window.addEventListener('storage', e => {
       const container = document.getElementById('dynamicSplitRows');
       customSplitEntries.forEach(e => { e.bad = false; });   // the boxes are redrawn from the amounts, so no bad text is left
       if (customSplitEntries.length === 0) {
-        container.innerHTML = '<div class="text-xs text-slate-500 dark:text-slate-400 py-1">Tap any name above to split this transaction...</div>';
+        container.innerHTML = '<div class="text-xs text-slate-500 dark:text-slate-400 py-1">Tap any name above to split this spend...</div>';
         return;
       }
 
@@ -2801,7 +2827,7 @@ window.addEventListener('storage', e => {
       if (newAcct === oldAcct) recordEditTime(newAcct, row, newDesc, newAmount);   // a move gets the server's time
 
       closeEditTxModal();
-      mutate('the transaction edit', () => {
+      mutate('the spend', () => {
         const oldArr = state[oldAcct] || [];
         const oldItem = findEditedTx(oldAcct, row, expect);
         if (!oldItem) return;
@@ -2951,7 +2977,7 @@ window.addEventListener('storage', e => {
       warn.classList.toggle('hidden', !exists);
       nmReplaceArmed = false;
       clearTimeout(nmArmTimer);
-      setNewMonthButton(exists ? 'Replace month' : 'Create Month', exists);
+      setNewMonthButton(exists ? 'Replace month' : 'Create month', exists);
     }
     function setNewMonthButton(label, danger) {
       const btn = document.getElementById('nmCreateBtn');
@@ -2988,7 +3014,7 @@ window.addEventListener('storage', e => {
           openMadeMonth(newMonthName);
         } else if (err && err.code === 'EXISTS') {
           // Another device made this month in the meantime: nothing was changed. Load the latest so the warning shows.
-          showToast('"' + newMonthName + '" already exists, so nothing was changed. Open Start New Month again if you want to replace it.');
+          showToast('"' + newMonthName + '" already exists, so nothing was changed. Open Start new month again if you want to replace it.');
           forceSyncSheet();
         } else if (failureKind(err) === 'reach') {
           checkNewMonthAfterNoReply(newMonthName, replaceExisting);
@@ -3161,6 +3187,7 @@ window.addEventListener('storage', e => {
       openBudgetFormForRow: el => openBudgetFormForRow(rowOf(el)),
       setBudFilter: el => setBudFilter(el.dataset.arg),
       toggleWhatIf: el => toggleWhatIf(rowOf(el)),
+      toggleWhatIfMode: () => setWhatIfMode(!whatIfMode),
       markBudgetPaid: el => markBudgetPaid(rowOf(el)),
       restoreBudget: el => restoreBudget(rowOf(el)),
       closeBudgetForm: () => closeBudgetForm(),
