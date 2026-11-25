@@ -21,7 +21,7 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
     const afterReload = async p => {
       await p.waitForLoadState('load');
       await p.waitForFunction(() => window.MOCK && document.getElementById('authLockMsg') && getComputedStyle(document.getElementById('authLockScreen')).display !== 'none');
-      await p.waitForTimeout(800);   // long enough for Google (auto select) or the fingerprint to have jumped in
+      await p.waitForTimeout(800);   // kept on purpose (nothing must happen): long enough for Google (auto select) or the fingerprint to have jumped in
     };
 
     let { ctx: c3, page: p3 } = await open(phone);
@@ -53,7 +53,7 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
     });
     await step('sign out: coming back to the app later still does not ask for the fingerprint by itself', async () => {
       await awayAndBack(p3, 2 * 60 * 1000);
-      await p3.waitForTimeout(400);
+      await p3.waitForTimeout(400);   // kept on purpose (nothing must happen): it would have asked by now
       assert.deepStrictEqual(await p3.evaluate(() => MOCK.calls.map(c => c.action)), []);
       assert.strictEqual(await p3.textContent('#authLockMsg'), 'Signed out. Nothing is saved on this device any more.');
     });
@@ -96,12 +96,11 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
       assert.ok(await shown(p3, 'soWaiting'));
       assert.strictEqual(await p3.textContent('#soWaitingText'), "1 spend saved offline hasn't been sent yet. Signing out would lose it.");
       await p3.click('#soBtn');
-      await p3.waitForTimeout(200);
+      await p3.waitForFunction(() => document.getElementById('soBtn').textContent === 'Tap again to sign out anyway', null, { timeout: 2000 }).catch(() => {});
       assert.strictEqual(await p3.textContent('#soBtn'), 'Tap again to sign out anyway');
       assert.ok(!(await locked(p3)) && (await keys(p3)).includes('pf_outbox'), 'one tap must not sign out');
       await p3.click('#soSendBtn');
-      await p3.waitForFunction(() => !JSON.parse(localStorage.getItem('pf_outbox') || '[]').length);
-      await p3.waitForTimeout(200);
+      await p3.waitForFunction(() => !JSON.parse(localStorage.getItem('pf_outbox') || '[]').length && apiInflight === 0);
       assert.deepStrictEqual((await calls(p3, 'addTransactionBundle')).map(c => c.merchant), ['Waiting shop']);
       assert.ok(!(await shown(p3, 'soWaiting')), 'the warning should go once sent');
       assert.strictEqual(await p3.textContent('#soBtn'), 'Sign out');
@@ -123,7 +122,7 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
         openSignOutModal();
       });
       await p3.click('#soBtn');
-      await p3.waitForTimeout(500);
+      await p3.waitForFunction(() => document.getElementById('soBtn').disabled, null, { timeout: 1000 }).catch(() => {});   // waiting for the save
       const s = await p3.evaluate(() => ({ disabled: document.getElementById('soBtn').disabled, token: !!localStorage.getItem('pf_google_id_token'),
         ended: MOCK.calls.filter(c => c.action === 'addTransactionBundle').map(c => c.end) }));
       assert.ok(s.disabled && s.token && s.ended.length === 1 && s.ended[0] === null, 'signed out before the save finished: ' + JSON.stringify(s));
@@ -171,7 +170,7 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
       await p3.click('#soEverywhereBtn');
       assert.strictEqual(await p3.textContent('#soEverywhereBtn'), 'Tap again to sign out everywhere');
       assert.deepStrictEqual(await calls(p3, 'signOutEverywhere'), [], 'sent on the first tap');
-      await p3.waitForTimeout(4300);   // the second tap must come within 4 s
+      await p3.waitForTimeout(4300);   // kept on purpose (a time limit): the second tap must come within 4 s
       assert.strictEqual(await p3.textContent('#soEverywhereBtn'), 'Sign out everywhere');
     });
     await step('sign out everywhere: if the server refuses, nothing changes here and it says so', async () => {
@@ -290,7 +289,7 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
         }, SLOW);
         await awayAndBack(p8, 2 * 60 * 60 * 1000);
         await p8.waitForFunction(() => MOCK.calls.some(c => c.action === 'getCachedSheetState'), null, { timeout: 6000 });
-        await p8.waitForTimeout(300);
+        await p8.waitForFunction(() => !lockScreenShowing(), null, { timeout: SLOW / 2 }).catch(() => {});   // in, well before the slow read is back
         const now = await shown();
         assert.deepStrictEqual(now.reads, ['waiting'], JSON.stringify(now));
         assert.ok(!now.locked, 'the lock screen waits for the slow read: ' + JSON.stringify(now));
@@ -319,7 +318,7 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
         });
         await awayAndBack(p8, 2 * 60 * 60 * 1000);
         await p8.waitForFunction(() => MOCK.calls.some(c => c.action === 'passkeyLoginFinish'), null, { timeout: 6000 });
-        await p8.waitForTimeout(4000);   // well inside the 9 s
+        await p8.waitForTimeout(4000);   // kept on purpose (nothing must happen): it must not give up early, well inside the 9 s
         const mid = await unlockNow();
         assert.ok(mid.locked && mid.label === 'Signing in…' && mid.finishes.length === 1, JSON.stringify(mid));
         await p8.waitForFunction(() => !lockScreenShowing() && apiInflight === 0, null, { timeout: 8000 });   // and the first figures are in
@@ -401,7 +400,7 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
           });
           await awayAndBack(p8, 2 * 60 * 60 * 1000);
           await p8.waitForFunction(() => /reply didn't arrive/.test(document.getElementById('authLockMsg').textContent), null, { timeout: 8000 });
-          await p8.waitForTimeout(4000);   // longer than the automatic prompt's wait: it must not ask again by itself
+          await p8.waitForTimeout(4000);   // kept on purpose (nothing must happen): longer than the automatic prompt's wait, it must not ask again by itself
           const s = await unlockNow();
           assert.ok(s.locked && s.label === 'Unlock with fingerprint' && s.prompts === 1 && s.begins === 1 && s.finishes.length === 1, JSON.stringify(s));
         } finally { await p8.evaluate(() => { window.fetch = window.__realFetch; Date.now = window.__realNow; }); }
@@ -423,7 +422,7 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
           });
           await awayAndBack(p8, 2 * 60 * 60 * 1000);
           await p8.waitForFunction(() => /^Access Denied/.test(document.getElementById('authLockMsg').textContent), null, { timeout: 6000 });
-          await p8.waitForTimeout(4000);   // longer than the fingerprint prompt's wait for focus
+          await p8.waitForTimeout(4000);   // kept on purpose (nothing must happen): longer than the fingerprint prompt's wait for focus
           const s = await p8.evaluate(() => ({ locked: lockScreenShowing(), msg: document.getElementById('authLockMsg').textContent,
             asks: MOCK.calls.filter(c => c.action === 'passkeyLoginBegin').length, running: !!passkeyAttempt }));
           assert.ok(s.locked && s.asks === 1 && !s.running, JSON.stringify(s));
@@ -456,7 +455,7 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
           MOCK.nextLatencies = [1500];
           MOCK.gsiCallback({ credential: MOCK.makeToken('owner@example.com') });
         });
-        await p8.waitForTimeout(300);
+        await p8.waitForFunction(() => document.getElementById('authLockMsg').textContent === 'Signing in…' && MOCK.calls.length > 0, null, { timeout: 1000 }).catch(() => {});
         const now = await shown();
         assert.ok(now.locked && now.msg === 'Signing in…' && now.reads.join() === 'waiting', JSON.stringify(now));
         await p8.waitForFunction(() => !lockScreenShowing(), null, { timeout: 3000 });
@@ -527,14 +526,14 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
         });
         try {
           await p8.click('#passkeyUnlockBtn');
-          await p8.waitForTimeout(400);
+          await p8.waitForFunction(() => document.getElementById('passkeyUnlockLabel').textContent === 'Connecting…', null, { timeout: 1000 }).catch(() => {});
           let s = await lock();
           assert.ok(s.locked && s.label === 'Connecting…' && s.msg === NO_CONNECTION, 'while connecting: ' + JSON.stringify(s));
           await p8.waitForFunction(() => document.getElementById('passkeyUnlockLabel').textContent === 'Waiting for fingerprint…', null, { timeout: 2000 });
           s = await lock();
           assert.ok(s.locked && s.msg === 'Unlock to continue.', 'in the prompt: ' + JSON.stringify(s));
           await p8.waitForFunction(() => !lockScreenShowing(), null, { timeout: 3000 });
-          await p8.waitForTimeout(2500);   // past when the automatic try the tap replaced was due
+          await p8.waitForTimeout(2500);   // kept on purpose (nothing must happen): past when the automatic try the tap replaced was due
           assert.strictEqual((await lock()).begins.length, 3, 'the automatic try asked as well as the tap');
         } finally { await p8.evaluate(() => { navigator.credentials.get = window.__realGet; }); }
         await p8.waitForFunction(() => apiInflight === 0);
@@ -545,7 +544,7 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
         await c8.setOffline(true);
         try {
           await awayAndBack(p8, 2 * 60 * 60 * 1000);
-          await p8.waitForTimeout(300);
+          await p8.waitForFunction(() => document.getElementById('authLockMsg').textContent === 'Waiting for a connection…', null, { timeout: 1000 }).catch(() => {});
           const s = await lock();
           assert.ok(s.locked && s.msg === 'Waiting for a connection…' && s.begins.length === 0, JSON.stringify(s));
         } finally { await c8.setOffline(false); }
@@ -579,7 +578,7 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
       // Google would sign this account back in by itself (auto select) every time the lock screen asks.
       await p2.evaluate(() => { MOCK.authError = { code: 'FORBIDDEN', error: "FORBIDDEN: This Google account can't open PaydayFlow." }; MOCK.gsiAccount = 'someone@example.com'; MOCK.gsiCallback({ credential: MOCK.makeToken('someone@example.com') }); });
       await p2.waitForFunction(() => /can't open PaydayFlow/.test(document.getElementById('authLockMsg').textContent));
-      await p2.waitForTimeout(1500);
+      await p2.waitForTimeout(1500);   // kept on purpose (nothing must happen): Google would have signed it back in (a loop) by now
       const s = await p2.evaluate(() => ({ msg: document.getElementById('authLockMsg').textContent, token: localStorage.getItem('pf_google_id_token'),
         off: MOCK.gsi.disableAutoSelect, calls: MOCK.calls.length, locked: getComputedStyle(document.getElementById('authLockScreen')).display !== 'none' }));
       assert.ok(s.locked, 'should stay on the lock screen');

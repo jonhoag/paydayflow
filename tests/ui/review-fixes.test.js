@@ -4,7 +4,7 @@
 //   node tests/ui/review-fixes.test.js   (or: node tests/run-all.js screens)
 const assert = require('assert');
 const { awayAndBack } = require('../lib/runner');
-const { uiSuite, appSource, phone, desk, calls, failSavedNoState, resetFailures, visible, owedCount, toastParts } = require('../lib/ui');
+const { uiSuite, appSource, phone, desk, calls, failSavedNoState, resetFailures, visible, owedCount, toastParts, sendsAndSettles, toastSays } = require('../lib/ui');
 
 uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   let ctx, page;
@@ -19,10 +19,8 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
       selectSplit('half');
       submitExpense();
     });
-    await page.click('#btnSettleAll');
-    await page.waitForTimeout(3500);
+    const s = await sendsAndSettles(page, 'settleAllNeeds', () => page.click('#btnSettleAll'));   // and the spend's save before it
     await page.evaluate(() => { MOCK.latency = 50; });
-    const s = (await calls(page, 'settleAllNeeds')).pop();
     assert.ok(s && s.rows.length === 3 && s.rows.every(r => r < 98), 'rows sent: ' + JSON.stringify(s));
     assert.ok(Array.isArray(s.expect) && s.expect.length === 3 && s.expect.every(e => /^robin /.test(e.desc) && typeof e.amount === 'number'), JSON.stringify(s.expect));
     const still = await page.evaluate(() => state.checking.find(r => r.desc === 'kim Saving now'));
@@ -30,27 +28,19 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   });
 
   await step('owed: ticking one item sends what that row held', async () => {
-    await page.click('.owed-groups button[aria-label="Mark Kim Saving now paid back"]');
-    await page.waitForTimeout(250);
-    const t = (await calls(page, 'toggleNeedFlag')).pop();
+    const t = await sendsAndSettles(page, 'toggleNeedFlag', () => page.click('.owed-groups button[aria-label="Mark Kim Saving now paid back"]'));
     assert.ok(t && t.setNeed === false && t.expect && t.expect.desc === 'kim Saving now' && t.expect.amount === 15, JSON.stringify(t));
   });
 
   await step('bills: Paid, edit and delete send what the bill held', async () => {
-    await page.click('#upcomingBudgetsList button[aria-label="Mark Groceries wk 1 paid"]');
-    await page.waitForTimeout(250);
-    const u = (await calls(page, 'updateBudgetRow')).pop();
+    const u = await sendsAndSettles(page, 'updateBudgetRow', () => page.click('#upcomingBudgetsList button[aria-label="Mark Groceries wk 1 paid"]'));
     assert.ok(u && u.expect && u.expect.name === 'Groceries wk 1' && u.expect.amount === -45, JSON.stringify(u));
     await page.click('#upcomingBudgetsList button[aria-label="Edit Fuel wk 2"]');
     await page.fill('#inpBudAmt', '36');
-    await page.click('#budSaveBtn');
-    await page.waitForTimeout(250);
-    const sv = (await calls(page, 'saveBudgetItem')).pop();
+    const sv = await sendsAndSettles(page, 'saveBudgetItem', () => page.click('#budSaveBtn'));
     assert.ok(sv && sv.amount === -36 && sv.expect && sv.expect.name === 'Fuel wk 2' && sv.expect.amount === -35, JSON.stringify(sv));
     await page.click('#upcomingBudgetsList button[aria-label="Edit Groceries wk 3"]');
-    await page.click('#budDeleteBtn');
-    await page.waitForTimeout(250);
-    const dl = (await calls(page, 'deleteBudgetItem')).pop();
+    const dl = await sendsAndSettles(page, 'deleteBudgetItem', () => page.click('#budDeleteBtn'));
     assert.ok(dl && dl.expect && dl.expect.name === 'Groceries wk 3' && dl.expect.amount === -45, JSON.stringify(dl));
   });
 
@@ -99,7 +89,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
       await page.click('#btnSettleAll');
       await page.click('#toastAction');   // while "All paid back" is still on its way
       await page.waitForFunction(() => apiInflight === 0 && MOCK.calls.filter(c => c.action === 'getCachedSheetState' && c.end).length > 0);
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(300);   // kept on purpose (nothing must happen): no late tick from the Undo
       assert.strictEqual((await calls(page, 'toggleNeedFlag')).length + (await reticks()).length, toggles + before, 'Undo sent ticks for a change that never happened');
       assert.deepStrictEqual(await sheetOwed(), [true, true]);
     } finally { await resetFailures(page); dropExpectedSyncErrors(from); }
@@ -149,7 +139,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
         showToast('Something else happened', { kind: 'info', duration: 300 });
         showLockScreen('Unlock to continue.', { noAuto: true });
       });
-      await page.waitForTimeout(700);
+      await page.waitForTimeout(700);   // kept on purpose (nothing must happen): past the short toast, when the Undo would be back
       assert.ok(await toastHidden(), 'a toast shows over the lock screen: ' + (await toastParts(page)).join(' / '));
     } finally { await page.evaluate(() => hideLockScreen()); }
   });
@@ -261,9 +251,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     await page.evaluate(row => { MOCK.db.amex.find(r => r.row === row).desc = 'Someone else spend'; forceSyncSheet(); }, before.row);
     await page.waitForFunction(row => state.amex.some(r => r.row === row && r.desc === 'Someone else spend'), before.row);
     await page.fill('#editTxDesc', 'Mine edited');
-    await page.click('#editTxModal button:has-text("Save")');
-    await page.waitForTimeout(400);
-    const e = (await calls(page, 'editOrMoveTransaction')).pop();
+    const e = await sendsAndSettles(page, 'editOrMoveTransaction', () => page.click('#editTxModal button:has-text("Save")'));
     assert.deepStrictEqual(e.expect, { desc: before.desc, amount: before.amount }, JSON.stringify(e));
     assert.strictEqual(await page.evaluate(row => MOCK.db.amex.find(r => r.row === row).desc, before.row), 'Someone else spend', 'the other entry was overwritten');
     await page.waitForFunction(row => state.amex.some(r => r.row === row && r.desc === 'Someone else spend'), before.row);
@@ -292,9 +280,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     const b = await page.evaluate(() => { const x = state.budgets.find(y => !y.pending && Number(y.amount) !== 0); openBudgetFormForRow(x.row); return { row: x.row, name: x.name, amount: Number(x.amount) }; });
     await page.evaluate(row => { MOCK.db.budgets.find(r => r.row === row).name = 'Changed elsewhere'; forceSyncSheet(); }, b.row);
     await page.waitForFunction(row => state.budgets.some(r => r.row === row && r.name === 'Changed elsewhere'), b.row);
-    await page.click('#budDeleteBtn');
-    await page.waitForTimeout(300);
-    const dl = (await calls(page, 'deleteBudgetItem')).pop();
+    const dl = await sendsAndSettles(page, 'deleteBudgetItem', () => page.click('#budDeleteBtn'));
     assert.deepStrictEqual(dl.expect, { name: b.name, amount: b.amount }, JSON.stringify(dl));
     assert.ok(await page.evaluate(row => state.budgets.some(r => r.row === row && r.name === 'Changed elsewhere'), b.row), 'the other bill was taken off the screen');
     assert.ok(await page.evaluate(row => MOCK.db.budgets.some(r => r.row === row && r.name === 'Changed elsewhere'), b.row), 'the other bill was deleted on the server');
@@ -386,7 +372,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     assert.ok(await page.isVisible('#pkDevices button:has-text("Tap again")'), 'not armed straight away');
     assert.strictEqual((await calls(page, 'passkeyList')).length, before, 'arming fetched the list again');
     await page.click('#pkDevices button:has-text("Tap again")');
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => sessionStorage.getItem('mock_passkey_removed') !== null && apiInflight === 0);
     assert.strictEqual(await page.evaluate(() => sessionStorage.getItem('mock_passkey_removed')), "dev'1");
     await page.evaluate(() => closePasskeyModal());
   });
@@ -405,7 +391,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   });
   await step('bills: Restore on a paid bill with no remembered amount asks for the amount instead of guessing', async () => {
     await page.evaluate(() => { MOCK.db.budgets.push({ row: 30, name: 'No amount bill', amount: 0, originalBudget: 0, isRecurring: false }); forceSyncSheet(); });
-    await page.waitForTimeout(400);
+    await page.waitForFunction(() => apiInflight === 0);   // the read is back and drawn
     await page.evaluate(() => { document.querySelector('#clearedBudgetsList').closest('details').open = true; });
     const before = (await calls(page, 'updateBudgetRow')).length;
     await page.click('#clearedBudgetsList > div:has-text("No amount bill") button:has-text("Restore")');
@@ -442,7 +428,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     await page.click('#dynamicSplitRows .split-amt');
     await page.keyboard.type('1');
     await page.evaluate(() => forceSyncSheet());
-    await page.waitForTimeout(400);
+    await page.waitForFunction(() => apiInflight === 0);   // the reply has landed
     await page.keyboard.type('2');
     assert.strictEqual(await page.inputValue('#dynamicSplitRows .split-amt'), '12', 'the reply interrupted the typing');
     await page.evaluate(() => closeAddModal());
@@ -450,7 +436,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
 
   await step('a reply with no names (an older backend) keeps the names this device already has', async () => {
     await page.evaluate(() => { MOCK.config = null; forceSyncSheet(); });
-    await page.waitForTimeout(400);
+    await page.waitForFunction(() => apiInflight === 0);
     await page.evaluate(() => { openAddModal(); selectSplit('custom'); });
     assert.deepStrictEqual(await page.$$eval('#personChips button[id^="chip_"]', b => b.map(x => x.id)), ['chip_kim', 'chip_lee', 'chip_robin', 'chip_sam', 'chip_jo', 'chip_marcus']);
     assert.ok(await visible(page, '#sp_half'));
@@ -477,17 +463,13 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     await page.click('#nmCreateBtn');
     assert.strictEqual((await calls(page, 'startNewMonth')).length, before, 'the first tap must not send');
     assert.ok(/Tap again/.test(await page.textContent('#nmCreateBtn')));
-    await page.click('#nmCreateBtn');
-    await page.waitForTimeout(300);
-    const c = (await calls(page, 'startNewMonth')).pop();
+    const c = await sendsAndSettles(page, 'startNewMonth', () => page.click('#nmCreateBtn'));
     assert.ok(c && c.replaceExisting === true && c.newMonthName === 'Other Payday 2026', JSON.stringify(c));
   });
 
   await step('new month: a new name goes in one tap and does not ask to replace anything', async () => {
     await page.evaluate(() => openNewMonthModal());
-    await page.click('#nmCreateBtn');
-    await page.waitForTimeout(300);
-    const c = (await calls(page, 'startNewMonth')).pop();
+    const c = await sendsAndSettles(page, 'startNewMonth', () => page.click('#nmCreateBtn'));
     assert.ok(c && c.replaceExisting === false && c.paycheck === 2600 && c.savingsAmount === 500, JSON.stringify(c));
   });
 
@@ -500,13 +482,12 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     });
     const syncs = (await calls(page, 'getCachedSheetState')).length;
     await page.click('#nmCreateBtn');
-    await page.waitForTimeout(1200);
-    const toast = await page.textContent('#toast');
-    assert.ok(/Made Timed Out Payday 2026/.test(toast), toast);
+    await toastSays(page, /Made Timed Out Payday 2026/);
+    await page.waitForFunction(() => apiInflight === 0);
     assert.ok((await calls(page, 'getCachedSheetState')).length > syncs, 'should have looked at the sheet');
     assert.ok((await calls(page, 'getCachedSheetState')).some(c => c.sheetName === 'Timed Out Payday 2026'), 'should open the new month');
     await page.evaluate(() => switchMonth(MOCK.MONTH, true));
-    await page.waitForTimeout(500);
+    await page.waitForFunction(() => activeMonth === MOCK.MONTH && apiInflight === 0);
   });
 
   await step('new month: no reply and not in the sheet: the page says so instead of "failed"', async () => {
@@ -517,7 +498,8 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
       updateNewMonthName();
     });
     await page.click('#nmCreateBtn');
-    await page.waitForTimeout(1200);
+    await toastSays(page, /isn't in your sheet yet|Couldn't create/);
+    await page.waitForFunction(() => apiInflight === 0);
     const toast = await page.textContent('#toast');
     assert.ok(/isn't in your sheet yet/.test(toast), toast);
     assert.ok(!/Couldn't create/.test(toast), toast);
@@ -532,7 +514,8 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     });
     const syncs = (await calls(page, 'getCachedSheetState')).length;
     await page.click('#nmCreateBtn');
-    await page.waitForTimeout(500);
+    await toastSays(page, /already exists/);
+    await page.waitForFunction(k => apiInflight === 0 && MOCK.calls.filter(c => c.action === 'getCachedSheetState').length > k, syncs);
     assert.ok(/already exists/.test(await page.textContent('#toast')), await page.textContent('#toast'));
     assert.ok((await calls(page, 'getCachedSheetState')).length > syncs, 'should reload the latest months');
   });
@@ -584,7 +567,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
 
   await step('saved copies of months no longer in the sheet are cleared from this device', async () => {
     await page.evaluate(() => { localStorage.setItem('pf_cache_Gone Payday 2025', '{}'); localStorage.setItem('pf_tx_ts_Gone Payday 2025', '{}'); forceSyncSheet(); });
-    await page.waitForTimeout(400);
+    await page.waitForFunction(() => apiInflight === 0);   // the read is back
     const left = await page.evaluate(() => Object.keys(localStorage).filter(k => /^pf_(cache|tx_ts)_/.test(k)));
     assert.ok(!left.some(k => k.includes('Gone')), left.join());
     assert.ok(left.includes('pf_cache_Test Payday 2026'), left.join());
@@ -593,10 +576,10 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   await step('coming back to the app after a while fetches the latest figures; a quick glance away does not', async () => {
     let n = (await calls(page, 'getCachedSheetState')).length;
     await awayAndBack(page, 5000);
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(300);   // kept on purpose (nothing must happen): a refetch would have started by now
     assert.strictEqual((await calls(page, 'getCachedSheetState')).length, n, 'refetched after 5 seconds away');
     await awayAndBack(page, 2 * 60 * 1000);
-    await page.waitForTimeout(300);
+    await page.waitForFunction(k => MOCK.calls.filter(c => c.action === 'getCachedSheetState').length > k && apiInflight === 0, n, { timeout: 3000 }).catch(() => {});
     assert.strictEqual((await calls(page, 'getCachedSheetState')).length, n + 1, 'did not refetch after 2 minutes away');
   });
 
@@ -612,7 +595,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
       localStorage.setItem('pf_outbox', JSON.stringify([{ id: 'lock1', payload }]));
       const n = MOCK.calls.length;
       await flushOutbox();
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 300));   // kept on purpose (nothing must happen): no request sent meanwhile
       return { asked: MOCK.calls.length - n, msg: document.getElementById('authLockMsg').textContent, auto: lockAllowsAuto };
     });
     assert.deepStrictEqual(s, { asked: 0, msg: 'Access Denied: test message', auto: false }, JSON.stringify(s));
