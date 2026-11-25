@@ -135,25 +135,39 @@
   };
 
   const seenClientIds = new Set();
+  // A new spend (or card payment) saved as the server saves it.
+  function saveSpend(p, d, n) {
+    // Like the server, a repeat of a spend already saved (same clientId) is ignored.
+    if (p.clientId && seenClientIds.has(p.clientId)) return snapshot(d, n);
+    if (p.clientId) seenClientIds.add(p.clientId);
+    // Like the server: the spend on its card (and a payment's other half out of payFrom); a savings share as a Marcus
+    // row and a "savings" Nationwide row; each person's share as "<person> <shop>" (owed to you on a spend, by you on a refund).
+    const now = Date.now(), sign = p.isRefund ? -1 : 1, money = x => +Math.abs(Number(x) || 0).toFixed(2);
+    const add = (...a) => pushRow(d, ...a);
+    add(p.account, p.merchant, -sign * money(p.grossAmount), false, now);
+    if (p.payFrom) add(p.payFrom, p.merchant, -money(p.grossAmount), false, now - 1);
+    const mAmt = money(p.marcusShare);
+    if (mAmt > 0) {
+      add('marcus', p.merchant, -sign * mAmt, false, now - 1);
+      add('checking', 'savings ' + p.merchant, sign * mAmt, p.markNeed, now - 2);
+    }
+    (p.splits || []).filter(sp => sp && Number(sp.amount) > 0)   // a share of 0 or less is left out
+      .forEach((sp, i) => add('checking', String(sp.person).trim().toLowerCase() + ' ' + p.merchant, +(sign * money(sp.amount)).toFixed(2), sp.need, now - 3 - i));
+    return snapshot(d, n);
+  }
   const handlers = {
     getCachedSheetState: (p, d, n) => snapshot(d, n),
+    // Like the server: a card payment is money in on Amex or Barclays and the same out of payFrom, more than £0, never
+    // split; anything else is refused, writing nothing. Otherwise it is saved like a spend.
+    addCardPayment: (p, d, n) => {
+      if (!['amex', 'barclays'].includes(p.account) || !['amex', 'barclays', 'checking', 'marcus'].includes(p.payFrom) || p.payFrom === p.account
+        || !p.isRefund || !(Number(p.grossAmount) > 0) || Number(p.marcusShare) > 0 || (p.splits || []).length)
+        throw new Error('A card payment is money in on the card, more than £0, with no split.');
+      return saveSpend(p, d, n);
+    },
     addTransactionBundle: (p, d, n) => {
-      // Like the server, a repeat of a spend already saved (same clientId) is ignored.
-      if (p.clientId && seenClientIds.has(p.clientId)) return snapshot(d, n);
-      if (p.clientId) seenClientIds.add(p.clientId);
-      // Like the server: the spend on its card; a savings share as a Marcus row and a "savings" Nationwide row; each
-      // person's share as "<person> <shop>" (owed to you on a spend, by you on a refund).
-      const now = Date.now(), sign = p.isRefund ? -1 : 1, money = x => +Math.abs(Number(x) || 0).toFixed(2);
-      const add = (...a) => pushRow(d, ...a);
-      add(p.account, p.merchant, -sign * money(p.grossAmount), false, now);
-      const mAmt = money(p.marcusShare);
-      if (mAmt > 0) {
-        add('marcus', p.merchant, -sign * mAmt, false, now - 1);
-        add('checking', 'savings ' + p.merchant, sign * mAmt, p.markNeed, now - 2);
-      }
-      (p.splits || []).filter(sp => sp && Number(sp.amount) > 0)   // a share of 0 or less is left out
-        .forEach((sp, i) => add('checking', String(sp.person).trim().toLowerCase() + ' ' + p.merchant, +(sign * money(sp.amount)).toFixed(2), sp.need, now - 3 - i));
-      return snapshot(d, n);
+      if (p.payFrom) throw new Error('A card payment is sent as addCardPayment.');
+      return saveSpend(p, d, n);
     },
     editOrMoveTransaction: (p, d, n) => {
       const it = d[p.oldAcct].find(r => r.row === Number(p.row));

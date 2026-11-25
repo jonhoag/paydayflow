@@ -61,7 +61,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   });
   await step('screen readers: form boxes have labels, sheets are dialogs with a title, chosen buttons say so', async () => {
     const r = await page.evaluate(() => {
-      const unlabelled = ['monthSelector', 'inpAmount', 'inpMerchant', 'editTxAmt', 'editTxDesc', 'nmName', 'nmPaycheck', 'nmSavings', 'inpBudName', 'inpBudAmt', 'txSearch']
+      const unlabelled = ['monthSelector', 'inpAmount', 'inpMerchant', 'editTxAmt', 'editTxDesc', 'nmName', 'nmPaycheck', 'nmSavings', 'inpBudName', 'inpBudAmt', 'txSearch', 'payAmount']
         .filter(id => { const el = document.getElementById(id); return !(el.labels && el.labels.length) && !el.getAttribute('aria-label'); });
       const dialogs = SHEETS.map(([id]) => { const d = document.querySelector('#' + id + ' [role="dialog"]'); const t = d && document.getElementById(d.getAttribute('aria-labelledby'));
         return d && d.getAttribute('aria-modal') === 'true' && t && t.textContent.trim() ? 'ok' : id; });
@@ -75,7 +75,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
       return { unlabelled, dialogs, pressed, sameSheets, current: [...document.querySelectorAll('nav [data-nav]')].map(b => b.getAttribute('aria-current')),
         toast: [info, failure] };
     });
-    assert.deepStrictEqual(r, { unlabelled: [], dialogs: Array(7).fill('ok'), pressed: ['false', 'true', 'false', 'false'],
+    assert.deepStrictEqual(r, { unlabelled: [], dialogs: Array(8).fill('ok'), pressed: ['false', 'true', 'false', 'false'],
       sameSheets: true, current: ['page', null, null, null], toast: ['status/polite', 'alert/assertive'] });
     await page.click('nav button[data-nav="pending"]');
     assert.deepStrictEqual(await page.$$eval('nav [data-nav]', bs => bs.map(b => b.getAttribute('aria-current'))), [null, null, 'page', null]);

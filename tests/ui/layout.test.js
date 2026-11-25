@@ -11,7 +11,7 @@ const noSideways = page => page.evaluate(() => ({ width: innerWidth, sideways: d
   kpi: [...document.querySelectorAll('.kpi-figure')].filter(e => e.getClientRects().length && e.scrollWidth > e.clientWidth).map(e => e.id) }));
 // How the screen is laid out: rows of account cards, and columns of main sections.
 const layoutShape = page => page.evaluate(() => ({
-  cardRows: new Set([...document.querySelectorAll('#tilesSection > div')].map(x => Math.round(x.getBoundingClientRect().top))).size,
+  cardRows: new Set([...document.querySelectorAll('#tilesSection > *')].map(x => Math.round(x.getBoundingClientRect().top))).size,
   cols: getComputedStyle(document.getElementById('mainGrid')).gridTemplateColumns.split(' ').length }));
 // WCAG contrast ratio of an element's text against the first solid background behind it.
 const contrastOf = (page, sel) => page.evaluate(s => {

@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Styles are pre-built into tailwind.css (see build-css.js); the service worker keeps a copy for offline use. -->
-  <link rel="stylesheet" href="tailwind.css?v=085299ce65">
+  <link rel="stylesheet" href="tailwind.css?v=a90f7e3156">
   <style>
     /* Inter, served from this site (SIL Open Font License: fonts/OFL.txt): one variable file per set of characters,
        fetched only when the page uses them. Text shows in the fallback font until it arrives. */
@@ -87,6 +87,19 @@
     .sheet-foot { position: sticky; bottom: 0; z-index: 5; margin: 0 -20px; padding: 12px 20px 20px; background: inherit; border-top: 1px solid transparent; }
     .sheet-foot.stuck { border-top-color: #e2e8f0; }
     .dark .sheet-foot.stuck { border-top-color: #334155; }
+    /* Between phone and desktop widths (the unfolded Fold) a sheet sits in the middle of the screen above the bottom bar,
+       not on it: the bar (about 60px; the page's pb-20 leaves room for it too) plus 16px is kept clear below it, less
+       what the keyboard already covers. */
+    @media (min-width: 640px) and (max-width: 1023px) {
+      .kb-sheet.fixed { padding-bottom: max(16px, calc(76px - var(--kb, 0px))); }
+    }
+    /* A card tile you can tap to pay it off: the › shows only while it can be paid, and a mouse over it lights the edge. */
+    .pay-tile:disabled .pay-cue { display: none; }
+    .pay-tile:disabled { cursor: default; }
+    @media (hover: hover) {
+      .pay-tile:not(:disabled):hover { border-color: #94A3B8; }
+      .dark .pay-tile:not(:disabled):hover { border-color: #475569; }
+    }
     /* Phone bottom bar acts as real views: Home shows everything, the other tabs show one section. */
     @media (max-width: 1023px) {
       body[data-view="budgets"] #heroSection, body[data-view="budgets"] #tilesSection, body[data-view="budgets"] #sec_pending, body[data-view="budgets"] #sec_activity,
@@ -291,15 +304,18 @@
 
       <!-- 2. ACCOUNT BALANCES: each account's card mark sits beside its name, the balance gets the full width -->
       <section id="tilesSection" class="grid grid-cols-2 min-[720px]:grid-cols-4 gap-2.5">
-        <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-4 py-3 min-w-0">
-          <div class="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400"><span id="logoCardAmex" class="shrink-0 inline-flex"></span>Amex</div>
-          <div id="kpiAmex" class="kpi-figure mt-1.5 font-semibold tracking-tight tabular-nums text-slate-900 dark:text-white whitespace-nowrap">£—</div>
-        </div>
+        <!-- The two cards: a tap opens "Pay off <card>" while the card owes something (renderAll switches them on and off). -->
+        <button type="button" id="payTileAmex" data-action="openPayCard" data-arg="amex" disabled class="pay-tile relative text-left bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 pl-4 pr-6 py-3 min-w-0">
+          <span class="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400"><span id="logoCardAmex" class="shrink-0 inline-flex"></span>Amex</span>
+          <span id="kpiAmex" class="block kpi-figure mt-1.5 font-semibold tracking-tight tabular-nums text-slate-900 dark:text-white whitespace-nowrap">£—</span>
+          <span class="pay-cue absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"><span data-icon="chevron_right" data-class="w-4 h-4"></span></span>
+        </button>
 
-        <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-4 py-3 min-w-0">
-          <div class="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400"><span id="logoCardBarclays" class="shrink-0 inline-flex"></span>Barclays</div>
-          <div id="kpiBarclays" class="kpi-figure mt-1.5 font-semibold tracking-tight tabular-nums text-slate-900 dark:text-white whitespace-nowrap">£—</div>
-        </div>
+        <button type="button" id="payTileBarclays" data-action="openPayCard" data-arg="barclays" disabled class="pay-tile relative text-left bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 pl-4 pr-6 py-3 min-w-0">
+          <span class="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400"><span id="logoCardBarclays" class="shrink-0 inline-flex"></span>Barclays</span>
+          <span id="kpiBarclays" class="block kpi-figure mt-1.5 font-semibold tracking-tight tabular-nums text-slate-900 dark:text-white whitespace-nowrap">£—</span>
+          <span class="pay-cue absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"><span data-icon="chevron_right" data-class="w-4 h-4"></span></span>
+        </button>
 
         <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-4 py-3 min-w-0">
           <div class="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400"><span id="logoCardChecking" class="shrink-0 inline-flex"></span>Nationwide</div>
@@ -623,6 +639,43 @@
     </div>
   </div>
 
+  <!-- PAY OFF A CARD (a tap on the Amex or Barclays tile): money in on the card and out of the account it was paid from,
+       saved together (renderPaySheet fills it in). -->
+  <div id="payModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div role="dialog" aria-modal="true" aria-labelledby="payTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-2"><span id="payLogo" class="inline-flex"></span><span id="payTitle">Pay off</span></h3>
+        <button data-action="closePayModal" aria-label="Close" class="hit w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+      </div>
+
+      <div>
+        <p id="lblPayHow" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">How much?</p>
+        <div role="group" aria-labelledby="lblPayHow" class="grid grid-cols-2 gap-1.5 text-xs font-semibold">
+          <button type="button" data-action="setPayWhole" data-arg="whole" id="payHow_whole">Whole <span id="payWholeAmt" class="tabular-nums"></span></button>
+          <button type="button" data-action="setPayWhole" data-arg="part" id="payHow_part">Part of it</button>
+        </div>
+      </div>
+
+      <div id="payAmountBox" class="hidden">
+        <label for="payAmount" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
+        <input id="payAmount" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="done" placeholder="0.00" data-enter="btnPay" data-input="renderPaySheet"
+               class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-[28px] leading-9 tabular-nums font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
+        <p id="payAmountErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
+      </div>
+
+      <div>
+        <p id="lblPayFrom" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Paid from</p>
+        <div id="payFromList" role="radiogroup" aria-labelledby="lblPayFrom" class="space-y-1.5"></div>
+      </div>
+
+      <p id="payAfter" class="px-1 text-xs font-medium text-slate-700 dark:text-slate-200 leading-snug"></p>
+
+      <div class="sheet-foot">
+        <button id="btnPay" data-action="submitPayCard" class="w-full min-h-[44px] rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">Pay</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL 2: EDIT OR MOVE SPEND (With Spend (-) vs Credit (+) Toggle) -->
   <div id="editTxModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
     <div role="dialog" aria-modal="true" aria-labelledby="editTxTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
@@ -810,7 +863,7 @@
 
   <!-- The app itself (everything above is only the layout). It runs here, once the page above is in place: net.js
        (talking to the server, saves and the offline outbox) first, then app.js (everything else), which starts it. -->
-  <script src="net.js?v=1ad9912a6f"></script>
-  <script src="app.js?v=a68014388c"></script>
+  <script src="net.js?v=7f8dd5b19f"></script>
+  <script src="app.js?v=6970bb26b1"></script>
 </body>
 </html>
