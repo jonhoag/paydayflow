@@ -1790,11 +1790,14 @@ window.addEventListener('storage', e => {
     }
 
     // ================= BUDGETS & EVENTS LOGIC =================
+    // The Bills chips' looks: chosen, not chosen, and the What if chip while it is on (amber, like the What-If badge).
+    const BILL_CHIP = 'hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg ';
+    const BILL_CHIP_ON = BILL_CHIP + 'bg-slate-900 dark:bg-white text-white dark:text-slate-900';
+    const BILL_CHIP_OFF = BILL_CHIP + 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400';
+    const WHAT_IF_ON = BILL_CHIP + 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
     function setBudFilter(f) {
       budFilter = f;
-      markChoice('bf_', ['all', 'recurring', 'events'], f,
-        'hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900',
-        'hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400');
+      markChoice('bf_', ['all', 'recurring', 'events'], f, BILL_CHIP_ON, BILL_CHIP_OFF);
       renderBudgets();
     }
 
@@ -1810,15 +1813,13 @@ window.addEventListener('storage', e => {
 
     // "What if": a chip in the Bills filter row. While it is on, each unpaid bill has a switch that leaves it out of
     // Money Left and the Bills total (on screen only: nothing is saved). Turning the chip off counts every bill again.
+    // The bills left out are rows of the month on screen (skippedBudgetRows): moving to another month starts afresh
+    // (switchMonth), with the chip left as it was on purpose.
     let whatIfMode = false;
-    const WHAT_IF_ON = 'hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300';
-    const WHAT_IF_OFF = 'hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400';
     function setWhatIfMode(on) {
       whatIfMode = !!on;
       if (!whatIfMode) skippedBudgetRows.clear();
-      const chip = document.getElementById('bf_whatif');
-      chip.className = whatIfMode ? WHAT_IF_ON : WHAT_IF_OFF;
-      chip.setAttribute('aria-pressed', String(whatIfMode));
+      markChoice('bf_', ['whatif'], whatIfMode ? 'whatif' : null, WHAT_IF_ON, BILL_CHIP_OFF);
       document.getElementById('whatIfHint').classList.toggle('hidden', !whatIfMode);
       renderAll();
     }
@@ -2025,6 +2026,7 @@ window.addEventListener('storage', e => {
     // Paid sets a bill to 0 and remembers its amount (originalBudget); Restore puts that amount back. A paid bill
     // with no remembered amount opens its form instead, to ask for one rather than guess.
     function markBudgetPaid(row) {
+      skippedBudgetRows.delete(row);   // a paid bill has nothing left to leave out (and comes back counted if restored)
       const item = findBudget(row);
       if (item) setBudgetAmount(item, 0, Number(item.amount));
     }
