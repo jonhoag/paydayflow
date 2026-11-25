@@ -2792,12 +2792,15 @@ window.addEventListener('storage', e => {
     const cardOwes = card => Math.max(0, -balanceOf(card));
     // The amount the sheet would pay now, to the penny: the whole balance, or what is typed (NaN if not an amount).
     const payAmountNow = () => payWhole ? cardOwes(payCard) : +amountIn('payAmount').toFixed(2);
-    const payWaiting = card => loadOutbox().some(x => x.payload && x.payload.payFrom && x.payload.account === card);
+    const payWaiting = card => loadOutbox().find(x => x.payload && x.payload.payFrom && x.payload.account === card);
 
     function openPayCard(card) {
       if (!PAY_FROM[card] || state.loading || !(cardOwes(card) > 0)) return;
-      // A payment still in this device's queue isn't on screen after a sync, so the card would look unpaid: no second one.
-      if (payWaiting(card)) return showToast('A ' + accountCard(card).name + " payment is still waiting to send, so it isn't offered again yet.", { kind: 'info' });
+      // A payment still in this device's queue isn't on screen after a sync, so the card would look unpaid: no second one
+      // until it has gone, or you have removed it (one set aside waits for a tap on ↻).
+      const waiting = payWaiting(card);
+      if (waiting) return showToast('A ' + accountCard(card).name + (waiting.setAside
+        ? " payment couldn't be sent and is set aside: tap ↻ to send it again, or Remove it." : " payment is still waiting to send, so it isn't offered again yet."), { kind: 'info' });
       payCard = card;
       payFrom = PAY_FROM[card][0];
       payWhole = true;
@@ -2860,6 +2863,7 @@ window.addEventListener('storage', e => {
       if (!payWhole && checkedAmount('payAmount', true) === null) return;
       const amt = payAmountNow();   // to the penny, as the button shows it
       if (amt > owes) return showFieldError('payAmount', `That's more than ${accountCard(payCard).name} owes (${fmtGBP(owes)})`);
+      if (!payWhole && !(amt > 0)) return showFieldError('payAmount', 'Add the amount');   // less than a penny
       if (!(amt > 0)) return closePayModal();   // nothing owed any more (the figures changed while the sheet was open)
       const card = payCard, desc = accountCard(card).name + ' CC Payment', now = Date.now();
       addPendingTx(card, 99, desc, amt, false, now);   // made-up rows until the server says where each went

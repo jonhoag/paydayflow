@@ -85,6 +85,9 @@ uiSuite(async ({ open, step }) => {
     await page.fill('#payAmount', '1,0.244');   // not an amount
     await page.click('#btnPay');
     assert.strictEqual((await sheet()).err, 'Type an amount, like 12.50');
+    await page.fill('#payAmount', '0.004');   // rounds to £0.00: says so, and the sheet stays open
+    await page.click('#btnPay');
+    assert.ok((await sheet()).open && (await sheet()).err === 'Add the amount', JSON.stringify(await sheet()));
     await page.fill('#payAmount', '10.244');
     assert.strictEqual((await sheet()).pay, 'Pay £10.24');
     const p = await sendsAndSettles(page, 'addCardPayment', () => page.click('#btnPay'));
@@ -120,6 +123,8 @@ uiSuite(async ({ open, step }) => {
       await page.waitForFunction(() => loadOutbox().some(x => x.setAside), null, { timeout: 5000 });
       assert.deepStrictEqual(await rows(), before, 'the sheet changed');
       assert.ok(/Couldn't send Barclays CC Payment/.test(await page.textContent('#toast')));
+      await page.click('#payTileBarclays');   // set aside: not offered again, and the message says what to do
+      assert.ok(!(await sheet()).open && /set aside: tap ↻ to send it again, or Remove it/.test(await page.textContent('#toast')));
     } finally {
       await page.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; saveOutbox([]); forceSyncSheet(); });
     }
