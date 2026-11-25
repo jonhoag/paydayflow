@@ -55,10 +55,28 @@ const SEED_OWED = `(async () => {
   add.forEach(([desc, amount]) => ch.push({ row: Math.max(...ch.map(r => r.row)) + 1, desc, amount, need: true }));
   [['Tesco', -46.8], ['Deliveroo', -37.5], ['Amazon', -32.99]].forEach(([desc, amount]) => MOCK.db.amex.push({ row: Math.max(...MOCK.db.amex.map(r => r.row)) + 1, desc, amount }));
   forceSyncSheet();
-  await new Promise(r => setTimeout(r, 900));
+  // the read is back and drawn (or fail after 10 s rather than hang)
+  await new Promise((r, no) => { const since = Date.now(); const t = setInterval(() => {
+    if (apiInflight === 0) { clearInterval(t); r(); } else if (Date.now() - since > 10000) { clearInterval(t); no(new Error('SEED_OWED: the read never came back')); }
+  }, 20); });
 })()`;
 
 const calls = (page, action) => page.evaluate(a => MOCK.calls.filter(c => c.action === a).map(c => c.payload), action);
+// Runs act() (a tap, say), then waits until the page has sent `action` once more and every reply is back (and drawn);
+// returns what that request sent.
+async function sendsAndSettles(page, action, act) {
+  const n = (await calls(page, action)).length;
+  await act();
+  await page.waitForFunction(([a, k]) => MOCK.calls.filter(c => c.action === a).length > k && apiInflight === 0, [action, n], { timeout: 10000 })
+    .catch(() => { throw new Error(action + ' was not sent, or its reply never came back'); });
+  return (await calls(page, action)).pop();
+}
+// Waits (up to `ms`) until `fn` is true in the page, as after a resize; fails saying what it waited for.
+const settles = (page, fn, ms = 2000) => page.waitForFunction(fn, null, { timeout: ms })
+  .catch(() => { throw new Error('never settled: ' + String(fn)); });
+// Waits until the toast says something matching `re` (and fails with what it says instead, after `ms`).
+const toastSays = (page, re, ms = 5000) => page.waitForFunction(r => new RegExp(r).test(document.getElementById('toast').textContent), re.source, { timeout: ms })
+  .catch(async () => { throw new Error('the toast never said ' + re + ': ' + await page.textContent('#toast')); });
 // The server saved a change, then couldn't read the month's figures back: saved, so never kept or sent again.
 const SAVED_NO_STATE = { code: 'SAVED_NO_STATE', error: 'SAVED_NO_STATE: saved, but the figures could not be read just now.' };
 const failSavedNoState = page => page.evaluate(t => { MOCK.failWith = t; MOCK.failAfterWriteNext = 1; }, SAVED_NO_STATE);
@@ -136,7 +154,7 @@ async function uiSuite(body) {
     const page = watch(await ctx.newPage());
     await page.goto(`http://localhost:${port}/tests/harness.html?${query}&latency=50`);
     await page.waitForFunction(() => document.getElementById('kpiNCA') && /£\d/.test(document.getElementById('kpiNCA').textContent) && window.MOCK && MOCK.calls.length > 0);
-    await page.waitForTimeout(400);
+    await page.waitForFunction(() => apiInflight === 0 && MOCK.calls.every(c => c.end));   // the first requests are all back
     return { ctx, page };
   };
   // Requests a test fails on purpose are logged by the page; take just those back out of the error list.
@@ -158,5 +176,5 @@ async function uiSuite(body) {
   finish();
 }
 
-module.exports = { uiSuite, root, appSource, phone, desk, monthBars, SEED_OWED, calls, SAVED_NO_STATE, failSavedNoState, resetFailures,
+module.exports = { uiSuite, settles, root, appSource, phone, desk, monthBars, SEED_OWED, calls, sendsAndSettles, toastSays, SAVED_NO_STATE, failSavedNoState, resetFailures,
   sheetReads, visible, owedCount, lineCounts, hitAreas, toastParts, LOCK_TIMEOUT, BUSY };

@@ -15,6 +15,14 @@ const { launchChrome, makeSteps } = require('./lib/runner');
 const PORT = 8127;
 const origin = 'http://localhost:' + PORT;
 const { HOST, TYPES, siteRel, siteFile, publishedBytes } = require('./lib/site-files');
+const { build } = require('../build-sw');
+
+// A site file changed without `node build-sw.js`: the new service worker can never install (a file never matches its
+// hash), and every step after would wait for it. Say so at once instead.
+if (!build({ check: true })) {
+  console.error('\nsw.test: sw.js (or the ?v= stamps in index.html) does not match the site files. Run: node build-sw.js');
+  process.exit(1);
+}
 
 // live (sw.js is the version live before this check existed) | normal | fresh (a new version: the page gains a marker
 // and sw.js holds its hash) | fresh-sw (the same, with a change to sw.js alone) | half (a new sw.js whose page has not arrived yet) | slow (10 s) | 404 | down (drops the
@@ -57,8 +65,10 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
     res.end(body);
   };
-  if (mode === 'slow' && isPage) setTimeout(send, 10000); else send();
+  if (mode === 'slow' && isPage) { const t = setTimeout(() => { held.delete(t); send(); }, 10000); held.set(t, send); } else send();
 });
+const held = new Map();   // slow replies not sent yet (their timer -> send)
+const sendHeldNow = () => { for (const [t, send] of held) { clearTimeout(t); held.delete(t); send(); } };
 
 const { step, finish } = makeSteps();
 
@@ -73,6 +83,10 @@ const { step, finish } = makeSteps();
     const hit = await caches.match('/');
     return hit ? { status: hit.status, text: await hit.text() } : null;
   });
+  // Every wait has a time limit, so a service worker that can never install fails the step instead of hanging the run.
+  const within = (promise, ms, what) => Promise.race([promise, new Promise((res, rej) => setTimeout(() => rej(new Error(what + ' (nothing after ' + ms / 1000 + ' s)')), ms))]);
+  // Checks `ok` (sync or async) every 50 ms until it is true or `ms` is up; returns whether it came true.
+  const until = async (ok, ms = 5000) => { const end = Date.now() + ms; while (!(await ok())) { if (Date.now() > end) return false; await new Promise(r => setTimeout(r, 50)); } return true; };
   const reload = async () => {
     const t0 = Date.now();
     await page.goto(origin + '/', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(e => { throw new Error('page did not open: ' + e.message.split('\n')[0]); });
@@ -102,7 +116,7 @@ const { step, finish } = makeSteps();
 
   await step('first visit (the version live before this change): its service worker installs and saves the app', async () => {
     await reload();
-    await page.evaluate(() => navigator.serviceWorker.ready);
+    await within(page.evaluate(() => navigator.serviceWorker.ready), 10000, 'the service worker never installed');
     await reload();   // now controlled by the service worker
     assert.ok(await page.evaluate(() => !!navigator.serviceWorker.controller), 'page is not controlled by the service worker');
     const c = await cachedPage();
@@ -131,8 +145,9 @@ const { step, finish } = makeSteps();
     await plant('/', FAKE);
     await reload();
     assert.strictEqual(await page.title(), 'PaydayFlow', 'opened the swapped page');
-    await page.waitForTimeout(300);
-    assert.strictEqual(sha256(Buffer.from((await cachedPage()).text, 'utf8')), sha256(realPage), 'the saved copy is not the real page again');
+    const savedPage = async () => { const c = await cachedPage(); return c ? sha256(Buffer.from(c.text, 'utf8')) : null; };
+    await until(async () => await savedPage() === sha256(realPage));
+    assert.strictEqual(await savedPage(), sha256(realPage), 'the saved copy is not the real page again');
   });
 
   await step('a saved copy is passed on with its own headers only (anything saved alongside it is dropped)', async () => {
@@ -149,19 +164,20 @@ const { step, finish } = makeSteps();
     assert.strictEqual(cssHits, before + 1, 'the real stylesheet was not fetched');
   });
 
-  await step('swapped saved scripts (app.js, guard.js) never run: the real ones run and are saved again', async () => {
+  await step('swapped saved scripts (app.js, net.js, guard.js) never run: the real ones run and are saved again', async () => {
     await plant('/app.js', 'window.__planted = "app"; document.title = "swapped";', { 'Content-Type': 'text/javascript' });
+    await plant('/net.js', 'window.__planted = "net";', { 'Content-Type': 'text/javascript' });
     await plant('/guard.js', 'window.__planted = "guard";', { 'Content-Type': 'text/javascript' });
     await reload();
     await page.waitForFunction(() => typeof ACTIONS === 'object', null, { timeout: 10000 });
     assert.deepStrictEqual(await page.evaluate(() => [window.__planted || null, document.title]), [null, 'PaydayFlow']);
-    await page.waitForTimeout(300);   // let the real copies be saved again
-    const saved = await page.evaluate(async () => Promise.all(['/app.js', '/guard.js'].map(async p => { const hit = await caches.match(p); return hit ? hit.text() : null; })));
+    const savedScripts = () => page.evaluate(async () => Promise.all(['/app.js', '/net.js', '/guard.js'].map(async p => { const hit = await caches.match(p); return hit ? hit.text() : null; })));
+    await until(async () => (await savedScripts()).every(t => t && !t.includes('__planted')));   // the real copies saved again
+    const saved = await savedScripts();
     assert.ok(saved.every(t => t && !t.includes('__planted')), 'a swapped script is still saved');
   });
 
   await step("a stylesheet version this version doesn't have is fetched, not taken from the saved copy, and not saved", async () => {
-    await page.waitForTimeout(300);   // let the last step's copy be saved
     const before = cssHits;
     const css = await page.evaluate(async () => (await fetch('/tailwind.css?v=0000000000')).text());
     assert.strictEqual(css, realCss);
@@ -170,8 +186,8 @@ const { step, finish } = makeSteps();
   });
 
   await step('the font is fetched once, then always served from the saved copy', async () => {
-    await page.evaluate(() => document.fonts.ready);
-    await page.waitForTimeout(500);   // let the service worker finish saving it
+    await within(page.evaluate(() => document.fonts.ready), 10000, 'the fonts never loaded');
+    await until(() => page.evaluate(async () => !!(await caches.match('/fonts/inter-latin.woff2'))));   // saved by the service worker
     const before = fontHits;
     for (let i = 0; i < 2; i++) { await reload(); await page.evaluate(() => document.fonts.ready); }
     assert.ok(before > 0, 'the font was never fetched');
@@ -183,11 +199,12 @@ const { step, finish } = makeSteps();
     // signed in (a token that looks valid): no lock screen, so Google's script is never asked for
     await page.evaluate(() => localStorage.setItem('pf_google_id_token', 'h.' + btoa(JSON.stringify({ email: 'owner@example.com', exp: Math.floor(Date.now() / 1000) + 3600 })) + '.s'));
     await reload();
-    await page.waitForTimeout(300);
+    // The app has started, without the lock screen.
+    await page.waitForFunction(() => typeof ACTIONS === 'object' && getComputedStyle(document.getElementById('authLockScreen')).display === 'none', null, { timeout: 10000 });
     assert.strictEqual(await gsiRequested(), false, 'fetched while signed in');
     await page.evaluate(() => localStorage.removeItem('pf_google_id_token'));
     await reload();
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => !!document.querySelector('script[src*="accounts.google.com"]'), null, { timeout: 5000 }).catch(() => {});
     assert.strictEqual(await gsiRequested(), true, 'the lock screen should fetch it');
   });
 
@@ -196,9 +213,8 @@ const { step, finish } = makeSteps();
     const before = pageHits;
     await reload();
     // The browser checks sw.js and tries to install the new version, which asks for the page.
-    for (let i = 0; i < 50 && pageHits === before; i++) await page.waitForTimeout(100);
-    assert.ok(pageHits > before, 'the new version never tried to install');
-    await page.waitForTimeout(1000);
+    assert.ok(await until(() => pageHits > before), 'the new version never tried to install');
+    await page.waitForTimeout(1000);   // kept on purpose (nothing must happen): no offer, although the install has had time
     assert.strictEqual(await updateOffered(), false, 'offered an update that has not fully arrived');
     assert.strictEqual(sha256(Buffer.from((await cachedPage()).text, 'utf8')), sha256(realPage), 'the saved page changed');
     mode = 'down';
@@ -219,7 +235,7 @@ const { step, finish } = makeSteps();
   await step('the next open shows the new page, and nothing is offered when the page has not changed', async () => {
     await reload();
     assert.ok(await page.$('#fresh-marker'), 'next open did not show the new page');
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(1500);   // kept on purpose (nothing must happen): an offer would have come by now
     assert.strictEqual(await updateOffered(), false, 'offered an update when nothing changed');
   });
 
@@ -233,7 +249,8 @@ const { step, finish } = makeSteps();
       assert.ok(await Promise.race([changed, new Promise(r => setTimeout(() => r(false), 5000))]), 'the new service worker did not take over');
       assert.deepStrictEqual([pageHits, fontHits, cssHits], before, 'files were downloaded again');
       // Taking over comes before the old caches are cleared out: wait for that to finish.
-      await page.evaluate(() => new Promise(r => { const w = navigator.serviceWorker.controller; if (w.state === 'activated') r(); else w.addEventListener('statechange', () => { if (w.state === 'activated') r(); }); }));
+      await within(page.evaluate(() => new Promise(r => { const w = navigator.serviceWorker.controller; if (w.state === 'activated') r(); else w.addEventListener('statechange', () => { if (w.state === 'activated') r(); }); })),
+        5000, 'the new service worker never finished taking over');
       assert.ok((await caches_()).includes('another-app'), "another app's cache was deleted");
     } finally { await page.evaluate(() => caches.delete('another-app')); }
     await reload();
@@ -249,10 +266,12 @@ const { step, finish } = makeSteps();
 
   await step('server error (404): the saved app opens, and the error page is not saved', async () => {
     mode = '404';
-    await page.waitForTimeout(8000);   // let the slow reply from the last step finish first
+    sendHeldNow();   // the slow reply from the last step goes now, so it can't land in this step
+    const before = pageHits;
     await reload();
     assert.strictEqual(await page.title(), 'PaydayFlow', 'showed the error page');
-    await page.waitForTimeout(300);
+    await until(() => pageHits > before);   // the page asked for afresh (and turned down) behind the saved copy
+    await page.waitForTimeout(300);   // kept on purpose (nothing must happen): the error page is not saved
     const c = await cachedPage();
     assert.ok(c.status === 200 && /PaydayFlow/.test(c.text), 'saved copy was replaced by the error page');
   });
@@ -261,7 +280,7 @@ const { step, finish } = makeSteps();
     mode = 'normal';
     const r = await page.evaluate(async () => {
       const status = (await fetch('/sw.js')).status;
-      await new Promise(res => setTimeout(res, 300));
+      await new Promise(res => setTimeout(res, 300));   // kept on purpose (nothing must happen): it is not saved meanwhile
       return { status, saved: !!(await caches.match('/sw.js')) };
     });
     assert.deepStrictEqual(r, { status: 200, saved: false });
@@ -310,7 +329,7 @@ const { step, finish } = makeSteps();
     try {
       mode = 'prev';
       await open();
-      await p.evaluate(() => navigator.serviceWorker.ready);
+      await within(p.evaluate(() => navigator.serviceWorker.ready), 10000, 'the inline version\'s service worker never installed');
       await open();
       await appRuns();
       assert.ok(await p.evaluate(() => !!navigator.serviceWorker.controller && !document.querySelector('script[src*="app.js"]')), 'not the inline version, or not controlled');

@@ -93,8 +93,9 @@ uiSuite(async ({ browser, errors, open, step, PORT, dropExpectedSyncErrors }) =>
     const p4 = await c4.newPage();
     for (const query of ['demo=1', 'demo=1&noguard=1']) {
       await p4.setContent(`<iframe src="http://localhost:${PORT}/tests/harness.html?${query}&latency=50" style="width:1200px;height:700px"></iframe>`);
-      await p4.waitForFunction(() => document.querySelector('iframe').contentWindow.frames !== undefined);
-      await p4.waitForTimeout(2000);
+      const frame = await (await p4.waitForSelector('iframe')).contentFrame();
+      await frame.waitForLoadState('load');
+      await p4.waitForTimeout(300);   // kept on purpose (nothing must happen): past load, when the app would have started
       const f = p4.frames().find(x => x.url().includes('harness.html'));
       const s = await f.evaluate(() => ({ framed: window.PF_FRAMED, display: getComputedStyle(document.documentElement).display,
         calls: window.MOCK ? MOCK.calls.length : -1, gsi: window.MOCK ? MOCK.gsi.initialize : -1, icons: document.querySelectorAll('svg').length,

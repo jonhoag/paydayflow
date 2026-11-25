@@ -17,7 +17,7 @@ uiSuite(async ({ browser, watch, open, step, PORT }) => {
       if (when) await p.clock.setFixedTime(new Date(when));
       await p.goto(`http://localhost:${PORT}/tests/harness.html?${query}&latency=50`);
       await p.waitForFunction(() => document.getElementById('kpiNCA') && /£\d/.test(document.getElementById('kpiNCA').textContent));
-      await p.waitForTimeout(400);
+      await p.waitForFunction(() => apiInflight === 0 && MOCK.calls.every(x => x.end));   // the first requests are all back
       return { c, p };
     };
     const txt = (p, sel) => p.evaluate(s => document.querySelector(s).textContent.replace(/\s+/g, ' ').trim(), sel);
@@ -53,8 +53,7 @@ uiSuite(async ({ browser, watch, open, step, PORT }) => {
       assert.strictEqual(await txt(p, '#dailyLeft'), '£12.30 over');
       await p.evaluate(() => renderDailyStrip(sheetFigures(state, skippedBudgetRows).eomSavingsJ));
       await p.evaluate(() => switchMonth(MOCK.MONTH2));
-      await p.waitForFunction(() => activeMonth === MOCK.MONTH2 && /£\d/.test(document.getElementById('kpiSurplus').textContent));
-      await p.waitForTimeout(300);
+      await p.waitForFunction(() => activeMonth === MOCK.MONTH2 && /£\d/.test(document.getElementById('kpiSurplus').textContent) && apiInflight === 0);
       assert.ok(!(await isShown(p, 'dailyStrip')), 'an older month should not show a daily amount');
     });
     await c.close();
@@ -76,11 +75,11 @@ uiSuite(async ({ browser, watch, open, step, PORT }) => {
       const before = await p.evaluate(() => ({ month: activeMonth, last: localStorage.getItem('pf_last_month'), surplus: document.getElementById('kpiSurplus').textContent }));
       // A slow reply, and the dialog opened again (and redrawn) while it is still on its way.
       await p.evaluate(() => { MOCK.nextLatencies = [900]; openSpendModal(); });
-      await p.waitForTimeout(150);
+      await p.waitForFunction(() => MOCK.calls.some(x => x.action === 'getCachedSheetState' && x.payload.sheetName === MOCK.MONTH2 && !x.end));   // on its way
       await p.evaluate(() => { closeSpendModal(); openSpendModal(); renderSpend(); });
       await p.waitForFunction(() => /vs last month|Same as last month| · New/.test(document.getElementById('spendBody').textContent));
       await p.evaluate(() => { closeSpendModal(); openSpendModal(); });
-      await p.waitForTimeout(300);
+      await p.waitForFunction(() => apiInflight === 0);   // a second fetch, if any, would be on its way now: let it land
       const asked = await p.evaluate(() => MOCK.calls.filter(x => x.action === 'getCachedSheetState' && x.payload.sheetName === MOCK.MONTH2).length);
       assert.strictEqual(asked, 1, 'last month should be fetched once, not ' + asked + ' times');
       const notes = await p.$$eval('#spendBody button[data-cat] .text-xs', els => els.map(e => e.textContent));
@@ -90,10 +89,9 @@ uiSuite(async ({ browser, watch, open, step, PORT }) => {
     });
     await step('vs last month: the oldest month has nothing to compare with, so no notes', async () => {
       await p.evaluate(() => { closeSpendModal(); switchMonth(MOCK.MONTH2); });
-      await p.waitForFunction(() => activeMonth === MOCK.MONTH2);
-      await p.waitForTimeout(400);
+      await p.waitForFunction(() => activeMonth === MOCK.MONTH2 && apiInflight === 0);
       await p.evaluate(() => openSpendModal());
-      await p.waitForTimeout(400);
+      await p.waitForFunction(() => apiInflight === 0);
       assert.ok(!/vs last month|Same as| · New/.test(await txt(p, '#spendBody')));
     });
     // Audit 4.12: the sheet's tabs were out of order (November, September, October), and so was the month picker.
@@ -151,7 +149,7 @@ uiSuite(async ({ browser, watch, open, step, PORT }) => {
       });
       const name = await p.evaluate(() => owedGroupsShown[0].name);
       await p.click(`#panel_pending button[aria-label="Send ${name} what they owe"]`);
-      await p.waitForTimeout(300);
+      await p.waitForTimeout(300);   // kept on purpose (nothing must happen): no toast after a cancelled share
       assert.ok(await p.evaluate(() => document.getElementById('toast').classList.contains('hidden')), 'a toast appeared');
     });
     await step('Owed: if the browser refuses the share sheet (e.g. inside Apps Script), the message is copied instead', async () => {

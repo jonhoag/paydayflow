@@ -13,13 +13,14 @@ const { step: test, finish } = require('./lib/steps').makeSteps();
 const UNDER_TEST = ['parseAmount', 'equalShares', 'getNextMonthName', 'failureKind', 'serverError', 'describePasskeyError', 'sheetFigures', 'usableMonth', 'splitPersonKey', 'owedPerson'];
 const NEEDS = ['displayName', 'MONTHS', 'isConnectionError', 'ACCTS', 'MONTH_LISTS', 'sumAmounts'];
 
-const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
-// One part of app.js by its name, as written there: a function (from "function name(" to the closing brace at the
-// same indent) or a const on one line. There must be exactly one, so the test can't pick up the wrong one.
+// The app's scripts (APP_SCRIPTS: net.js, app.js), which share one scope.
+const app = require('../build-sw').APP_SCRIPTS.map(f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n')).join('\n');
+// One part of the page's scripts by its name, as written there: a function (from "function name(" to the closing
+// brace at the same indent) or a const on one line. There must be exactly one, so the test can't pick up the wrong one.
 function appPart(name) {
   const found = [...app.matchAll(new RegExp('^( *)(?:async )?function ' + name + '\\(.*\\n[\\s\\S]*?^\\1\\}$', 'gm')),
     ...app.matchAll(new RegExp('^ *const ' + name + ' = .*;(?: *//.*)?$', 'gm'))];
-  if (found.length !== 1) throw new Error('found ' + name + ' ' + found.length + ' times in app.js (expected once)');
+  if (found.length !== 1) throw new Error('found ' + name + ' ' + found.length + ' times in net.js + app.js (expected once)');
   return found[0][0];
 }
 const sandbox = {};

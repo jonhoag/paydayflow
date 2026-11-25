@@ -4,7 +4,7 @@
 //
 //   node tests/ui/phone.test.js   (or: node tests/run-all.js screens)
 const assert = require('assert');
-const { uiSuite, phone, SEED_OWED, calls, failSavedNoState, resetFailures, sheetReads, visible, owedCount, toastParts, LOCK_TIMEOUT, BUSY } = require('../lib/ui');
+const { uiSuite, phone, SEED_OWED, calls, failSavedNoState, resetFailures, sheetReads, visible, owedCount, toastParts, LOCK_TIMEOUT, BUSY, sendsAndSettles } = require('../lib/ui');
 
 uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   const { ctx, page } = await open(phone);
@@ -130,36 +130,28 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   await step('bills: Paid saves the bill as paid, Restore brings it back', async () => {
     await page.evaluate(() => setView('home'));
     const first = await page.$eval('#upcomingBudgetsList button[aria-label^="Mark"]', b => b.getAttribute('aria-label'));
-    await page.click('#upcomingBudgetsList button[aria-label^="Mark"]');
-    await page.waitForTimeout(250);
-    const paid = (await calls(page, 'updateBudgetRow')).pop();
+    const paid = await sendsAndSettles(page, 'updateBudgetRow', () => page.click('#upcomingBudgetsList button[aria-label^="Mark"]'));
     assert.ok(paid && paid.newAmount === 0, 'expected updateBudgetRow with 0, got ' + JSON.stringify(paid));
     const name = first.replace(/^Mark | paid$/g, '');
     assert.ok((await page.textContent('#clearedBudgetsList')).includes(name), 'bill should move to Paid');
     await page.evaluate(() => document.querySelector('#clearedBudgetsList').closest('details').open = true);
-    await page.click('#clearedBudgetsList button:has-text("Restore")');
-    await page.waitForTimeout(250);
-    const restored = (await calls(page, 'updateBudgetRow')).pop();
+    const restored = await sendsAndSettles(page, 'updateBudgetRow', () => page.click('#clearedBudgetsList button:has-text("Restore")'));
     assert.ok(restored && restored.newAmount < 0, 'Restore should put the amount back: ' + JSON.stringify(restored));
   });
 
   await step('bills: editing a paid bill (a new name) keeps it paid; its form shows the amount it would go back to', async () => {
     await page.evaluate(() => setView('home'));
-    await page.click('#upcomingBudgetsList button[aria-label^="Mark"]');
-    await page.waitForTimeout(250);
+    await sendsAndSettles(page, 'updateBudgetRow', () => page.click('#upcomingBudgetsList button[aria-label^="Mark"]'));
     const bill = await page.evaluate(() => { const b = state.budgets.find(x => Number(x.amount) === 0 && x.originalBudget && !x.pending); return { row: b.row, name: b.name, orig: b.originalBudget }; });
     await page.evaluate(() => { document.querySelector('#clearedBudgetsList').closest('details').open = true; });
     await page.click(`#clearedBudgetsList button[data-action="openBudgetFormForRow"][data-row="${bill.row}"]`);   // its name in the Paid list
     assert.strictEqual(Number(await page.inputValue('#inpBudAmt')), Math.abs(bill.orig), 'the form should show the amount to restore');
     await page.fill('#inpBudName', bill.name + ' x');
-    await page.click('#budSaveBtn');
-    await page.waitForTimeout(250);
-    const saved = (await calls(page, 'saveBudgetItem')).pop();
+    const saved = await sendsAndSettles(page, 'saveBudgetItem', () => page.click('#budSaveBtn'));
     assert.ok(saved && saved.paid === true && saved.amount === bill.orig, 'expected a save as still paid: ' + JSON.stringify(saved));
     const now = () => page.evaluate(r => { const b = state.budgets.find(x => x.row === r); return [b.name, Number(b.amount), b.originalBudget]; }, bill.row);
     assert.deepStrictEqual(await now(), [bill.name + ' x', 0, bill.orig], 'the bill was un-paid');
-    await page.evaluate(r => restoreBudget(r), bill.row);   // back as it was, for the steps after
-    await page.waitForTimeout(250);
+    await sendsAndSettles(page, 'updateBudgetRow', () => page.evaluate(r => restoreBudget(r), bill.row));   // back as it was, for the steps after
     assert.strictEqual((await now())[1], bill.orig);
   });
 
@@ -199,9 +191,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     assert.ok(await visible(page, '#heroSection') === false, 'Owed tab should show only the Owed section');
     const names = await page.$$eval('.owed-groups .text-sm.font-semibold.truncate', els => els.map(e => e.textContent));
     assert.deepStrictEqual(names, ['Kim', 'Sam', 'Robin', 'Lee'], 'biggest amount owed first: ' + JSON.stringify(names));
-    await page.click('.owed-groups button[aria-label="Mark Sam Lidl paid back"]');
-    await page.waitForTimeout(250);
-    const t = (await calls(page, 'toggleNeedFlag')).pop();
+    const t = await sendsAndSettles(page, 'toggleNeedFlag', () => page.click('.owed-groups button[aria-label="Mark Sam Lidl paid back"]'));
     assert.ok(t && t.setNeed === false, JSON.stringify(t));
     assert.strictEqual(await owedCount(page), 23);
   });
@@ -212,9 +202,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
 
   await step('owed tab: "All paid back" for one person saves only their items', async () => {
     const before = await page.evaluate(() => state.checking.filter(r => r.need && /^robin/i.test(r.desc)).map(r => r.row).sort());
-    await page.click('.owed-groups button[data-person="robin"]');
-    await page.waitForTimeout(250);
-    const s = (await calls(page, 'settleAllNeeds')).pop();
+    const s = await sendsAndSettles(page, 'settleAllNeeds', () => page.click('.owed-groups button[data-person="robin"]'));
     assert.deepStrictEqual(s.rows.slice().sort(), before);
     assert.strictEqual(await owedCount(page), 23 - before.length, 'rows ' + JSON.stringify(before));
     const left = await page.evaluate(() => state.checking.filter(r => r.need && /^robin/i.test(r.desc)).length);
@@ -225,9 +213,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     await page.click('#pill_settled');
     assert.ok(await visible(page, '#panel_settled'));
     const n = await owedCount(page);
-    await page.click('#panel_settled button:has-text("Undo")');
-    await page.waitForTimeout(250);
-    const t = (await calls(page, 'toggleNeedFlag')).pop();
+    const t = await sendsAndSettles(page, 'toggleNeedFlag', () => page.click('#panel_settled button:has-text("Undo")'));
     assert.ok(t && t.setNeed === true);
     assert.strictEqual(await owedCount(page), n + 1);
     await page.click('#pill_pending');
@@ -325,9 +311,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     assert.ok(await visible(page, '#spendModal'));
     assert.ok(await page.$('#spendBody svg circle'));
     await page.click('#spendBody button[data-cat="Groceries"]');
-    await page.selectOption('#spendBody select', 'Shopping');
-    await page.waitForTimeout(250);
-    const c = (await calls(page, 'setCategoryChoice')).pop();
+    const c = await sendsAndSettles(page, 'setCategoryChoice', () => page.selectOption('#spendBody select', 'Shopping'));
     assert.ok(c && c.category === 'Shopping', JSON.stringify(c));
     await page.keyboard.press('Escape');
     assert.ok(!(await visible(page, '#spendModal')), 'Escape should close it');
@@ -337,9 +321,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     await page.click('nav button[aria-label="Add transaction"]');
     await page.fill('#inpMerchant', 'Flow test shop');
     await page.fill('#inpAmount', '7.25');
-    await page.click('#btnSubmitTx');
-    await page.waitForTimeout(300);
-    const a = (await calls(page, 'addTransactionBundle')).pop();
+    const a = await sendsAndSettles(page, 'addTransactionBundle', () => page.click('#btnSubmitTx'));
     assert.ok(a && a.merchant === 'Flow test shop' && Number(a.grossAmount) === 7.25, JSON.stringify(a));
     assert.ok((await page.textContent('#txListContainer')).includes('Flow test shop'));
   });
@@ -554,7 +536,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
         Storage.prototype.setItem = function () { throw new Error('QuotaExceededError'); };   // nothing can be saved now
         return flushOutbox();
       }, payload);
-      await page.waitForTimeout(2500);   // long enough for several rounds if setting it aside started another
+      await page.waitForTimeout(2500);   // kept on purpose (nothing must happen): long enough for several rounds if setting it aside started another
       await page.waitForFunction(() => apiInflight === 0);
       assert.strictEqual(await sentCount('Full storage shop'), 1);
     } finally {
@@ -665,19 +647,13 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     await page.click('#txListContainer > .tx-row:has-text("Flow test shop")');
     assert.ok(await visible(page, '#editTxModal'));
     await page.fill('#editTxDesc', 'Flow test shop 2');
-    await page.click('#editTxModal button:has-text("Save")');
-    await page.waitForTimeout(300);
-    const e = (await calls(page, 'editOrMoveTransaction')).pop();
+    const e = await sendsAndSettles(page, 'editOrMoveTransaction', () => page.click('#editTxModal button:has-text("Save")'));
     assert.ok(e && e.newDesc === 'Flow test shop 2' && e.expect && e.expect.desc === 'Flow test shop', JSON.stringify(e));
     await page.click('#txListContainer > .tx-row:has-text("Flow test shop 2")');
-    await page.click('#editTxModal button:has-text("Delete")');
-    await page.waitForTimeout(300);
-    const d = (await calls(page, 'deleteTransactionRow')).pop();
+    const d = await sendsAndSettles(page, 'deleteTransactionRow', () => page.click('#editTxModal button:has-text("Delete")'));
     assert.ok(d && d.expect && d.expect.desc === 'Flow test shop 2', JSON.stringify(d));
-    await page.click('#toastAction');
-    await page.waitForTimeout(300);
+    const u = await sendsAndSettles(page, 'addTransactionBundle', () => page.click('#toastAction'));
     assert.ok((await page.textContent('#txListContainer')).includes('Flow test shop 2'), 'Undo should bring it back');
-    const u = (await calls(page, 'addTransactionBundle')).pop();
     assert.ok(u && u.merchant === 'Flow test shop 2' && u.clientId, 'Undo is sent as a spend with a clientId: ' + JSON.stringify(u));
   });
   await ctx.close();

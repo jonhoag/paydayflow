@@ -6,7 +6,8 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { uiSuite, root, appSource, phone, desk, monthBars, SEED_OWED, calls, visible } = require('../lib/ui');
+const { APP_SCRIPTS } = require('../../build-sw');
+const { uiSuite, settles, root, appSource, phone, desk, monthBars, SEED_OWED, calls, visible, sendsAndSettles } = require('../lib/ui');
 
 uiSuite(async ({ browser, open, step }) => {
   let ctx, page;
@@ -99,7 +100,7 @@ uiSuite(async ({ browser, open, step }) => {
     await page.click('#chevActivity');
     assert.ok(!(await visible(page, '#activityBody')), 'the ▾ should fold Activity on the desktop');
     await page.setViewportSize({ width: 400, height: 860 });
-    await page.waitForTimeout(200);
+    await settles(page, () => innerWidth === 400 && document.getElementById('activityBody').getClientRects().length > 0);
     assert.ok(await visible(page, '#activityBody'), 'the Activity tab is stuck folded with no ▾ to open it');
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.evaluate(() => setView('home'));
@@ -114,10 +115,10 @@ uiSuite(async ({ browser, open, step }) => {
     try {
       assert.strictEqual(await bars(), 6);
       await page.setViewportSize({ width: 400, height: 860 });
-      await page.waitForTimeout(200);
+      await settles(page, () => document.querySelectorAll('#spendBody .items-end > div').length === 4);
       assert.strictEqual(await bars(), 4, 'still six bars after narrowing with Spending open');
       await page.setViewportSize({ width: 1280, height: 800 });
-      await page.waitForTimeout(200);
+      await settles(page, () => document.querySelectorAll('#spendBody .items-end > div').length === 6);
       assert.strictEqual(await bars(), 6, 'still four bars after widening with Spending open');
     } finally {
       await page.setViewportSize({ width: 1280, height: 800 });
@@ -154,10 +155,12 @@ uiSuite(async ({ browser, open, step }) => {
     // So the page itself holds no script: each one is a file of the site's own, asked for by its hash.
     const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     assert.deepStrictEqual([...html.matchAll(/<script\b[^>]*>/gi)].map(m => m[0].replace(/\?v=[0-9a-f]{10}"/, '?v=HASH"')),
-      ['<script src="guard.js?v=HASH">', '<script src="app.js?v=HASH">']);
-    // The frame guard runs in <head>, before anything is drawn; the app once the page above it is in place.
+      ['guard.js', ...APP_SCRIPTS].map(f => '<script src="' + f + '?v=HASH">'));
+    // The frame guard runs in <head>, before anything is drawn; the app's scripts at the end of <body>, in order
+    // (net.js just before app.js, which uses it as it starts).
     assert.ok(html.indexOf('<script src="guard.js') < html.indexOf('</head>'), 'guard.js is not in <head>');
-    assert.ok(/<script src="app\.js\?v=[0-9a-f]{10}"><\/script>\s*<\/body>/.test(html), 'app.js is not at the end of <body>');
+    const atEnd = APP_SCRIPTS.map(f => '<script src="' + f.replace('.', '\\.') + '\\?v=[0-9a-f]{10}"></script>').join('\\s*') + '\\s*</body>';
+    assert.ok(new RegExp(atEnd).test(html), APP_SCRIPTS.join(' then ') + ' are not at the end of <body>');
     assert.ok(await page.evaluate(() => typeof ACTIONS === 'object' && window.PF_FRAMED === undefined), 'the scripts did not run');
   });
   await step('no inline handlers in the page: each control names one of its ACTIONS, and every action is used', async () => {
@@ -223,9 +226,7 @@ uiSuite(async ({ browser, open, step }) => {
     await page.fill('#inpAmount', '20');
     await page.click('#dynamicSplitRows .split-amt');
     await page.fill('#dynamicSplitRows .split-amt', '10');
-    await page.click('#btnSubmitTx');
-    await page.waitForTimeout(300);
-    const a = (await calls(page, 'addTransactionBundle')).pop();
+    const a = await sendsAndSettles(page, 'addTransactionBundle', () => page.click('#btnSubmitTx'));
     assert.ok(a && a.splits.length === 1 && a.splits[0].person === 'pat' && a.splits[0].amount === 10, JSON.stringify(a));
   });
   await ctx.close();

@@ -121,7 +121,7 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT, dropExpectedSyncError
       await page.click('#budDeleteBtn');
       await page.click('#toastAction');
       await page.waitForFunction(() => apiInflight === 0);
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(200);   // kept on purpose (nothing must happen): no late save from the Undo
       assert.strictEqual((await calls(page, 'saveBudgetItem')).length, saves, 'Undo sent the bill again');
       assert.strictEqual(await page.evaluate(n => MOCK.db.budgets.filter(b => b.name === n).length, name), 1);
       assert.strictEqual(await page.evaluate(n => state.budgets.filter(b => b.name === n).length, name), 1);
@@ -136,7 +136,7 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT, dropExpectedSyncError
     assert.strictEqual(await page.textContent('#editTxDescErr'), 'Add where it was');
     assert.strictEqual(await page.evaluate(() => document.activeElement.id), 'editTxDesc');
     assert.ok(await visible(page, '#editTxModal'), 'the form closed');
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(150);   // kept on purpose (nothing must happen): the refused form sends nothing
     assert.strictEqual((await calls(page, 'editOrMoveTransaction')).length, edits, 'an edit was sent');
     await page.keyboard.press('Escape');
     await openTx(await firstSavedTx());

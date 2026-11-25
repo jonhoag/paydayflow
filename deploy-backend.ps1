@@ -157,7 +157,7 @@ try {
   $linkRe = '<link rel="stylesheet" href="tailwind\.css[^"]*"[^>]*>'
   if ($html -notmatch $linkRe) { throw 'index.html has no tailwind.css link to inline.' }
   $html = [regex]::Replace($html, $linkRe, { param($m) '<style>' + $css + '</style>' })
-  # The same goes for the scripts (guard.js, app.js): each one the page asks for goes back inside it, in its place.
+  # The same goes for the scripts (guard.js, net.js, app.js): each one the page asks for goes back inside it, in its place.
   $scriptRe = '<script src="([\w-]+\.js)\?v=[0-9a-f]+"></script>'
   if ([regex]::Matches($html, $scriptRe).Count -eq 0) { throw 'index.html asks for no script files to inline. Nothing was pushed.' }
   $html = [regex]::Replace($html, $scriptRe, {
