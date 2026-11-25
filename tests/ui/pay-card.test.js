@@ -18,6 +18,8 @@ uiSuite(async ({ open, step }) => {
     err: document.getElementById('payAmountErr').classList.contains('hidden') ? null : document.getElementById('payAmountErr').textContent,
   }));
   const owes = card => page.evaluate(c => cardOwes(c), card);
+  // Every request answered: a sheet fetched afresh can't land later and overwrite figures a step sets by hand.
+  const settled = () => page.waitForFunction(() => apiInflight === 0 && MOCK.calls.every(c => c.end), null, { timeout: 10000 });
 
   await step('card tiles: tappable with a › while they owe something, the same height as the other tiles', async () => {
     const r = await page.evaluate(() => ({
@@ -131,6 +133,7 @@ uiSuite(async ({ open, step }) => {
   });
 
   await step('a card at £0 or in credit: no ›, the tile does nothing, and the sheet will not open', async () => {
+    await settled();   // the step before fetches the sheet afresh; its reply would replace the figures set below
     for (const amount of [0, 25]) {
       await page.evaluate(a => { state.amex = [{ row: 4, desc: 'start', amount: a }]; renderAll(); }, amount);
       assert.ok(await page.evaluate(() => document.getElementById('payTileAmex').disabled), 'tappable at ' + amount);
@@ -139,6 +142,7 @@ uiSuite(async ({ open, step }) => {
       assert.ok(!(await sheet()).open, 'opened at ' + amount);
     }
     await page.evaluate(() => forceSyncSheet());
+    await settled();
   });
 
   await step('Back / Escape closes the sheet', async () => {
