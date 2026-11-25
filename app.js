@@ -1862,8 +1862,8 @@ window.addEventListener('storage', e => {
       const lead = (b, isSkipped) => !whatIfMode || b.pending
         ? `<span class="w-10 h-10 -ml-2 shrink-0 inline-flex items-center justify-center ${kindTone(b)}" aria-hidden="true">${kindIcon(b, 'w-4 h-4')}</span>`
         : `<button data-action="toggleWhatIf" data-row="${b.row}" role="switch" aria-checked="${!isSkipped}" aria-label="Count ${esc(b.name)} in Money Left"
-                   class="w-10 h-10 shrink-0 inline-flex items-center">
-             <span class="w-9 h-5 rounded-full p-0.5 flex items-center transition-colors ${isSkipped ? 'bg-slate-300 dark:bg-slate-700' : 'bg-emerald-500 justify-end'}">
+                   class="w-9 h-10 -ml-1 shrink-0 inline-flex items-center justify-end">
+             <span class="w-8 h-5 rounded-full p-0.5 flex items-center transition-colors ${isSkipped ? 'bg-slate-300 dark:bg-slate-700' : 'bg-emerald-500 justify-end'}">
                <span class="w-4 h-4 rounded-full bg-white inline-flex items-center justify-center ${isSkipped ? 'text-slate-400' : kindTone(b)}">${kindIcon(b, 'w-2.5 h-2.5')}</span>
              </span>
            </button>`;
