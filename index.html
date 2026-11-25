@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Styles are pre-built into tailwind.css (see build-css.js); the service worker keeps a copy for offline use. -->
-  <link rel="stylesheet" href="tailwind.css?v=e6b59252b5">
+  <link rel="stylesheet" href="tailwind.css?v=a90f7e3156">
   <style>
     /* Inter, served from this site (SIL Open Font License: fonts/OFL.txt): one variable file per set of characters,
        fetched only when the page uses them. Text shows in the fallback font until it arrives. */
@@ -88,7 +88,8 @@
     .sheet-foot.stuck { border-top-color: #e2e8f0; }
     .dark .sheet-foot.stuck { border-top-color: #334155; }
     /* Between phone and desktop widths (the unfolded Fold) a sheet sits in the middle of the screen above the bottom bar,
-       not on it: the bar's height (about 60px) is kept clear below it, less what the keyboard already covers. */
+       not on it: the bar (about 60px; the page's pb-20 leaves room for it too) plus 16px is kept clear below it, less
+       what the keyboard already covers. */
     @media (min-width: 640px) and (max-width: 1023px) {
       .kb-sheet.fixed { padding-bottom: max(16px, calc(76px - var(--kb, 0px))); }
     }
@@ -638,7 +639,6 @@
     </div>
   </div>
 
-  <!-- MODAL 2: EDIT OR MOVE SPEND (With Spend (-) vs Credit (+) Toggle) -->
   <!-- PAY OFF A CARD (a tap on the Amex or Barclays tile): money in on the card and out of the account it was paid from,
        saved together (renderPaySheet fills it in). -->
   <div id="payModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -651,8 +651,8 @@
       <div>
         <p id="lblPayHow" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">How much?</p>
         <div role="group" aria-labelledby="lblPayHow" class="grid grid-cols-2 gap-1.5 text-xs font-semibold">
-          <button type="button" data-action="setPayWhole" data-arg="whole" id="payHow_whole" class="whitespace-nowrap">Whole <span id="payWholeAmt" class="tabular-nums"></span></button>
-          <button type="button" data-action="setPayWhole" data-arg="part" id="payHow_part" class="whitespace-nowrap">Part of it</button>
+          <button type="button" data-action="setPayWhole" data-arg="whole" id="payHow_whole">Whole <span id="payWholeAmt" class="tabular-nums"></span></button>
+          <button type="button" data-action="setPayWhole" data-arg="part" id="payHow_part">Part of it</button>
         </div>
       </div>
 
@@ -676,6 +676,7 @@
     </div>
   </div>
 
+  <!-- MODAL 2: EDIT OR MOVE SPEND (With Spend (-) vs Credit (+) Toggle) -->
   <div id="editTxModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
     <div role="dialog" aria-modal="true" aria-labelledby="editTxTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3.5 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
@@ -862,7 +863,7 @@
 
   <!-- The app itself (everything above is only the layout). It runs here, once the page above is in place: net.js
        (talking to the server, saves and the offline outbox) first, then app.js (everything else), which starts it. -->
-  <script src="net.js?v=1ad9912a6f"></script>
-  <script src="app.js?v=cd61912ef3"></script>
+  <script src="net.js?v=7f8dd5b19f"></script>
+  <script src="app.js?v=012e9671ba"></script>
 </body>
 </html>

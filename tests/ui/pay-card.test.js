@@ -46,7 +46,7 @@ uiSuite(async ({ open, step }) => {
   await step('Barclays: Pay sends one save (Barclays in, Nationwide out, both "Barclays CC Payment"); the card then owes nothing', async () => {
     const due = await owes('barclays');
     const nwBefore = await page.evaluate(() => balanceOf('checking'));
-    const p = await sendsAndSettles(page, 'addTransactionBundle', () => page.click('#btnPay'));
+    const p = await sendsAndSettles(page, 'addCardPayment', () => page.click('#btnPay'));
     assert.deepStrictEqual([p.account, p.payFrom, p.isRefund, p.merchant, Number(p.grossAmount), p.splits, Number(p.marcusShare)],
       ['barclays', 'checking', true, 'Barclays CC Payment', due, [], 0]);
     assert.ok(p.clientId, 'no clientId, so a resend could save it twice');
@@ -58,7 +58,7 @@ uiSuite(async ({ open, step }) => {
   });
 
   await step('Amex: Barclays is picked first, then Nationwide; "Part of it" takes a typed amount, never more than the card owes', async () => {
-    const sent = (await calls(page, 'addTransactionBundle')).length;
+    const sent = (await calls(page, 'addCardPayment')).length;
     const due = await owes('amex');
     await page.click('#payTileAmex');
     assert.deepStrictEqual((await sheet()).from, ['barclays*', 'checking']);
@@ -70,13 +70,59 @@ uiSuite(async ({ open, step }) => {
     await page.click('#btnPay');
     s = await sheet();
     assert.ok(s.open && /^That's more than Amex owes/.test(s.err), JSON.stringify(s));
-    assert.strictEqual((await calls(page, 'addTransactionBundle')).length, sent, 'sent a payment bigger than the balance');
+    assert.strictEqual((await calls(page, 'addCardPayment')).length, sent, 'sent a payment bigger than the balance');
     await page.fill('#payAmount', '100');
     s = await sheet();
     assert.ok(s.pay === 'Pay £100.00' && /^After this: Amex /.test(s.after), JSON.stringify(s));
-    const p = await sendsAndSettles(page, 'addTransactionBundle', () => page.click('#btnPay'));
+    const p = await sendsAndSettles(page, 'addCardPayment', () => page.click('#btnPay'));
     assert.deepStrictEqual([p.account, p.payFrom, Number(p.grossAmount), p.merchant], ['amex', 'barclays', 100, 'Amex CC Payment']);
     assert.strictEqual(await owes('amex'), +(due - 100).toFixed(2));
+  });
+
+  await step('a typed amount with odd pennies is rounded once: the button, the check and what is sent all agree', async () => {
+    await page.click('#payTileAmex');
+    await page.click('#payHow_part');
+    await page.fill('#payAmount', '1,0.244');   // not an amount
+    await page.click('#btnPay');
+    assert.strictEqual((await sheet()).err, 'Type an amount, like 12.50');
+    await page.fill('#payAmount', '10.244');
+    assert.strictEqual((await sheet()).pay, 'Pay £10.24');
+    const p = await sendsAndSettles(page, 'addCardPayment', () => page.click('#btnPay'));
+    assert.strictEqual(Number(p.grossAmount), 10.24);
+  });
+
+  await step('offline: the payment waits on this device, and the same card is not offered again until it has gone', async () => {
+    const sent = (await calls(page, 'addCardPayment')).length;
+    await ctx.setOffline(true);
+    try {
+      await page.click('#payTileBarclays');
+      await page.click('#payHow_part');
+      await page.fill('#payAmount', '5');
+      await page.click('#btnPay');
+      assert.deepStrictEqual(await page.evaluate(() => loadOutbox().map(x => [x.payload.account, x.payload.payFrom])), [['barclays', 'checking']]);
+      await page.evaluate(() => { state = JSON.parse(JSON.stringify(state)); state.barclays = state.barclays.filter(r => !r.pending); renderAll(); });   // as after a sync
+      await page.click('#payTileBarclays');
+      assert.ok(!(await sheet()).open, 'a second payment was offered while the first waits');
+      assert.ok(/Barclays payment is still waiting to send/.test(await page.textContent('#toast')));
+    } finally { await ctx.setOffline(false); }
+    await page.waitForFunction(n => MOCK.calls.filter(c => c.action === 'addCardPayment').length > n && loadOutbox().length === 0, sent, { timeout: 10000 });
+  });
+
+  await step('a backend from before card payments refuses one: it is set aside, and nothing is half-saved', async () => {
+    const rows = () => page.evaluate(() => ['barclays', 'checking'].map(a => MOCK.db[a].filter(r => r.desc === 'Barclays CC Payment').length));
+    const before = await rows();
+    await page.evaluate(() => { MOCK.failWith = 'Unknown action: addCardPayment'; MOCK.failNext = 1; });
+    try {
+      await page.click('#payTileBarclays');
+      await page.click('#payHow_part');
+      await page.fill('#payAmount', '7');
+      await page.click('#btnPay');
+      await page.waitForFunction(() => loadOutbox().some(x => x.setAside), null, { timeout: 5000 });
+      assert.deepStrictEqual(await rows(), before, 'the sheet changed');
+      assert.ok(/Couldn't send Barclays CC Payment/.test(await page.textContent('#toast')));
+    } finally {
+      await page.evaluate(() => { MOCK.failWith = 'Mock server failure'; MOCK.failNext = 0; saveOutbox([]); forceSyncSheet(); });
+    }
   });
 
   await step('a card at £0 or in credit: no ›, the tile does nothing, and the sheet will not open', async () => {

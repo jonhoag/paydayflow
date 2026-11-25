@@ -306,6 +306,9 @@ function retrySetAside() {
   if (!IS_GAS_ENV && navigator.onLine === false) return;
   saveOutbox(loadOutbox().map(x => x.setAside ? { ...x, setAside: undefined, tries: undefined, sentAt: undefined } : x));
 }
+// A card payment (it carries payFrom) has its own action, so a backend from before it refuses it instead of saving
+// only the card's half; everything else about sending, queueing and resending is the same as for a spend.
+const spendAction = payload => payload.payFrom ? 'addCardPayment' : 'addTransactionBundle';
 // `onSaved` runs once the sheet's figures after this save are on screen (not when it is queued or set aside).
 function sendNewSpend(payload, onSaved) {
   if (!IS_GAS_ENV && navigator.onLine === false) {
@@ -313,7 +316,7 @@ function sendNewSpend(payload, onSaved) {
     showToast("You're offline - saved on this device, it will send when you're back online.", { kind: 'info' });
     return;
   }
-  apiCall('addTransactionBundle', payload)
+  apiCall(spendAction(payload), payload)
     .then(s => {
       applyStateIfViewing(payload.sheetName)(s);
       // Saved: a slip in the follow-up must not be taken for a failed save (the spend would be queued again).
@@ -349,7 +352,7 @@ async function flushOutbox() {
         continue;
       }
       try {
-        const s = await apiCall('addTransactionBundle', item.payload);
+        const s = await apiCall(spendAction(item.payload), item.payload);
         updateOutboxItem(item.id, null);
         applyStateIfViewing(item.payload.sheetName)(s);
       } catch (err) {
