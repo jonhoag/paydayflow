@@ -1231,10 +1231,27 @@ window.addEventListener('storage', e => {
     // The sheet's backend keeps your choices so every device agrees; this device keeps a copy so the view
     // still works offline. The server's copy wins whenever it is fetched.
     function storeSpendOverrides(map) { lsSet(SPEND_OVERRIDES_KEY, JSON.stringify(map || {})); }
+    // Any reply carrying the whole map (a fetch, or the reply to a change made here) counts as fresh. The sheet is
+    // only redrawn when the choices really changed, so an open Spending sheet doesn't flicker for nothing.
+    const sameChoices = (a, b) => Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(k => a[k] === b[k]);
     function applyCategoryChoices(reply) {
       if (!reply || !reply.choices) return;
+      categoriesFetchedAt = Date.now();
+      if (sameChoices(reply.choices, loadSpendOverrides())) return;
       storeSpendOverrides(reply.choices);
       if (!document.getElementById('spendModal').classList.contains('hidden')) renderSpend();
+    }
+    // Requests go one at a time, so opening Spending asks the server for the choices made on other devices at most
+    // once every CATEGORIES_FRESH_MS; in between it uses this device's copy (a change made here is sent at once).
+    // A failed or empty reply leaves the next open to ask again.
+    const CATEGORIES_FRESH_MS = 10 * 60 * 1000;
+    let categoriesFetchedAt = 0;
+    function refreshCategoryChoices() {
+      if (Date.now() - categoriesFetchedAt < CATEGORIES_FRESH_MS) return;
+      categoriesFetchedAt = Date.now();   // asked: a second open meanwhile doesn't ask again
+      apiCall('getCategoryChoices')
+        .then(reply => { if (!reply || !reply.choices) categoriesFetchedAt = 0; applyCategoryChoices(reply); })
+        .catch(() => { categoriesFetchedAt = 0; });   // quiet: the saved copy is already showing
     }
     function setSpendCategory(key, cat) {
       const o = loadSpendOverrides();
@@ -1245,6 +1262,7 @@ window.addEventListener('storage', e => {
         .then(applyCategoryChoices)
         .catch(err => {
           console.error('category save error:', err);
+          categoriesFetchedAt = 0;   // so the next open fetches the server's copy, as the message says
           showToast("Couldn't save that category change - it will revert when you next open Spending.");
         });
     }
@@ -1260,7 +1278,7 @@ window.addEventListener('storage', e => {
       spendOpenCat = null;
       renderSpend();
       document.getElementById('spendModal').classList.remove('hidden');
-      apiCall('getCategoryChoices').then(applyCategoryChoices).catch(() => {});   // quiet: the saved copy is already showing
+      refreshCategoryChoices();
     }
     function closeSpendModal() { document.getElementById('spendModal').classList.add('hidden'); }
 
