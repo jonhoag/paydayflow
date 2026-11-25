@@ -151,10 +151,10 @@ uiSuite(async ({ browser, errors, watch, open, step, PORT }) => {
     await c3.close();
 
     ({ ctx: c3, page: p3 } = await open(desk));
-    await step('desktop: Sign out sits under Open Sheet in the sidebar and opens the same sheet', async () => {
+    await step('desktop: Sign out sits under Open Google Sheet in the sidebar and opens the same sheet', async () => {
       assert.ok(await visible(p3, '#sideSignOutBtn'));
       const order = await p3.evaluate(() => { const a = document.getElementById('rawSheetBtn'), b = document.getElementById('sideSignOutBtn'); return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); });
-      assert.ok(order, 'should come after Open Sheet');
+      assert.ok(order, 'should come after Open Google Sheet');
       await p3.click('#sideSignOutBtn');
       assert.ok(await shown(p3, 'signOutModal'));
       await p3.click('#signOutModal', { position: { x: 5, y: 5 } });

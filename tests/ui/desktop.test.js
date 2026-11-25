@@ -91,7 +91,7 @@ uiSuite(async ({ browser, open, step }) => {
     assert.strictEqual(await page.$$eval('header button', bs => bs.filter(b => /Add/.test(b.textContent)).length), 0, 'the top bar still has an Add button');
     for (const w of [1024, 1280, 1600]) {
       await page.setViewportSize({ width: w, height: 800 });
-      assert.ok(await visible(page, 'aside button[data-action="openAddModal"]'), 'no Add Transaction in the sidebar at ' + w + 'px');
+      assert.ok(await visible(page, 'aside button[data-action="openAddModal"]'), 'no Add spend in the sidebar at ' + w + 'px');
     }
     await page.setViewportSize({ width: 1280, height: 800 });
   });

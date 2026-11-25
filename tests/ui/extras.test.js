@@ -38,12 +38,18 @@ uiSuite(async ({ browser, watch, open, step, PORT }) => {
       assert.ok(!(await p.$('#heroSection button')), 'the Money Left card still has a button');
     });
     await step('What-If: skipping a bill shows the badge and takes it out of Money Left and the Bills total', async () => {
-      const before = await p.evaluate(() => ({ left: sheetFigures(state, skippedBudgetRows).eomSavingsJ, bills: document.getElementById('budLeftVal').textContent }));
+      const before = await p.evaluate(() => ({ left: sheetFigures(state, skippedBudgetRows).eomSavingsJ, bills: document.getElementById('budLeftVal').textContent, shown: document.getElementById('kpiSurplus').textContent }));
       const b = await p.evaluate(() => state.budgets.find(x => Number(x.amount) < 0));
-      await p.click(`#upcomingBudgetsList button[aria-label="Simulate skipping ${b.name}"]`);
-      const after = await p.evaluate(() => ({ left: sheetFigures(state, skippedBudgetRows).eomSavingsJ, bills: document.getElementById('budLeftVal').textContent, badge: !document.getElementById('simBadge').classList.contains('hidden') }));
-      await p.click(`#upcomingBudgetsList button[aria-label="Simulate skipping ${b.name}"]`);
+      await p.click('#bf_whatif');
+      await p.click(`#upcomingBudgetsList button[role="switch"][aria-label="Count ${b.name} in Money Left"]`);
+      const after = await p.evaluate(() => ({ left: sheetFigures(state, skippedBudgetRows).eomSavingsJ, bills: document.getElementById('budLeftVal').textContent, badge: !document.getElementById('simBadge').classList.contains('hidden'), shown: document.getElementById('kpiSurplus').textContent }));
+      const fmtMoney = n => p.evaluate(x => fmtGBP(x), n);
+      assert.strictEqual(await p.getAttribute(`#upcomingBudgetsList button[aria-label="Count ${b.name} in Money Left"]`, 'aria-checked'), 'false');
+      await p.click('#bf_whatif');   // turning What if off counts it again
+      assert.strictEqual(await p.evaluate(() => sheetFigures(state, skippedBudgetRows).eomSavingsJ), before.left, 'What if off did not count the bill again');
       assert.ok(after.badge, 'no What-If badge');
+      assert.strictEqual(after.shown, await fmtMoney(after.left), 'Money Left on screen does not show the bill left out');
+      assert.strictEqual(await txt(p, '#kpiSurplus'), before.shown, 'Money Left on screen did not come back');
       assert.strictEqual(Math.round((after.left - before.left) * 100), Math.round(-b.amount * 100));
       assert.ok(/ to pay$/.test(after.bills) && after.bills !== before.bills, JSON.stringify([before, after]));
       assert.strictEqual(await txt(p, '#heroNote'), 'After cards and bills to pay');

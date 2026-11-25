@@ -452,7 +452,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     assert.strictEqual(await page.inputValue('#nmPaycheck'), '2600');
     assert.strictEqual(await page.inputValue('#nmSavings'), '500');
     assert.ok(!(await visible(page, '#nmExistsWarn')));
-    assert.strictEqual((await page.textContent('#nmCreateBtn')).trim(), 'Create Month');
+    assert.strictEqual((await page.textContent('#nmCreateBtn')).trim(), 'Create month');
   });
 
   await step('new month: a name that already exists warns, and only a second tap asks to replace it', async () => {
@@ -571,6 +571,23 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     const left = await page.evaluate(() => Object.keys(localStorage).filter(k => /^pf_(cache|tx_ts)_/.test(k)));
     assert.ok(!left.some(k => k.includes('Gone')), left.join());
     assert.ok(left.includes('pf_cache_Test Payday 2026'), left.join());
+  });
+
+  await step('only the newest 6 months stay saved on this device (the month on screen always does)', async () => {
+    // Eight months in the sheet, all saved here: the two oldest go once the sheet's month list arrives.
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August'].map(m => m + ' Payday 2025');
+    await page.evaluate(ms => {
+      ms.forEach(m => { localStorage.setItem('pf_cache_' + m, '{}'); localStorage.setItem('pf_tx_ts_' + m, '{}'); });
+      pruneLocalMonths(ms.concat(activeMonth));
+    }, months);
+    const kept = prefix => page.evaluate(p => Object.keys(localStorage).filter(k => k.startsWith(p)).map(k => k.slice(p.length)).sort(), prefix);
+    const left = await kept('pf_cache_');
+    assert.ok(left.includes(await page.evaluate(() => activeMonth)), 'the month on screen was cleared: ' + left.join());
+    // (the test month's name isn't a month, so it sorts last: it stays only because it is on screen)
+    assert.deepStrictEqual(months.filter(m => left.includes(m)), months.slice(2), 'expected March to August 2025: ' + left.join());
+    const times = await kept('pf_tx_ts_');
+    assert.deepStrictEqual(months.filter(m => times.includes(m)), months.slice(2), 'add-times of old months kept: ' + times.join());
+    await page.evaluate(ms => ms.forEach(m => { localStorage.removeItem('pf_cache_' + m); localStorage.removeItem('pf_tx_ts_' + m); }), months);
   });
 
   await step('coming back to the app after a while fetches the latest figures; a quick glance away does not', async () => {

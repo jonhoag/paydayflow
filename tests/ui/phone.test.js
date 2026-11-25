@@ -110,12 +110,12 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     }
     await page.click('nav [data-nav="home"]');
     const expanded = () => page.$$eval('#chevBudgets, #chevPending, #chevActivity', els => els.map(e => [e.getAttribute('aria-label'), e.getAttribute('aria-controls'), e.getAttribute('aria-expanded')].join('|')));
-    assert.deepStrictEqual(await expanded(), ['Bills & Budgets|budgetsBody|true', 'Owed to you|pendingBody|true', 'Recent Activity|activityBody|true']);
+    assert.deepStrictEqual(await expanded(), ['Bills|budgetsBody|true', 'Owed|pendingBody|true', 'Activity|activityBody|true']);
     await page.click('#chevActivity');
     assert.ok(!(await visible(page, '#activityBody')), 'the ▾ on Home should still fold a section');
-    assert.strictEqual((await expanded())[2], 'Recent Activity|activityBody|false', 'a screen reader should hear it is folded');
+    assert.strictEqual((await expanded())[2], 'Activity|activityBody|false', 'a screen reader should hear it is folded');
     await page.click('#chevActivity');
-    assert.strictEqual((await expanded())[2], 'Recent Activity|activityBody|true');
+    assert.strictEqual((await expanded())[2], 'Activity|activityBody|true');
   });
 
   await step('owed: with one person owing, the header has no "All paid back" (theirs does the same job)', async () => {
@@ -146,6 +146,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     await page.evaluate(() => { document.querySelector('#clearedBudgetsList').closest('details').open = true; });
     await page.click(`#clearedBudgetsList button[data-action="openBudgetFormForRow"][data-row="${bill.row}"]`);   // its name in the Paid list
     assert.strictEqual(Number(await page.inputValue('#inpBudAmt')), Math.abs(bill.orig), 'the form should show the amount to restore');
+    assert.ok(await visible(page, '#budPaidTag'), 'the form of a paid bill should say Paid');
     await page.fill('#inpBudName', bill.name + ' x');
     const saved = await sendsAndSettles(page, 'saveBudgetItem', () => page.click('#budSaveBtn'));
     assert.ok(saved && saved.paid === true && saved.amount === bill.orig, 'expected a save as still paid: ' + JSON.stringify(saved));
@@ -155,14 +156,27 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     assert.strictEqual((await now())[1], bill.orig);
   });
 
-  await step('bills: tapping a name opens its edit form; the skip icon still works', async () => {
+  await step('bills: tapping a name opens its edit form; What if shows switches only while it is on', async () => {
     await page.click('#upcomingBudgetsList button[aria-label^="Edit"]');
     assert.ok(await visible(page, '#budgetModal'), 'edit form did not open');
     assert.ok(/^Edit /.test(await page.textContent('#budFormTitle')));
+    assert.ok(!(await visible(page, '#budPaidTag')), 'an unpaid bill\'s form says Paid');
     await page.click('#budgetModal button[aria-label="Close"]');
-    await page.click('#upcomingBudgetsList button[aria-label^="Simulate skipping"]');
+    assert.strictEqual(await page.$$eval('#upcomingBudgetsList [role="switch"]', s => s.length), 0, 'switches without What if');
+    await page.click('#bf_whatif');
+    assert.ok(await visible(page, '#whatIfHint'), 'no hint in What if mode');
+    await page.click('#upcomingBudgetsList button[role="switch"]');
     assert.ok(await visible(page, '#simBadge'), 'What-If badge should show');
-    await page.click('#upcomingBudgetsList button[aria-label^="Simulate skipping"]');
+    // A bill left out, then marked Paid: nothing is left out any more, so the badge goes (and Restore brings it back counted).
+    const sw = await page.$$eval('#upcomingBudgetsList button[role="switch"]', s => s.map(b => [b.dataset.row, b.getAttribute('aria-checked')]));
+    const off = Number(sw.find(([, on]) => on === 'false')[0]);
+    await sendsAndSettles(page, 'updateBudgetRow', () => page.evaluate(r => markBudgetPaid(r), off));
+    assert.ok(!(await visible(page, '#simBadge')), 'the What-If badge stays lit for a bill that is now paid');
+    await sendsAndSettles(page, 'updateBudgetRow', () => page.evaluate(r => restoreBudget(r), off));   // back as it was
+    assert.strictEqual(await page.getAttribute(`#upcomingBudgetsList button[role="switch"][data-row="${off}"]`, 'aria-checked'), 'true', 'restored bill came back left out');
+    await page.click('#bf_whatif');   // off again: every bill counts again
+    assert.ok(!(await visible(page, '#simBadge')) && !(await visible(page, '#whatIfHint')), 'What if left something behind');
+    assert.strictEqual(await page.$$eval('#upcomingBudgetsList [role="switch"]', s => s.length), 0, 'switches still showing');
   });
 
   await page.evaluate(SEED_OWED);
@@ -318,7 +332,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   });
 
   await step('add a spend: saves and appears in activity', async () => {
-    await page.click('nav button[aria-label="Add transaction"]');
+    await page.click('nav button[aria-label="Add spend"]');
     await page.fill('#inpMerchant', 'Flow test shop');
     await page.fill('#inpAmount', '7.25');
     const a = await sendsAndSettles(page, 'addTransactionBundle', () => page.click('#btnSubmitTx'));
@@ -358,7 +372,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     const from = errors.length;
     try {
       await page.evaluate(() => { MOCK.dropNext = 1; });
-      await page.click('nav button[aria-label="Add transaction"]');
+      await page.click('nav button[aria-label="Add spend"]');
       await page.fill('#inpAmount', '4.10');
       await page.fill('#inpMerchant', 'Waiting shop');
       await page.click('#btnSubmitTx');
@@ -378,7 +392,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     await page.waitForFunction(() => document.getElementById('syncBtn').dataset.sync === 'offline');
     const off = await syncShown();
     assert.deepStrictEqual([off.label, off.caption], ['Offline, showing saved figures', null]);
-    await page.click('nav button[aria-label="Add transaction"]');
+    await page.click('nav button[aria-label="Add spend"]');
     await page.fill('#inpAmount', '2.50');
     await page.fill('#inpMerchant', 'Offline shop');
     await page.click('#btnSubmitTx');
@@ -396,7 +410,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   const rowsNamed = merchant => page.evaluate(m => Object.values(MOCK.db).filter(Array.isArray).flat().filter(r => r && r.desc === m).length, merchant);
   const sentCount = merchant => page.evaluate(m => MOCK.calls.filter(c => c.action === 'addTransactionBundle' && c.payload.merchant === m).length, merchant);
   const addSpend = async (amount, merchant) => {
-    await page.click('nav button[aria-label="Add transaction"]');
+    await page.click('nav button[aria-label="Add spend"]');
     await page.fill('#inpAmount', amount);
     await page.fill('#inpMerchant', merchant);
     await page.click('#btnSubmitTx');

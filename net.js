@@ -325,7 +325,7 @@ function sendNewSpend(payload, onSaved) {
       // Kept on this device either way (the Apps Script copy of the page too), so a spend is never just lost (see
       // OUTBOX_MAX_TRIES for what happens next). Only if this device can't store anything is it gone, and then
       // the sheet is shown afresh so the screen doesn't pretend it was saved.
-      if (!queueSpend(payload, kind === 'reach' ? { sentAt: Date.now() } : {})) return handleSaveError('the transaction', err);
+      if (!queueSpend(payload, kind === 'reach' ? { sentAt: Date.now() } : {})) return handleSaveError('the spend', err);
       if (kind === 'refused') { setSpendAside({ id: payload.clientId, payload }, plainError(err)); refreshFromSheet(); }
       else showToast(err && err.network ? "No connection - saved on this device, it will send when you're back online."
         : "Couldn't save it just now - kept on this device, it will send again shortly.", { kind: 'info' });

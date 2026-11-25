@@ -1,6 +1,6 @@
 // Screen tests, real Chrome: Android's Back gesture; screen-reader labels; the bill and spend sheets (saving,
 // deleting and Undo, saves whose figures couldn't be read back, 44px hit areas and the small split controls' tap
-// areas); the "Open Sheet" links.
+// areas); the "Open Google Sheet" links.
 // Uses the test page (real index.html, pretend backend) under the app's own script policy; see tests/lib/ui.js.
 //
 //   node tests/ui/back-and-sheets.test.js   (or: node tests/run-all.js screens)
@@ -19,7 +19,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   };
   const goBack = () => backOn(page);
   await step('Back with the Add form open closes it and stays in the app', async () => {
-    await page.click('nav button[aria-label="Add transaction"]');
+    await page.click('nav button[aria-label="Add spend"]');
     assert.deepStrictEqual(await backState(), { depth: 1, view: 'home', add: true, app: true });
     await goBack();
     assert.deepStrictEqual(await backState(), { depth: 0, view: 'home', add: false, app: true });
@@ -29,7 +29,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     assert.deepStrictEqual(await backState(), { depth: 1, view: 'budgets', add: false, app: true });
     await page.click('nav button[data-nav="activity"]');   // tab to tab: still one step
     assert.strictEqual((await backState()).depth, 1);
-    await page.click('nav button[aria-label="Add transaction"]');
+    await page.click('nav button[aria-label="Add spend"]');
     assert.deepStrictEqual(await backState(), { depth: 2, view: 'activity', add: true, app: true });
     await goBack();
     assert.deepStrictEqual(await backState(), { depth: 1, view: 'activity', add: false, app: true });
@@ -37,16 +37,16 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     assert.deepStrictEqual(await backState(), { depth: 0, view: 'home', add: false, app: true });
   });
   await step('closing a sheet with ✕, Escape or Save takes its step off too, so the next Back is not wasted', async () => {
-    await page.click('nav button[aria-label="Add transaction"]');
+    await page.click('nav button[aria-label="Add spend"]');
     await page.click('#addModal button[aria-label="Close"]');
     await page.waitForFunction(() => !((history.state && history.state.pfDepth) || 0));
-    await page.click('nav button[aria-label="Add transaction"]');
+    await page.click('nav button[aria-label="Add spend"]');
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => !((history.state && history.state.pfDepth) || 0));
     await page.click('nav button[data-nav="budgets"]');
     await page.click('nav button[data-nav="home"]');   // Home by tapping: its step is taken off as well
     await page.waitForFunction(() => !((history.state && history.state.pfDepth) || 0));
-    await page.click('nav button[aria-label="Add transaction"]');
+    await page.click('nav button[aria-label="Add spend"]');
     await page.fill('#inpAmount', '1.05');
     await page.fill('#inpMerchant', 'Back step shop');
     await page.click('#btnSubmitTx');   // saved: the form closes, and so does its step
@@ -85,7 +85,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     const { ctx: c4, page: p4 } = await open(phone);
     try {
       await p4.click('nav button[data-nav="budgets"]');
-      await p4.click('nav button[aria-label="Add transaction"]');
+      await p4.click('nav button[aria-label="Add spend"]');
       assert.strictEqual(await p4.evaluate(() => history.state.pfDepth), 2);
       await p4.reload();
       await p4.waitForFunction(() => typeof setView === 'function' && window.MOCK && MOCK.calls.length > 0 && !historyMoving);
@@ -130,7 +130,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
           del: !document.getElementById('budDeleteBtn').classList.contains('hidden'), amount: document.getElementById('inpBudAmt').value,
           depth: (history.state && history.state.pfDepth) || 0 };
       });
-      assert.deepStrictEqual(r, { y: before, inSight: true, title: 'Edit Long list bill 15', save: 'Save Changes', del: true, amount: '25', depth: 2 });
+      assert.deepStrictEqual(r, { y: before, inSight: true, title: 'Edit Long list bill 15', save: 'Save changes', del: true, amount: '25', depth: 2 });
       await backOn(p6);   // Back closes the sheet; still on the Bills tab, still scrolled where you were
       assert.deepStrictEqual(await p6.evaluate(() => [document.getElementById('budgetModal').classList.contains('hidden'), document.body.dataset.view, scrollY]), [true, 'budgets', before]);
     } finally { await c6.close(); }
@@ -140,7 +140,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
       await page.click('#btnAddBill');
       const f = await page.evaluate(() => ({ title: document.getElementById('budFormTitle').textContent, save: document.getElementById('budSaveBtn').textContent.trim(),
         del: document.getElementById('budDeleteBtn').classList.contains('hidden'), focus: document.activeElement.id }));
-      assert.deepStrictEqual(f, { title: 'Add bill', save: 'Save Bill', del: true, focus: 'inpBudAmt' });
+      assert.deepStrictEqual(f, { title: 'Add bill', save: 'Save bill', del: true, focus: 'inpBudAmt' });
       const sent = (await calls(page, 'saveBudgetItem')).length;
       await page.keyboard.type('12.50');
       await page.keyboard.press('Enter');
@@ -221,7 +221,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
       dropExpectedSyncErrors(from);
     }
   });
-  await step('the "Open Sheet" links open only a Google Sheet, in a new tab with no link back', async () => {
+  await step('the "Open Google Sheet" links open only a Google Sheet, in a new tab with no link back', async () => {
     const r = await page.evaluate(() => {
       const before = document.getElementById('rawSheetBtn').href;
       applyServerState({ ...state, sheetUrl: 'javascript:alert(1)' });

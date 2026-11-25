@@ -25,7 +25,16 @@ const expected = {
   'sky tv': 'Bills & subscriptions', 'ee broadband': 'Bills & subscriptions', 'o2 bill': 'Bills & subscriptions', 'news sub': 'Bills & subscriptions', 'yt premium': 'Bills & subscriptions', 'Spotify': 'Bills & subscriptions', 'vpn subscription': 'Bills & subscriptions',
   'amazon': 'Shopping', 'Ebay': 'Shopping', 'vinted': 'Shopping', 'Primark': 'Shopping', 'Home Bargains': 'Shopping', 'DHL': 'Shopping',
   'comedy club': 'Entertainment', 'cinema': 'Entertainment', 'High st pharmacy': 'Health', 'boots': 'Health',
-  'Corner shop': 'Other', 'Misc': 'Other'
+  'Corner shop': 'Other', 'Misc': 'Other',
+  // 4.12 (2026-11-25): general words that used to land in Other. "airport parking" stays Travel (Travel comes first);
+  // "hp" only as a word, so "shop" or "chips" can't match it.
+  'Greggs': 'Eating out', 'Chipotle': 'Eating out', 'Fish and chips': 'Eating out', 'gym breakfast': 'Eating out',
+  'Stagecoach': 'Transport', 'Hospital parking': 'Transport', 'Asian shop sachets': 'Groceries', 'beer hawk': 'Groceries',
+  'Claude': 'Bills & subscriptions', 'Card yearly fee': 'Bills & subscriptions', 'Hp': 'Bills & subscriptions',
+  'WoW subscription': 'Bills & subscriptions', 'WoW expansions pack': 'Entertainment', 'Music festival': 'Entertainment',
+  'South cliff dental': 'Health', 'Vision Express': 'Health', 'haircut': 'Health', 'gym': 'Health',
+  'Tk maxx': 'Shopping', 'Sostrene Greens': 'Shopping', 'Smiths': 'Shopping', 'Shelter shop': 'Shopping', 'Whpp shop': 'Other',
+  'Locksmiths': 'Other', 'Sparking plugs': 'Other'
 };
 Object.keys(expected).forEach(desc => {
   test(`"${desc}" is ${expected[desc]}`, () => assert.strictEqual(guessCategory(desc.toLowerCase()), expected[desc]));
