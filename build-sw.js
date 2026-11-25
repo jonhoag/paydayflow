@@ -21,7 +21,7 @@ const path = require('path');
 const TEXT = /\.(html|js|json|css|txt)$/;
 const BLOCK = /(\/\/ <site-hashes>\r?\n)([\s\S]*?)( *\/\/ <\/site-hashes>)/;
 // index.html asks for each of these as FILE?v=<the first 10 characters of its SHA-256>.
-const STAMPED = ['guard.js', 'app.js', 'tailwind.css'];
+const STAMPED = ['guard.js', 'net.js', 'app.js', 'tailwind.css'];
 // Published but never saved by the service worker: sw.js itself, and the domain name file for GitHub Pages.
 const NOT_SAVED = ['sw.js', 'CNAME'];
 

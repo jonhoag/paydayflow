@@ -154,10 +154,12 @@ uiSuite(async ({ browser, open, step }) => {
     // So the page itself holds no script: each one is a file of the site's own, asked for by its hash.
     const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     assert.deepStrictEqual([...html.matchAll(/<script\b[^>]*>/gi)].map(m => m[0].replace(/\?v=[0-9a-f]{10}"/, '?v=HASH"')),
-      ['<script src="guard.js?v=HASH">', '<script src="app.js?v=HASH">']);
-    // The frame guard runs in <head>, before anything is drawn; the app once the page above it is in place.
+      ['<script src="guard.js?v=HASH">', '<script src="net.js?v=HASH">', '<script src="app.js?v=HASH">']);
+    // The frame guard runs in <head>, before anything is drawn; the app once the page above it is in place (net.js
+    // just before app.js, which uses it as it starts).
     assert.ok(html.indexOf('<script src="guard.js') < html.indexOf('</head>'), 'guard.js is not in <head>');
-    assert.ok(/<script src="app\.js\?v=[0-9a-f]{10}"><\/script>\s*<\/body>/.test(html), 'app.js is not at the end of <body>');
+    assert.ok(/<script src="net\.js\?v=[0-9a-f]{10}"><\/script>\s*<script src="app\.js\?v=[0-9a-f]{10}"><\/script>\s*<\/body>/.test(html),
+      'net.js then app.js are not at the end of <body>');
     assert.ok(await page.evaluate(() => typeof ACTIONS === 'object' && window.PF_FRAMED === undefined), 'the scripts did not run');
   });
   await step('no inline handlers in the page: each control names one of its ACTIONS, and every action is used', async () => {

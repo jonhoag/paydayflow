@@ -1,11 +1,11 @@
-// Regenerates tailwind.css from the class names used in index.html and app.js, then runs build-sw.js (which stamps
+// Regenerates tailwind.css from the class names used in index.html, net.js and app.js, then runs build-sw.js (which stamps
 // index.html with the file's hash, tailwind.css?v=HASH, and updates sw.js).
 //
 //   node build-css.js           build tailwind.css, then update the stamps and sw.js
 //   node build-css.js --check   exit 1 if tailwind.css is not what a fresh build gives (does not change any files;
 //                               node build-sw.js --check checks the stamp)
 //
-// Run it after any change to index.html or app.js that adds or changes Tailwind classes; after any other change to a
+// Run it after any change to index.html or a script (net.js, app.js) that adds or changes Tailwind classes; after any other change to a
 // site file, run node build-sw.js. It uses the Tailwind version pinned in
 // package-lock.json, installed once with: npm ci --ignore-scripts
 const { execSync } = require('child_process');

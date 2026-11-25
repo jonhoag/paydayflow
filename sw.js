@@ -8,9 +8,10 @@ const CACHE_NAME = 'paydayflow-v6';
 // changes this list, and so this file, which is how each device picks up a new version.
 const SITE_HASHES = {
   // <site-hashes>
-  '/': '2b676cb7353f8669ca829578a2a81e31f5a140d701f46656d20d774f09fbac8e',
+  '/': '5e8943ac948c0231a539b782a6e09391b413b65a3443d651565a8471f217f8da',
   '/guard.js': 'f8d4ca9cba1a71963b8f19262e9381ba7743f9a1f8c397ee3cb776437517a7cc',
-  '/app.js': 'c2472f7f3b8613be1b0bfe3f7c77de1f18aa539d3c1084fa5b74f0c1507ba5d4',
+  '/net.js': '2b5595df3c4f3a25c146f2885b4318cf6fd04cb42a64cf6c7ec191568eed5a2f',
+  '/app.js': '0983e985dd57da73d8e4ddcb7cd63861f7940ad714b2c342db05eea0b7c14662',
   '/tailwind.css': '95bd6e492b8e135980b66a720b67169799847a622bf9647d3848a0fac3a5d0ed',
   '/manifest.json': 'f41e3736fbec8f5861c2d60e992c5b8133e1d06a9afdf527bf753728abb69784',
   '/icons/icon-192.png': '4d5d98ee6b7399e36c0608ae5214ef8bb0b2b5b6f93f0b2b78a0232a4f615da6',

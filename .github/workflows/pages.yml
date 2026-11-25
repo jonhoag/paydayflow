@@ -28,7 +28,7 @@ jobs:
       # the exact versions and hashes in package-lock.json. No install scripts are run.
       - name: Install the build and test tools
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: The stylesheet matches the page and app.js
+      - name: The stylesheet matches the page and its scripts
         run: node build-css.js --check
       # The service worker only saves and opens files whose hashes it holds. With stale hashes a new version can't
       # install (devices stay on the old one, and new visitors get no offline copy), so they fail the build.
