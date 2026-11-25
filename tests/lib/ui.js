@@ -71,6 +71,9 @@ async function sendsAndSettles(page, action, act) {
     .catch(() => { throw new Error(action + ' was not sent, or its reply never came back'); });
   return (await calls(page, action)).pop();
 }
+// Waits (up to `ms`) until `fn` is true in the page, as after a resize; fails saying what it waited for.
+const settles = (page, fn, ms = 2000) => page.waitForFunction(fn, null, { timeout: ms })
+  .catch(() => { throw new Error('never settled: ' + String(fn)); });
 // Waits until the toast says something matching `re` (and fails with what it says instead, after `ms`).
 const toastSays = (page, re, ms = 5000) => page.waitForFunction(r => new RegExp(r).test(document.getElementById('toast').textContent), re.source, { timeout: ms })
   .catch(async () => { throw new Error('the toast never said ' + re + ': ' + await page.textContent('#toast')); });
@@ -173,5 +176,5 @@ async function uiSuite(body) {
   finish();
 }
 
-module.exports = { uiSuite, root, appSource, phone, desk, monthBars, SEED_OWED, calls, sendsAndSettles, toastSays, SAVED_NO_STATE, failSavedNoState, resetFailures,
+module.exports = { uiSuite, settles, root, appSource, phone, desk, monthBars, SEED_OWED, calls, sendsAndSettles, toastSays, SAVED_NO_STATE, failSavedNoState, resetFailures,
   sheetReads, visible, owedCount, lineCounts, hitAreas, toastParts, LOCK_TIMEOUT, BUSY };

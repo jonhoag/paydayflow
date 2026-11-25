@@ -22,6 +22,9 @@ const TEXT = /\.(html|js|json|css|txt)$/;
 const BLOCK = /(\/\/ <site-hashes>\r?\n)([\s\S]*?)( *\/\/ <\/site-hashes>)/;
 // index.html asks for each of these as FILE?v=<the first 10 characters of its SHA-256>.
 const STAMPED = ['guard.js', 'net.js', 'app.js', 'tailwind.css'];
+// The app's own code, in the order index.html loads it (guard.js, the frame guard, aside). The tests and the stylesheet
+// build read the app from these, so a new script file is added in one place.
+const APP_SCRIPTS = STAMPED.filter(f => f.endsWith('.js') && f !== 'guard.js');
 // Published but never saved by the service worker: sw.js itself, and the domain name file for GitHub Pages.
 const NOT_SAVED = ['sw.js', 'CNAME'];
 
@@ -125,4 +128,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { publishedBytes, siteFiles, publishedFiles, siteHashes, stampVersions, stampServiceWorker, build };
+module.exports = { APP_SCRIPTS, STAMPED, publishedBytes, siteFiles, publishedFiles, siteHashes, stampVersions, stampServiceWorker, build };

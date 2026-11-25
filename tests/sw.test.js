@@ -164,13 +164,14 @@ const { step, finish } = makeSteps();
     assert.strictEqual(cssHits, before + 1, 'the real stylesheet was not fetched');
   });
 
-  await step('swapped saved scripts (app.js, guard.js) never run: the real ones run and are saved again', async () => {
+  await step('swapped saved scripts (app.js, net.js, guard.js) never run: the real ones run and are saved again', async () => {
     await plant('/app.js', 'window.__planted = "app"; document.title = "swapped";', { 'Content-Type': 'text/javascript' });
+    await plant('/net.js', 'window.__planted = "net";', { 'Content-Type': 'text/javascript' });
     await plant('/guard.js', 'window.__planted = "guard";', { 'Content-Type': 'text/javascript' });
     await reload();
     await page.waitForFunction(() => typeof ACTIONS === 'object', null, { timeout: 10000 });
     assert.deepStrictEqual(await page.evaluate(() => [window.__planted || null, document.title]), [null, 'PaydayFlow']);
-    const savedScripts = () => page.evaluate(async () => Promise.all(['/app.js', '/guard.js'].map(async p => { const hit = await caches.match(p); return hit ? hit.text() : null; })));
+    const savedScripts = () => page.evaluate(async () => Promise.all(['/app.js', '/net.js', '/guard.js'].map(async p => { const hit = await caches.match(p); return hit ? hit.text() : null; })));
     await until(async () => (await savedScripts()).every(t => t && !t.includes('__planted')));   // the real copies saved again
     const saved = await savedScripts();
     assert.ok(saved.every(t => t && !t.includes('__planted')), 'a swapped script is still saved');
