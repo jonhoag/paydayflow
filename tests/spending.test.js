@@ -33,7 +33,8 @@ const expected = {
   'Claude': 'Bills & subscriptions', 'Card yearly fee': 'Bills & subscriptions', 'Hp': 'Bills & subscriptions',
   'WoW subscription': 'Bills & subscriptions', 'WoW expansions pack': 'Entertainment', 'Music festival': 'Entertainment',
   'South cliff dental': 'Health', 'Vision Express': 'Health', 'haircut': 'Health', 'gym': 'Health',
-  'Tk maxx': 'Shopping', 'Sostrene Greens': 'Shopping', 'Smiths': 'Shopping', 'Shelter shop': 'Shopping', 'Whpp shop': 'Other'
+  'Tk maxx': 'Shopping', 'Sostrene Greens': 'Shopping', 'Smiths': 'Shopping', 'Shelter shop': 'Shopping', 'Whpp shop': 'Other',
+  'Locksmiths': 'Other', 'Sparking plugs': 'Other'
 };
 Object.keys(expected).forEach(desc => {
   test(`"${desc}" is ${expected[desc]}`, () => assert.strictEqual(guessCategory(desc.toLowerCase()), expected[desc]));

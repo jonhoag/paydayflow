@@ -1144,12 +1144,12 @@ window.addEventListener('storage', e => {
     const SPEND_RULES = [
       ['Eating out', /uber ?eats|deliveroo|just ?eat|mcdo|mcdonald|burger|\bwolf\b|spoons|pretzel|cafe|café|kebab|wasabi|\btea\b|coffee|pizza|restaurant|takeaway|\bpub\b|greggs|chipotle|fish and chips|breakfast/],
       ['Travel', /airport|hotel|airbnb|flight|ryanair|easyjet|ferry|holiday/],
-      ['Transport', /petrol|\btfl\b|taxi|\bbus\b|train|fuel|\buber\b|trainline|railcard|stagecoach|parking/],
+      ['Transport', /petrol|\btfl\b|taxi|\bbus\b|train|fuel|\buber\b|trainline|railcard|stagecoach|\bparking\b/],
       ['Groceries', /waitrose|sainsbur|sains|tesco|lidl|aldi|\bcoop\b|co-op|\bm&s\b|asda|morrisons|iceland|ocado|nespresso|grocer|asian shop|beer hawk/],
       ['Bills & subscriptions', /spotify|netflix|disney|\bsky\b|windscribe|curve|\bsub\b|subscription|premium|\byt\b|youtube|\bo2\b|\bee\b|broadband|phone|energy|water|insurance|monthly fee|claude|yearly fee|\bhp\b/],
       ['Entertainment', /comedy|cinema|theatre|\bgig\b|ticket|\bpsn\b|steam|\bgame|\bwow\b|warcraft|festival/],
       ['Health', /pharmacy|\bboots\b|dentist|dental|optician|vision express|vitality|doctor|\bgp\b|haircut|\bgym\b/],
-      ['Shopping', /amazon|ebay|vinted|primark|home barg|the works|\bdhl\b|oxfam|argos|post office|savers|temu|\bwise\b|tk ?maxx|sostrene|smiths|shelter/]
+      ['Shopping', /amazon|ebay|vinted|primark|home barg|the works|\bdhl\b|oxfam|argos|post office|savers|temu|\bwise\b|tk ?maxx|sostrene|\bsmiths\b|\bshelter\b/]
     ];
     // Your own extra words for a category (local places), which the backend sends once you're signed in, so they
     // aren't in this public page. Each counts as part of its category's rule above, in the same order.
@@ -1862,7 +1862,7 @@ window.addEventListener('storage', e => {
       const lead = (b, isSkipped) => !whatIfMode || b.pending
         ? `<span class="w-10 h-10 -ml-2 shrink-0 inline-flex items-center justify-center ${kindTone(b)}" aria-hidden="true">${kindIcon(b, 'w-4 h-4')}</span>`
         : `<button data-action="toggleWhatIf" data-row="${b.row}" role="switch" aria-checked="${!isSkipped}" aria-label="Count ${esc(b.name)} in Money Left"
-                   class="w-9 h-10 -ml-1 shrink-0 inline-flex items-center justify-end">
+                   class="hit w-9 h-10 -ml-1 shrink-0 inline-flex items-center justify-end">
              <span class="w-8 h-5 rounded-full p-0.5 flex items-center transition-colors ${isSkipped ? 'bg-slate-300 dark:bg-slate-700' : 'bg-emerald-500 justify-end'}">
                <span class="w-4 h-4 rounded-full bg-white inline-flex items-center justify-center ${isSkipped ? 'text-slate-400' : kindTone(b)}">${kindIcon(b, 'w-2.5 h-2.5')}</span>
              </span>
