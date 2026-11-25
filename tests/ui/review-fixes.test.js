@@ -46,7 +46,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
 
   // These tests make the server refuse a save on purpose: the refusal must have happened, and is not a page error.
   const dropExpectedStale = () => {
-    const i = errors.findIndex(e => /STALE: This entry was changed on another device/.test(e));
+    const i = errors.findIndex(e => /This entry was changed on another device/.test(e));
     assert.ok(i > -1, 'the server did not refuse the stale save');
     errors.splice(i, 1);
   };
