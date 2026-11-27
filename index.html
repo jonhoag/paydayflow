@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Styles are pre-built into tailwind.css (see build-css.js); the service worker keeps a copy for offline use. -->
-  <link rel="stylesheet" href="tailwind.css?v=a90f7e3156">
+  <link rel="stylesheet" href="tailwind.css?v=4ffd4f4e53">
   <style>
     /* Inter, served from this site (SIL Open Font License: fonts/OFL.txt): one variable file per set of characters,
        fetched only when the page uses them. Text shows in the fallback font until it arrives. */
@@ -484,6 +484,11 @@
         <h3 id="spendTitle" class="text-base font-semibold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="chart" data-class="w-4 h-4"></span>Spending</h3>
         <button data-action="closeSpendModal" aria-label="Close" class="hit w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
+      <!-- Mine (your share of each spend) or Total (the cards as charged): also used by the Activity tab (setSpendView) -->
+      <div role="group" aria-label="Show" class="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit text-xs font-semibold">
+        <button data-action="setSpendView" data-arg="mine" id="sv_mine" aria-pressed="true" class="hit px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Mine</button>
+        <button data-action="setSpendView" data-arg="total" id="sv_total" aria-pressed="false" class="hit px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400">Total</button>
+      </div>
       <div id="spendBody" class="space-y-4"></div>
     </div>
   </div>
@@ -864,6 +869,6 @@
   <!-- The app itself (everything above is only the layout). It runs here, once the page above is in place: net.js
        (talking to the server, saves and the offline outbox) first, then app.js (everything else), which starts it. -->
   <script src="net.js?v=7f8dd5b19f"></script>
-  <script src="app.js?v=955fb9db40"></script>
+  <script src="app.js?v=2182a2f222"></script>
 </body>
 </html>
