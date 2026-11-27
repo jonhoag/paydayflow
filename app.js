@@ -1161,11 +1161,13 @@ window.addEventListener('storage', e => {
     // Your own extra words for a category (local places), which the backend sends once you're signed in, so they
     // aren't in this public page. Each counts as part of its category's rule above, in the same order.
     let SPEND_EXTRA = {};
+    // A word list from the backend as a pattern: each word as plain text (no pattern characters).
+    const escRe = w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     function setSpendWords(words) {
       const out = {};
       Object.keys(words && typeof words === 'object' ? words : {}).forEach(cat => {
         const list = (Array.isArray(words[cat]) ? words[cat] : []).map(w => String(w).trim().toLowerCase()).filter(Boolean);
-        if (SPEND_CATEGORIES.indexOf(cat) !== -1 && list.length) out[cat] = new RegExp(list.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'));
+        if (SPEND_CATEGORIES.indexOf(cat) !== -1 && list.length) out[cat] = new RegExp(list.map(escRe).join('|'));
       });
       SPEND_EXTRA = out;
     }
@@ -1402,6 +1404,47 @@ window.addEventListener('storage', e => {
     }
     // Which figure the summaries show: summariseSpend gives both.
     const spendField = () => spendView === 'mine' ? 'share' : 'charged';
+
+    // ---- Month summaries for the Year view ----
+    // A finished month in a few figures, kept by the backend (one row per month on a hidden "_Year" tab): card spending
+    // as charged and your share by category, what was paid back, "Saved" (yours: your own savings rows in Marcus, from
+    // the config's words, or null without them; total: the raw change in Marcus over the month, interest and money
+    // taken out included) and Money Left at the end. `prev` is the month before (see paybacksByShop).
+    let MY_SAVINGS = null;
+    function monthSummary(st, prev, overrides) {
+      const sum = summariseSpend(st, overrides, prev);
+      const cats = {};
+      sum.categories.forEach(c => { cats[c.cat] = [c.charged, c.share]; });
+      const marcus = (st.marcus || []).filter(r => spendKey(r.desc) !== 'start');
+      return {
+        charged: sum.charged, share: sum.share, paidBack: sum.paidBack, cats,
+        savedMine: MY_SAVINGS ? sumAmounts(marcus.filter(r => Number(r.amount) > 0 && MY_SAVINGS.test(spendKey(r.desc)))) : null,
+        savedTotal: sumAmounts(marcus),
+        left: sheetFigures(st, new Set()).eomSavingsJ,
+      };
+    }
+    // A month's figures: this device's copy, or fetched from the sheet (and kept); `fresh` always fetches.
+    function monthStateFor(name, fresh) {
+      const st = !fresh && savedMonth(name);
+      if (st) return Promise.resolve(st);
+      return apiCall('getCachedSheetState', { sheetName: name, forceRefresh: false }).then(s => {
+        if (!s || s.activeMonth !== name) throw new Error('The sheet sent another month.');   // that tab is gone or renamed
+        savePhoneCache(name, s, false);
+        return s;
+      });
+    }
+    // Sends a finished month's summary, worked out from the sheet's own figures, not this device's copies (which may
+    // hold spends not yet sent, or be out of date): the month, the month before it (for its carried-over owed rows) and
+    // your category choices, all fetched. Once a month, so the few extra requests don't matter. Quietly: if a month
+    // can't be had, nothing is sent, and the Year view makes it when it finds it missing. The backend returns rows for
+    // every month it has kept; the Year view shows only months still in the sheet.
+    function sendMonthSummary(name) {
+      const before = monthBefore(name);
+      const choices = apiCall('getCategoryChoices').then(r => { applyCategoryChoices(r); return loadSpendOverrides(); }).catch(() => loadSpendOverrides());
+      return Promise.all([monthStateFor(name, true), before ? monthStateFor(before, true) : null, choices])
+        .then(([st, prev, overrides]) => apiCall('saveMonthSummary', { sheetName: name, summary: monthSummary(st, prev, overrides) }))
+        .catch(err => console.error('month summary not sent:', err));
+    }
     // A thin bar: this share of the whole, in the one accent colour.
     const shareBar = pct => '<div class="mt-1.5 h-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bg-emerald-500" style="width:' + Math.max(0, Math.min(100, pct)) + '%"></div></div>';
 
@@ -2168,8 +2211,10 @@ window.addEventListener('storage', e => {
         .filter((p, i, all) => /^\S{1,30}$/.test(p) && p !== 'marcus' && p !== 'savings' && all.indexOf(p) === i);
       PEOPLE = names;
       QUICK_SPLIT = names.indexOf(String(cfg.quickSplit || '').trim().toLowerCase()) !== -1 ? String(cfg.quickSplit).trim().toLowerCase() : '';
-      SETTLED_PREFIX = new RegExp('^(' + names.concat('savings').map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b', 'i');
+      SETTLED_PREFIX = new RegExp('^(' + names.concat('savings').map(escRe).join('|') + ')\\b', 'i');
       setSpendWords(cfg.spendWords);
+      const mine = (Array.isArray(cfg.mySavings) ? cfg.mySavings : []).map(spendKey).filter(Boolean);
+      MY_SAVINGS = mine.length ? new RegExp('^(' + mine.map(escRe).join('|') + ')(?=$| )') : null;
       if (remember) lsSet(CONFIG_KEY, configShown);
       renderPersonChips();
       renderQuickSplit();
@@ -3183,6 +3228,7 @@ window.addEventListener('storage', e => {
       }
 
       closeNewMonthModal();
+      const finished = activeMonth;
       apiCall('startNewMonth', {
         sourceSheetName: activeMonth,
         newMonthName,
@@ -3190,10 +3236,14 @@ window.addEventListener('storage', e => {
         savingsAmount,
         keepBudgetRows,
         replaceExisting
-      }).then(applyServerState).catch(err => {
+      }).then(s => {
+        applyServerState(s);
+        sendMonthSummary(finished);   // for the Year view
+      }).catch(err => {
         // Made, but its figures couldn't be read back: open it, which fetches them.
         if (failureKind(err) === 'saved') {
           openMadeMonth(newMonthName);
+          sendMonthSummary(finished);
         } else if (err && err.code === 'EXISTS') {
           // Another device made this month in the meantime: nothing was changed. Load the latest so the warning shows.
           showToast('"' + newMonthName + '" already exists, so nothing was changed. Open Start new month again if you want to replace it.');

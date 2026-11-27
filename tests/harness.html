@@ -67,7 +67,7 @@
   const MONTH_LIST = q.get('evil') ? [MONTH, MONTH2, EVIL_MONTH] : [MONTH, MONTH2];
   // The names the backend sends with every reply (the real ones live only in the private backend).
   const CONFIG = q.get('noconfig') ? null
-    : { people: ['kim', 'lee', 'robin', 'sam', 'jo'], quickSplit: 'kim', spendWords: { 'Entertainment': ['bowling'] } };
+    : { people: ['kim', 'lee', 'robin', 'sam', 'jo'], quickSplit: 'kim', spendWords: { 'Entertainment': ['bowling'] }, mySavings: ['my savings'] };
   const sum = a => +a.reduce((t, x) => t + Number(x.amount || 0), 0).toFixed(2);
   // Like the server's add-times: kept per month by account|row for every add and move (dropped on delete), and sent
   // as each row's clientTs. Rows put straight into the pretend sheet have none, like rows typed into the real one.
@@ -126,6 +126,7 @@
     authError: null,      // set to an error text (or { code, error }) and the server turns down every request as a sign-in problem
     config: CONFIG,       // the names sent with every reply (null: none, like an older backend)
     categoryChoices: {},  // the mock server's saved Spending category choices
+    yearSummaries: {},    // month name -> the summary saved for the Year view (the real one keeps them on a hidden "_Year" tab)
     calls: [],            // log of { action, payload, start, end }
     db, db2, dbs, snapshot, MONTH, MONTH2,
     makeToken,
@@ -263,7 +264,25 @@
       delete MOCK.categoryChoices[k];
       if (p.category) MOCK.categoryChoices[k] = p.category;
       return { choices: JSON.parse(JSON.stringify(MOCK.categoryChoices)) };
-    }
+    },
+    // As the real one (cleanMonthSummary_): known figures, each an amount (savedMine may be null), known categories.
+    saveMonthSummary: p => {
+      if (!dbs[p.sheetName] || String(p.sheetName).charAt(0) === '_') throw new Error('Unknown month.');
+      const sum = p.summary;
+      if (!sum || typeof sum !== 'object' || Array.isArray(sum)) throw new Error('A month summary is needed.');
+      const amount = (v, nullable) => { if (v === null && nullable) return null; if (typeof v !== 'number' || !isFinite(v) || Math.abs(v) > 1e7) throw new Error('A month summary figure is not an amount.'); return Math.round(v * 100) / 100; };
+      const out = { v: 1 };
+      ['charged', 'share', 'paidBack', 'savedMine', 'savedTotal', 'left'].forEach(k => { out[k] = amount(sum[k], k === 'savedMine'); });
+      if (!sum.cats || typeof sum.cats !== 'object') throw new Error('A month summary needs its categories.');
+      out.cats = {};
+      Object.keys(sum.cats).forEach(c => {
+        if (SPEND_CATEGORIES.indexOf(c) === -1 || !Array.isArray(sum.cats[c]) || sum.cats[c].length !== 2) throw new Error('Unknown category.');
+        out.cats[c] = sum.cats[c].map(v => amount(v));
+      });
+      MOCK.yearSummaries[p.sheetName] = out;
+      return { saved: p.sheetName };
+    },
+    getYearSummaries: () => ({ months: Object.keys(MOCK.yearSummaries).map(month => ({ month, at: Date.now(), summary: JSON.parse(JSON.stringify(MOCK.yearSummaries[month])) })) })
   };
 
   window.fetch = async function (url, opts) {
