@@ -370,7 +370,7 @@
                 <!-- What if: while on, each bill gets a switch to leave it out of Money Left (nothing is saved) -->
                 <button data-action="toggleWhatIfMode" id="bf_whatif" aria-pressed="false" class="hit shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">What if</button>
               </div></div>
-              <p id="whatIfHint" class="hidden text-xs text-slate-500 dark:text-slate-400">Switch bills off to see Money Left without them.</p>
+              <div id="whatIfHint" class="hidden text-xs text-slate-500 dark:text-slate-400" aria-live="polite">Switch bills off to see Money Left without them.</div>
 
               <!-- Active Unpaid Budgets -->
               <div id="upcomingBudgetsList" class="divide-y divide-slate-100 dark:divide-slate-800/70"></div>
@@ -877,6 +877,6 @@
   <!-- The app itself (everything above is only the layout). It runs here, once the page above is in place: net.js
        (talking to the server, saves and the offline outbox) first, then app.js (everything else), which starts it. -->
   <script src="net.js?v=7f8dd5b19f"></script>
-  <script src="app.js?v=2a2eac3269"></script>
+  <script src="app.js?v=557e8af837"></script>
 </body>
 </html>
