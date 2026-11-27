@@ -1320,6 +1320,7 @@ window.addEventListener('storage', e => {
     function openSpendModal() {
       closeMenu();
       spendOpenCat = null;
+      if (spendTab === 'year') loadYear();   // first, so the view drawn says it is getting your months
       renderSpend();
       document.getElementById('spendModal').classList.remove('hidden');
       refreshCategoryChoices();
@@ -1423,28 +1424,342 @@ window.addEventListener('storage', e => {
         left: sheetFigures(st, new Set()).eomSavingsJ,
       };
     }
-    // A month's figures: this device's copy, or fetched from the sheet (and kept); `fresh` always fetches.
+    // A month's figures: this device's copy, or (`fresh`, or none here) fetched from the sheet. A fetched month isn't
+    // kept on the device: the Year view may fetch many old months, and only the newest few are kept (KEEP_MONTHS).
     function monthStateFor(name, fresh) {
       const st = !fresh && savedMonth(name);
       if (st) return Promise.resolve(st);
       return apiCall('getCachedSheetState', { sheetName: name, forceRefresh: false }).then(s => {
         if (!s || s.activeMonth !== name) throw new Error('The sheet sent another month.');   // that tab is gone or renamed
-        savePhoneCache(name, s, false);
         return s;
       });
     }
+    // Your category choices, fetched (the server's copy wins), or this device's copy if they can't be.
+    const freshCategoryChoices = () => apiCall('getCategoryChoices').then(r => { applyCategoryChoices(r); return loadSpendOverrides(); }).catch(() => loadSpendOverrides());
     // Sends a finished month's summary, worked out from the sheet's own figures, not this device's copies (which may
-    // hold spends not yet sent, or be out of date): the month, the month before it (for its carried-over owed rows) and
-    // your category choices, all fetched. Once a month, so the few extra requests don't matter. Quietly: if a month
-    // can't be had, nothing is sent, and the Year view makes it when it finds it missing. The backend returns rows for
-    // every month it has kept; the Year view shows only months still in the sheet.
-    function sendMonthSummary(name) {
+    // hold spends not yet sent, or be out of date): the month and the month before it (for its carried-over owed rows),
+    // fetched, and your category choices (fetched unless given). Quietly: if a month can't be had, nothing is sent, and
+    // the Year view makes it when it finds it missing. Resolves to whether it was saved; a saved one is also put into
+    // the Year view's copy, so a month just finished shows there at once.
+    function sendMonthSummary(name, overrides) {
       const before = monthBefore(name);
-      const choices = apiCall('getCategoryChoices').then(r => { applyCategoryChoices(r); return loadSpendOverrides(); }).catch(() => loadSpendOverrides());
-      return Promise.all([monthStateFor(name, true), before ? monthStateFor(before, true) : null, choices])
-        .then(([st, prev, overrides]) => apiCall('saveMonthSummary', { sheetName: name, summary: monthSummary(st, prev, overrides) }))
-        .catch(err => console.error('month summary not sent:', err));
+      let summary;
+      return Promise.all([monthStateFor(name, true), before ? monthStateFor(before, true) : null, overrides || freshCategoryChoices()])
+        .then(([st, prev, ov]) => { summary = monthSummary(st, prev, ov); return apiCall('saveMonthSummary', { sheetName: name, summary }); })
+        .then(() => { keepYearRow(name, summary); return true; })
+        .catch(err => { console.error('month summary not sent:', err); return false; });
     }
+
+    // ---- Year view (the Spending sheet's "Year" side): one bar per finished month, from the summaries the backend
+    // keeps (see sendMonthSummary). Finished months without one are worked out and sent once; a finished month whose
+    // fresh figures differ from its summary is sent again when it's opened (it was edited since).
+    const YEAR_CACHE_KEY = 'pf_year';          // the summaries last fetched, so the Year view shows at once (and offline)
+    const YEAR_FILL_MAX = 24;                  // at most this many missing months are worked out in one go
+    const YEAR_FIGURES = ['charged', 'share', 'paidBack', 'savedMine', 'savedTotal', 'left'];
+    const MUTED = 'text-slate-500 dark:text-slate-400', STRONG = 'text-slate-900 dark:text-white';
+    const NARROW_MQ = window.matchMedia('(max-width: 379px)');   // single-letter month names under the bars
+    let spendTab = 'month';                    // 'month' or 'year'
+    let yearRows = null;                       // [{ month, summary }] from the backend (or this device's copy); null: none yet
+    let yearAsked = false, yearLoading = false, yearLoaded = false, yearFilling = false, yearFailed = false;
+    const yearSavedHere = new Map();           // month -> summary saved from this device this session (newer than any read on its way)
+    const yearFillTried = new Set();           // months the fill has tried this session (one that fails isn't tried again till the next)
+    let yearPeriod = 'last';                   // 'last' (the last 12 finished months) or a year, like '2026'
+    let yearPickMonth = null, yearPickCat = null, yearTable = false;
+    const yearResent = new Set();              // months sent again this session, so a mismatch can't repeat forever
+
+    const fmtGBP0 = n => { const v = Math.round(n); return (v < 0 ? '−' : '') + '£' + Math.abs(v).toLocaleString('en-GB'); };
+    const monthYear = name => monthSortValue(name) ? Math.floor(monthSortValue(name) / 12) : 0;
+    // "November 2026" from "November Payday 2026" (or the name as it is).
+    const monthTitle = name => monthYear(name) ? monthLabel(name) + ' ' + monthYear(name) : String(name);
+    // A category's amount in a month's summary: yours (mine) or as charged.
+    const catAmt = (r, c, mine) => r.summary.cats[c] ? r.summary.cats[c][mine ? 1 : 0] : 0;
+
+    // A saved summary as the Year view uses it, or null if it isn't one (a damaged copy on this device, say).
+    function cleanYearRow(r) {
+      if (!r || typeof r.month !== 'string' || !r.summary || typeof r.summary !== 'object') return null;
+      const s = r.summary, out = { cats: {} };
+      for (const k of YEAR_FIGURES) {
+        const v = s[k];
+        if (v === null && k === 'savedMine') out[k] = null;
+        else if (typeof v === 'number' && isFinite(v)) out[k] = v;
+        else return null;
+      }
+      Object.keys(s.cats && typeof s.cats === 'object' ? s.cats : {}).forEach(c => {
+        const p = s.cats[c];
+        if (SPEND_CATEGORIES.indexOf(c) !== -1 && Array.isArray(p) && p.length === 2 && p.every(v => typeof v === 'number' && isFinite(v))) out.cats[c] = [p[0], p[1]];
+      });
+      return { month: r.month, summary: out };
+    }
+    // null (nothing to show yet) stays null; anything else becomes the list of good rows.
+    function setYearRows(rows, keep) {
+      yearRows = rows == null ? null : (Array.isArray(rows) ? rows : []).map(cleanYearRow).filter(Boolean);
+      if (keep && yearRows) lsSet(YEAR_CACHE_KEY, JSON.stringify(yearRows));
+    }
+    // A month's summary just saved: into the Year view's copy (replacing an older one), once the copy exists.
+    function keepYearRow(name, summary) {
+      yearSavedHere.set(name, summary);
+      if (!yearRows) return;
+      setYearRows(yearRows.filter(r => r.month !== name).concat([{ month: name, summary }]), true);
+      if (spendTab === 'year') renderSpend();
+    }
+    // Two summaries are the same when every figure matches to the penny.
+    function sameSummary(a, b) {
+      if (!a || !b) return false;
+      const same = (x, y) => (x === null || y === null) ? x === y : Math.abs(x - y) < 0.005;
+      if (!YEAR_FIGURES.every(k => same(a[k], b[k]))) return false;
+      const ca = a.cats || {}, cb = b.cats || {};
+      return [...new Set(Object.keys(ca).concat(Object.keys(cb)))].every(c => ca[c] && cb[c] && same(ca[c][0], cb[c][0]) && same(ca[c][1], cb[c][1]));
+    }
+    // Every month in the sheet but the newest (the one still going), newest first: only tabs named with a month and a
+    // year ("November Payday 2026"), as only those can be put in order.
+    function finishedMonths() {
+      const months = (state.availableMonths || []).filter(m => monthSortValue(m)).sort(newestFirst);
+      return months.slice(1);
+    }
+    function setSpendTab(t) {
+      spendTab = t === 'year' ? 'year' : 'month';
+      yearPickMonth = yearPickCat = null;
+      if (spendTab === 'year') loadYear();   // first, so the view drawn says it is getting your months
+      renderSpend();
+    }
+    // Asked once a session (this device's copy shows meanwhile), when Year is tapped or Spending opens on it: never
+    // from a redraw, so a read that fails can't set off another. A failed one is tried again on the next open.
+    function loadYear() {
+      if (yearAsked) return;
+      yearAsked = yearLoading = true;
+      yearFailed = false;
+      apiCall('getYearSummaries').then(r => {
+        const rows = (r && Array.isArray(r.months) ? r.months : []).filter(x => !(x && yearSavedHere.has(x.month)));
+        setYearRows(rows.concat([...yearSavedHere].map(([month, summary]) => ({ month, summary }))), true);
+        yearLoading = false;
+        yearLoaded = true;
+        fillYear();
+        checkMonthSummary();
+        if (spendTab === 'year') renderSpend();
+      }).catch(() => {
+        yearAsked = yearLoading = false;
+        yearFailed = true;
+        if (spendTab === 'year' && !document.getElementById('spendModal').classList.contains('hidden')) renderSpend();
+      });
+    }
+    // Finished months the backend has no summary for (from before summaries were kept, or one that didn't arrive):
+    // worked out and sent one at a time, oldest first (each lands in the view as it is saved). Once the summaries have
+    // been read; tried again when the month list changes (applyServerState), but each month once a session.
+    function fillYear() {
+      if (yearFilling || !yearLoaded || !yearRows) return;
+      const have = new Set(yearRows.map(r => r.month));
+      const missing = finishedMonths().filter(m => !have.has(m) && !yearFillTried.has(m)).slice(0, YEAR_FILL_MAX).reverse();
+      missing.forEach(m => yearFillTried.add(m));
+      if (!missing.length) return;
+      yearFilling = true;
+      freshCategoryChoices()
+        .then(ov => missing.reduce((p, m) => p.then(() => sendMonthSummary(m, ov)), Promise.resolve()))
+        .then(() => { yearFilling = false; if (spendTab === 'year') renderSpend(); });
+    }
+    // A finished month opened with fresh figures: if its summary differs (it was edited since), send it again, once a
+    // session. Needs last month on this device; without it the comparison isn't fair, so it waits.
+    function checkMonthSummary() {
+      if (!yearRows || state.loading || yearResent.has(activeMonth) || finishedMonths().indexOf(activeMonth) === -1) return;
+      const stored = yearRows.find(r => r.month === activeMonth);
+      if (!stored) return;   // a missing one is the Year view's to fill
+      const before = monthBefore(activeMonth), prev = before ? savedMonth(before) : null;
+      if (before && !prev) return;
+      if (sameSummary(monthSummary(state, prev, loadSpendOverrides()), stored.summary)) return;
+      const month = activeMonth;
+      yearResent.add(month);
+      sendMonthSummary(month);   // once a session, sent or not (a month the backend keeps refusing can't repeat)
+    }
+
+    // The summaries for the chosen period, oldest first, of months still in the sheet.
+    function yearRowsInSheet() {
+      const order = finishedMonths().reverse();
+      return (yearRows || []).filter(r => order.indexOf(r.month) !== -1).sort((a, b) => order.indexOf(a.month) - order.indexOf(b.month));
+    }
+    // The years to choose from (only when there are months in more than one).
+    function yearPeriods(inSheet) {
+      const years = [...new Set(inSheet.map(r => monthYear(r.month)).filter(Boolean).map(String))].sort().reverse();
+      return years.length > 1 ? years : [];
+    }
+    function setYearPeriod(v) { yearPeriod = v === 'last' || /^\d{4}$/.test(v) ? v : 'last'; yearPickMonth = yearPickCat = null; renderSpend(); }
+    function pickYearMonth(m) { yearPickMonth = yearPickMonth === m ? null : m; yearPickCat = null; renderSpend(); }
+    function pickYearCat(c) {
+      yearPickCat = yearPickCat === c ? null : c;
+      yearPickMonth = null;
+      renderSpend();
+      if (yearPickCat) { const ch = document.getElementById('yearChart'); if (ch && ch.scrollIntoView) ch.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    }
+    function clearYearPick() { yearPickMonth = yearPickCat = null; renderSpend(); }
+    function setYearTable(view) { yearTable = view === 'table'; renderSpend(); }
+    // Chart | Table (a computer only), a small two-way switch like Mine | Total.
+    const yearViewSwitch = () => '<div role="group" aria-label="Show as" class="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit text-xs font-semibold">'
+      + [['chart', 'Chart'], ['table', 'Table']].map(([v, t]) => '<button data-action="setYearTable" data-arg="' + v + '" aria-pressed="' + (yearTable === (v === 'table')) + '" class="' + (yearTable === (v === 'table') ? SEG_ON : SEG_OFF) + '">' + t + '</button>').join('') + '</div>';
+
+    // What stood out, worked out by rules from 3 months on (at most three): a category clearly up or down lately
+    // (spent on in each of the last 3 months), a month far above a category's usual (a trip, say), the best month for
+    // money left, months nothing was saved (yours) or Marcus went down (in all).
+    function yearNotes(rows, mine) {
+      if (rows.length < 3) return [];
+      const notes = [];
+      const avg = list => list.length ? list.reduce((a, b) => a + b, 0) / list.length : 0;
+      if (rows.length >= 4) {
+        let best = null;
+        SPEND_CATEGORIES.forEach(c => {
+          if (!rows.slice(-3).every(r => catAmt(r, c, mine) > 0)) return;
+          const late = avg(rows.slice(-3).map(r => catAmt(r, c, mine))), early = avg(rows.slice(0, -3).map(r => catAmt(r, c, mine)));
+          const diff = late - early;
+          if (early > 0 && Math.abs(diff) >= 15 && Math.abs(diff) / early >= 0.2 && (!best || Math.abs(diff) > Math.abs(best.diff))) best = { c, late, early, diff };
+        });
+        if (best) notes.push([best.c + (best.diff > 0 ? ' is up' : ' is down'), 'Last 3 months ' + fmtGBP0(best.late) + ' a month, against ' + fmtGBP0(best.early) + ' before.']);
+      }
+      let big = null;
+      SPEND_CATEGORIES.forEach(c => {
+        const list = rows.map(r => catAmt(r, c, mine)), median = list.slice().sort((a, b) => a - b)[Math.floor(list.length / 2)];
+        list.forEach((v, i) => { if (v >= 150 && v >= 3 * Math.max(median, 1) && (!big || v > big.v)) big = { c, v, m: rows[i].month }; });
+      });
+      if (big) notes.push(['A big month for ' + big.c, monthTitle(big.m) + ': ' + fmtGBP0(big.v) + '.']);
+      const bestLeft = rows.reduce((a, r) => r.summary.left > a.summary.left ? r : a, rows[0]);
+      if (bestLeft.summary.left > 0) notes.push(['Best month: ' + monthLabel(bestLeft.month), fmtGBP0(bestLeft.summary.left) + ' left at payday.']);
+      const key = mine ? 'savedMine' : 'savedTotal';
+      const low = rows.filter(r => r.summary[key] !== null && (mine ? r.summary[key] <= 0 : r.summary[key] < 0));
+      if (low.length && low.length <= 2) notes.push([(mine ? 'Nothing saved in ' : 'Marcus went down in ') + low.map(r => monthLabel(r.month)).join(' and '),
+        low.map(r => monthLabel(r.month) + ' ' + fmtGBP0(r.summary[key])).join(', ') + '.']);
+      return notes.slice(0, 3);
+    }
+
+    function renderYear(k) {
+      const mine = k === 'share';
+      const inSheet = yearRowsInSheet(), periods = yearPeriods(inSheet);
+      if (yearPeriod !== 'last' && periods.indexOf(yearPeriod) === -1) yearPeriod = 'last';   // that year has gone
+      const rows = yearPeriod === 'last' ? inSheet.slice(-12) : inSheet.filter(r => String(monthYear(r.month)) === yearPeriod);
+      const n = rows.length, wide = WIDE_SCREEN_MQ.matches;
+      if (yearPickMonth && !rows.some(r => r.month === yearPickMonth)) yearPickMonth = null;
+      const totals = SPEND_CATEGORIES.map(c => ({ c, v: rows.reduce((a, r) => a + catAmt(r, c, mine), 0), any: rows.some(r => r.summary.cats[c]) }))
+        .filter(x => x.any).sort((a, b) => b.v - a.v);
+      if (yearPickCat && !totals.some(x => x.c === yearPickCat)) yearPickCat = null;
+
+      // The period (a choice once there is more than one year; plain words otherwise) and, on a wide screen, Chart | Table.
+      let html = '<div class="flex items-center justify-between gap-2">';
+      if (periods.length) {
+        html += '<label class="block text-xs font-semibold ' + STRONG + '"><span class="sr-only">Period</span><select data-change="setYearPeriod" class="bg-transparent font-semibold ' + STRONG + ' -ml-1">'
+          + ['last'].concat(periods).map(p => '<option value="' + p + '"' + (p === yearPeriod ? ' selected' : '') + '>' + (p === 'last' ? 'Last 12 months' : p) + '</option>').join('') + '</select></label>';
+      } else if (n) {
+        html += '<div class="text-xs font-semibold ' + MUTED + '">' + (n < 12 ? 'Since ' + esc(monthTitle(rows[0].month)) : esc(monthTitle(rows[0].month)) + ' to ' + esc(monthTitle(rows[n - 1].month))) + '</div>';
+      } else html += '<div></div>';
+      html += (n && WIDE_SCREEN_MQ.matches ? yearViewSwitch() : '') + '</div>';
+      if (!n) {
+        const words = yearLoading || yearFilling ? 'Getting your months…'
+          : yearFailed || (yearRows !== null && finishedMonths().length) ? "Couldn't get your months just now. Open Year again to try again."
+          : yearRows === null ? 'Getting your months…' : 'Your year starts once a month has finished: each one joins when you start the next.';
+        return html + '<p class="text-sm ' + MUTED + '">' + words + '</p>';
+      }
+      html += yearFiguresHtml(rows, mine);
+      if (WIDE_SCREEN_MQ.matches && yearTable) return html + yearTableHtml(rows, totals, mine);
+      html += yearChartHtml(rows, mine, wide);
+      // Below the chart: what stood out and the categories (side by side on a wide screen).
+      const notes = yearNotes(rows, mine);
+      html += wide ? '<div class="grid grid-cols-2 gap-6 items-start">' : '';
+      if (notes.length) {
+        html += '<div><div class="text-sm font-semibold ' + MUTED + '">What stood out</div>' + notes.map(([t, b]) =>
+          '<div class="my-1.5 pl-3 py-1 border-l-[3px] border-slate-300 dark:border-slate-600"><div class="text-sm font-semibold ' + STRONG + '">' + esc(t) + '</div><div class="text-xs ' + MUTED + '">' + esc(b) + '</div></div>').join('') + '</div>';
+      } else if (n < 3) {
+        html += '<p class="text-xs ' + MUTED + '">Each month joins when you start the next one. Notes start at 3 months.</p>';
+      }
+      html += yearCatsHtml(rows, totals);
+      return html + (wide ? '</div>' : '');
+    }
+    // The three figures (spent, saved, left at payday) and what was paid back.
+    function yearFiguresHtml(rows, mine) {
+      const n = rows.length, sum = f => rows.reduce((a, r) => a + f(r), 0);
+      const spent = sum(r => r.summary[mine ? 'share' : 'charged']), charged = sum(r => r.summary.charged), paidBack = sum(r => r.summary.paidBack);
+      const key = mine ? 'savedMine' : 'savedTotal', known = rows.filter(r => r.summary[key] !== null);
+      const savedMonths = known.filter(r => r.summary[key] > 0).length;
+      const fig = (label, big, small) => '<div class="min-w-0 px-2.5 first:pl-0 last:pr-0"><div class="text-xs ' + MUTED + ' whitespace-nowrap">' + label + '</div>'
+        + '<div class="text-lg font-semibold tabular-nums ' + STRONG + ' whitespace-nowrap">' + big + '</div><div class="text-xs ' + MUTED + ' tabular-nums whitespace-nowrap">' + small + '</div></div>';
+      return '<div><div class="grid grid-cols-3 divide-x divide-slate-200 dark:divide-slate-700 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl py-2.5 px-1">'
+        + fig(mine ? 'You spent' : 'Charged', fmtGBP0(spent), fmtGBP0(spent / n) + ' a month')
+        + fig('Saved', known.length ? fmtGBP0(known.reduce((a, r) => a + r.summary[key], 0)) : '—', mine ? savedMonths + (savedMonths === 1 ? ' month' : ' months') : 'Marcus in all')
+        + fig('Left at payday', fmtGBP0(sum(r => r.summary.left) / n), 'on average') + '</div>'
+        + '<div class="mt-1.5 text-xs ' + MUTED + ' tabular-nums">' + (mine ? 'Charged ' + fmtGBP0(charged) + ' · ' + fmtGBP0(paidBack) + ' paid back to you' : 'Includes ' + fmtGBP0(paidBack) + ' others paid back') + '</div></div>';
+    }
+    // The chart: one bar per month (a picked category on its own scale; a picked month brighter, with its line below),
+    // an average line, and in the first months flat slots for the months to come.
+    function yearChartHtml(rows, mine, wide) {
+      const n = rows.length, cat = yearPickCat, k = mine ? 'share' : 'charged';
+      const amt = r => cat ? catAmt(r, cat, mine) : r.summary[k];
+      const max = Math.max(1, ...rows.map(amt)) * 1.08, avg = rows.reduce((a, r) => a + amt(r), 0) / n;
+      const h = wide ? 180 : 130;
+      const short = t => NARROW_MQ.matches ? t.charAt(0) : t;
+      const last = monthSortValue(rows[n - 1].month);
+      const slots = yearPeriod === 'last' && n < 12 && last ? 12 - n : 0;
+      const clear = cat ? '<button data-action="clearYearPick" aria-label="Show every category" class="hit ml-2 font-semibold text-emerald-600 dark:text-emerald-400">' + esc(cat) + ' <span aria-hidden="true">✕</span></button>'
+        : yearPickMonth ? '<button data-action="clearYearPick" aria-label="Show no month" class="hit ml-2 font-semibold text-emerald-600 dark:text-emerald-400">' + esc(monthLabel(yearPickMonth, true)) + ' <span aria-hidden="true">✕</span></button>' : '';
+      let html = '<div id="yearChart"><div class="flex items-center justify-between gap-2 mb-2"><div class="text-sm font-semibold ' + MUTED + ' truncate">' + esc(cat ? cat + ', month by month' : (mine ? 'You spent, month by month' : 'Charged, month by month')) + '</div>'
+        + '<div class="text-xs ' + MUTED + ' whitespace-nowrap inline-flex items-center"><span class="inline-block w-3.5 border-t border-dashed border-slate-400 mr-1" aria-hidden="true"></span>avg ' + fmtGBP0(avg) + clear + '</div></div>'
+        + '<div class="relative"><div class="flex items-end gap-0.5">';
+      rows.forEach(r => {
+        const v = amt(r), on = yearPickMonth === r.month, dim = yearPickMonth && !on;
+        html += '<button data-action="pickYearMonth" data-arg="' + esc(r.month) + '" aria-pressed="' + on + '" aria-label="' + esc(monthTitle(r.month)) + ' ' + fmtGBP0(v) + '" class="flex-1 min-w-0 flex flex-col items-center gap-1">'
+          + '<span class="w-full flex items-end justify-center" style="height:' + h + 'px"><span class="block w-[72%] max-w-[34px] rounded-t-md rounded-b-sm bg-emerald-500' + (dim ? ' opacity-30' : '') + '" style="height:' + Math.max(v > 0 ? 2 : 0, Math.round(Math.max(0, v) / max * h)) + 'px"></span></span>'
+          + '<span class="text-[11px] ' + (on ? 'font-semibold ' + STRONG : MUTED) + '">' + esc(short(monthLabel(r.month, true))) + '</span></button>';
+      });
+      for (let i = 1; i <= slots; i++) {
+        html += '<div class="flex-1 min-w-0 flex flex-col items-center gap-1" aria-hidden="true"><span class="w-full flex items-end justify-center" style="height:' + h + 'px"><span class="block w-[72%] max-w-[34px] h-[3px] rounded-sm bg-slate-300 dark:bg-slate-700"></span></span>'
+          + '<span class="text-[11px] ' + MUTED + ' opacity-60">' + short(MONTHS[(last + i) % 12].slice(0, 3)) + '</span></div>';
+      }
+      html += '</div>' + (n >= 2 && avg > 0 ? '<div class="absolute inset-x-0 border-t border-dashed border-slate-400/70 pointer-events-none" style="top:' + Math.round(h - avg / max * h) + 'px"></div>' : '') + '</div>';
+      const r = yearPickMonth && rows.find(x => x.month === yearPickMonth);
+      if (r) {
+        const most = Object.keys(r.summary.cats).filter(c => catAmt(r, c, mine) > 0).sort((a, b) => catAmt(r, b, mine) - catAmt(r, a, mine))[0];
+        const sv = r.summary[mine ? 'savedMine' : 'savedTotal'];
+        html += '<div class="mt-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs ' + MUTED + '">'
+          + '<div class="flex justify-between gap-2"><span class="text-sm font-semibold ' + STRONG + '">' + esc(monthTitle(r.month)) + '</span><span class="text-sm font-semibold tabular-nums ' + STRONG + '">' + fmtGBP0(r.summary[k]) + '</span></div>'
+          + '<div class="tabular-nums truncate">Saved ' + (sv === null ? '—' : fmtGBP0(sv)) + ' · left ' + fmtGBP0(r.summary.left) + (most ? ' · most on ' + esc(most) + ' ' + fmtGBP0(catAmt(r, most, mine)) : '') + '</div></div>';
+      }
+      return html + '</div>';
+    }
+    // By category over the period, each with its share of the whole; tap one to see it in the chart.
+    function yearCatsHtml(rows, totals) {
+      const all = totals.reduce((a, x) => a + Math.max(0, x.v), 0);
+      return '<div><div class="flex items-center justify-between gap-2"><div class="text-sm font-semibold ' + MUTED + '">By category</div><div class="text-xs ' + MUTED + '">tap one to see it in the chart</div></div><div class="divide-y divide-slate-100 dark:divide-slate-800/70">'
+        + totals.map(x => {
+          const on = yearPickCat === x.c, pct = all > 0 ? Math.round(Math.max(0, x.v) / all * 100) : 0;
+          return '<button data-action="pickYearCat" data-cat="' + esc(x.c) + '" aria-pressed="' + on + '" class="w-full text-left py-2.5 flex items-center gap-3' + (on ? ' bg-emerald-500/10 rounded-xl px-2 -mx-2' : '') + '">'
+            + '<span class="w-9 h-9 rounded-xl shrink-0 inline-flex items-center justify-center bg-slate-100 dark:bg-slate-800 ' + MUTED + '">' + icon(CAT_ICON_NAMES[x.c] || 'cat_other', 'w-[18px] h-[18px]') + '</span>'
+            + '<span class="min-w-0 flex-1"><span class="flex items-center justify-between gap-2"><span class="text-sm font-semibold ' + STRONG + ' truncate">' + esc(x.c) + '</span><span class="tabular-nums text-sm font-semibold ' + STRONG + '">' + fmtGBP0(x.v) + '</span></span>'
+            + '<span class="block text-xs ' + MUTED + ' tabular-nums">' + fmtGBP0(x.v / rows.length) + ' a month · ' + pct + '%</span>' + shareBar(pct) + '</span>'
+            + (on ? '<span class="text-emerald-600 dark:text-emerald-400 font-semibold" aria-hidden="true">✕</span>' : '') + '</button>';
+        }).join('') + '</div></div>';
+    }
+    // The table (wide screens): categories by month, yours or as charged; a month well above a category's usual is
+    // shaded. "Saved" counts only months where it is known.
+    function yearTableHtml(rows, totals, mine) {
+      const cell = 'text-right px-1.5 py-1 whitespace-nowrap tabular-nums text-xs';
+      const whole = v => Math.round(v).toLocaleString('en-GB');
+      let html = '<div class="overflow-x-auto"><table class="w-full"><thead><tr><th></th>' + rows.map(r => '<th class="' + cell + ' font-medium ' + MUTED + '">' + esc(monthLabel(r.month, true)) + '</th>').join('')
+        + '<th class="' + cell + ' font-medium ' + MUTED + '">In all</th><th class="' + cell + ' font-medium ' + MUTED + '">A month</th></tr></thead><tbody>';
+      totals.forEach(x => {
+        const avg = x.v / rows.length;
+        html += '<tr><td class="text-xs font-semibold ' + STRONG + ' pr-2 py-1 whitespace-nowrap">' + esc(x.c) + '</td>'
+          + rows.map(r => { const v = catAmt(r, x.c, mine); return '<td class="' + cell + ' ' + (v ? STRONG : MUTED) + (v > avg * 1.25 && v - avg >= 15 ? ' font-bold bg-slate-200/70 dark:bg-slate-700/60 rounded' : '') + '">' + (v ? whole(v) : '–') + '</td>'; }).join('')
+          + '<td class="' + cell + ' font-semibold ' + STRONG + '">' + fmtGBP0(x.v) + '</td><td class="' + cell + ' ' + MUTED + '">' + fmtGBP0(avg) + '</td></tr>';
+      });
+      const line = (label, f, noTotal) => {
+        const vals = rows.map(f), known = vals.filter(v => v !== null), total = known.reduce((a, b) => a + b, 0);
+        return '<tr class="border-t border-slate-200 dark:border-slate-700"><td class="text-xs font-semibold ' + MUTED + ' pr-2 py-1">' + label + '</td>'
+          + vals.map(v => '<td class="' + cell + ' font-semibold ' + STRONG + '">' + (v === null ? '—' : whole(v)) + '</td>').join('')
+          + '<td class="' + cell + ' font-semibold ' + STRONG + '">' + (noTotal || !known.length ? '–' : fmtGBP0(total)) + '</td><td class="' + cell + ' ' + MUTED + '">' + (known.length ? fmtGBP0(total / known.length) : '—') + '</td></tr>';
+      };
+      html += line(mine ? 'You spent' : 'Charged', r => r.summary[mine ? 'share' : 'charged'])
+        + line('Paid back to you', r => r.summary.paidBack)
+        + line('Saved', r => r.summary[mine ? 'savedMine' : 'savedTotal'])
+        + line('Left at payday', r => r.summary.left, true);
+      return html + '</tbody></table></div><p class="text-xs ' + MUTED + '">Shaded: well above that category\'s usual month.</p>';
+    }
+    // Only a copy that is a list is shown at first; without one the Year view says it is getting your months.
+    const yearCopy = lsJson(YEAR_CACHE_KEY);
+    if (Array.isArray(yearCopy)) setYearRows(yearCopy, false);
+    const WIDE_SCREEN_MQ = window.matchMedia('(min-width: 1024px)');   // a computer: the table is offered
+    [NARROW_MQ, WIDE_SCREEN_MQ].forEach(mq => { if (mq.addEventListener) mq.addEventListener('change', () => { if (!document.getElementById('spendModal').classList.contains('hidden')) renderSpend(); }); });
     // A thin bar: this share of the whole, in the one accent colour.
     const shareBar = pct => '<div class="mt-1.5 h-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bg-emerald-500" style="width:' + Math.max(0, Math.min(100, pct)) + '%"></div></div>';
 
@@ -1452,6 +1767,12 @@ window.addEventListener('storage', e => {
       const overrides = loadSpendOverrides();
       const k = spendField(), mine = k === 'share';
       markChoice('sv_', ['mine', 'total'], spendView, SEG_ON, SEG_OFF);
+      markChoice('stab_', ['month', 'year'], spendTab, SEG_ON, SEG_OFF);
+      document.querySelector('#spendModal [role="dialog"]').classList.toggle('yr-wide', spendTab === 'year');
+      if (spendTab === 'year') {
+        document.getElementById('spendBody').innerHTML = renderYear(k);
+        return;
+      }
       const prevName = previousMonthName();
       const prevState = prevName ? previousMonthState(prevName) : null;
       const sum = summariseSpend(state, overrides, prevState);
@@ -1735,6 +2056,8 @@ window.addEventListener('storage', e => {
       activeMonth = s.activeMonth;
       state = s;
       savePhoneCache(activeMonth, s);
+      checkMonthSummary();
+      fillYear();
       pruneLocalMonths(s.availableMonths);
       const sel = document.getElementById('monthSelector');
       if (s.availableMonths && s.availableMonths.length) {
@@ -3442,6 +3765,12 @@ window.addEventListener('storage', e => {
       renderTransactions: () => renderTransactions(),
       setActCat: el => setActCat(el.dataset.cat),
       setSpendView: el => setSpendView(el.dataset.arg),
+      setSpendTab: el => setSpendTab(el.dataset.arg),
+      pickYearMonth: el => pickYearMonth(el.dataset.arg),
+      pickYearCat: el => pickYearCat(el.dataset.cat),
+      clearYearPick: () => clearYearPick(),
+      setYearPeriod: el => setYearPeriod(el.value),
+      setYearTable: el => setYearTable(el.dataset.arg),
       openEditTxForRow: el => openEditTxForRow(el.dataset.acct, rowOf(el)),
       toggleSpendCat: el => toggleSpendCat(el.dataset.cat),
       setSpendCategory: el => setSpendCategory(el.dataset.key, el.value),
