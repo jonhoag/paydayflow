@@ -2248,6 +2248,7 @@ window.addEventListener('storage', e => {
       document.getElementById('kpiSurplus').textContent = money(s.eomSavingsJ);
       renderDailyStrip(state.loading ? NaN : s.eomSavingsJ);
       document.getElementById('simBadge').classList.toggle('hidden', skippedBudgetRows.size === 0);
+      renderWhatIfHint(s);
 
       renderBudgets();
       renderSplits();
@@ -2285,8 +2286,29 @@ window.addEventListener('storage', e => {
       whatIfMode = !!on;
       if (!whatIfMode) skippedBudgetRows.clear();
       markChoice('bf_', ['whatif'], whatIfMode ? 'whatif' : null, WHAT_IF_ON, BILL_CHIP_OFF);
-      document.getElementById('whatIfHint').classList.toggle('hidden', !whatIfMode);
       renderAll();
+    }
+    // With What if on, the Bills box says what Money Left would be with the bills switched off (so the phone's Bills tab
+    // shows the answer without going back to Home), and how to stop; before any is switched off, how it works.
+    function renderWhatIfHint(s) {
+      const box = document.getElementById('whatIfHint');
+      box.classList.toggle('hidden', !whatIfMode);
+      if (!whatIfMode) return;
+      const off = skippedBudgetRows.size;
+      if (!off || state.loading) {
+        box.className = 'text-xs text-slate-500 dark:text-slate-400';
+        box.textContent = 'Switch bills off to see Money Left without them.';
+        return;
+      }
+      const diff = +(s.eomSavingsJ - sheetFigures(state, new Set()).eomSavingsJ).toFixed(2);
+      box.className = 'rounded-xl px-3 py-2.5 flex items-center justify-between gap-3 bg-amber-500/15 border border-amber-500/40';
+      const html = '<div class="min-w-0"><div class="text-xs font-semibold text-amber-700 dark:text-amber-300">Money Left with ' + off + (off === 1 ? ' bill' : ' bills') + ' off</div>'
+        + '<div class="text-lg font-semibold tabular-nums text-slate-900 dark:text-white">' + fmtGBP(s.eomSavingsJ)
+        + ' <span class="text-xs font-medium text-slate-500 dark:text-slate-400">(' + (diff >= 0 ? '+' : '−') + fmtGBP(Math.abs(diff)) + ')</span></div>'
+        + '<div class="text-xs text-slate-500 dark:text-slate-400">Nothing is saved.</div></div>'
+        + '<button data-action="toggleWhatIfMode" aria-label="Stop What if" class="hit shrink-0 h-8 px-3 rounded-full border border-slate-300 dark:border-slate-600 text-xs font-semibold text-slate-700 dark:text-slate-200">Stop</button>';
+      // Only when it changed: a redraw on every refresh would re-announce it and take the Stop button from under a tap.
+      if (box.innerHTML !== html) box.innerHTML = html;
     }
     function toggleWhatIf(row) {
       if (!whatIfMode) return;

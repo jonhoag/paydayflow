@@ -167,6 +167,17 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     assert.ok(await visible(page, '#whatIfHint'), 'no hint in What if mode');
     await page.click('#upcomingBudgetsList button[role="switch"]');
     assert.ok(await visible(page, '#simBadge'), 'What-If badge should show');
+    // The Bills box says what Money Left would be, by how much it changes, and how to stop (on the Bills tab too).
+    const hint = await page.evaluate(() => { const now = sheetFigures(state, skippedBudgetRows).eomSavingsJ, was = sheetFigures(state, new Set()).eomSavingsJ;
+      return { text: document.getElementById('whatIfHint').innerText.replace(/\s+/g, ' '), left: document.getElementById('kpiSurplus').textContent,
+        diff: (now >= was ? '+' : '−') + fmtGBP(Math.abs(now - was)), stop: (document.querySelector('#whatIfHint button[data-action="toggleWhatIfMode"]') || {}).textContent }; });
+    assert.ok(hint.text.startsWith('Money Left with 1 bill off ' + hint.left + ' (' + hint.diff + ') Nothing is saved.'), JSON.stringify(hint));
+    assert.strictEqual(hint.stop, 'Stop');
+    const two = await page.$eval('#upcomingBudgetsList button[role="switch"][aria-checked="true"]', b => b.dataset.row);
+    const sw2 = '#upcomingBudgetsList button[role="switch"][data-row="' + two + '"]';
+    await page.click(sw2);
+    assert.ok((await page.textContent('#whatIfHint')).includes('Money Left with 2 bills off'));
+    await page.click(sw2);   // back to one off
     // A bill left out, then marked Paid: nothing is left out any more, so the badge goes (and Restore brings it back counted).
     const sw = await page.$$eval('#upcomingBudgetsList button[role="switch"]', s => s.map(b => [b.dataset.row, b.getAttribute('aria-checked')]));
     const off = Number(sw.find(([, on]) => on === 'false')[0]);
@@ -174,7 +185,8 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     assert.ok(!(await visible(page, '#simBadge')), 'the What-If badge stays lit for a bill that is now paid');
     await sendsAndSettles(page, 'updateBudgetRow', () => page.evaluate(r => restoreBudget(r), off));   // back as it was
     assert.strictEqual(await page.getAttribute(`#upcomingBudgetsList button[role="switch"][data-row="${off}"]`, 'aria-checked'), 'true', 'restored bill came back left out');
-    await page.click('#bf_whatif');   // off again: every bill counts again
+    await page.click('#upcomingBudgetsList button[role="switch"]');   // one off again, then Stop: every bill counts again
+    await page.click('#whatIfHint button[data-action="toggleWhatIfMode"]');
     assert.ok(!(await visible(page, '#simBadge')) && !(await visible(page, '#whatIfHint')), 'What if left something behind');
     assert.strictEqual(await page.$$eval('#upcomingBudgetsList [role="switch"]', s => s.length), 0, 'switches still showing');
   });
