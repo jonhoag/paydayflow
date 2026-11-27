@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Styles are pre-built into tailwind.css (see build-css.js); the service worker keeps a copy for offline use. -->
-  <link rel="stylesheet" href="tailwind.css?v=4ffd4f4e53">
+  <link rel="stylesheet" href="tailwind.css?v=1b008bb101">
   <style>
     /* Inter, served from this site (SIL Open Font License: fonts/OFL.txt): one variable file per set of characters,
        fetched only when the page uses them. Text shows in the fallback font until it arrives. */
@@ -95,6 +95,9 @@
     }
     /* A card tile you can tap to pay it off: the › shows only while it can be paid, and a mouse over it lights the edge. */
     .pay-tile:disabled .pay-cue { display: none; }
+    /* The Spending sheet's Year side gets more room on wider screens (the unfolded phone, a computer). */
+    @media (min-width:640px){ #spendModal [role="dialog"].yr-wide{ max-width: 42rem; } }
+    @media (min-width:1024px){ #spendModal [role="dialog"].yr-wide{ max-width: 60rem; } }
     .pay-tile:disabled { cursor: default; }
     @media (hover: hover) {
       .pay-tile:not(:disabled):hover { border-color: #94A3B8; }
@@ -481,7 +484,12 @@
   <div id="spendModal" class="kb-sheet hidden fixed inset-0 z-50 bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4" data-action="closeSpendModal" data-backdrop>
     <div role="dialog" aria-modal="true" aria-labelledby="spendTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3 shadow-2xl border border-slate-200 dark:border-slate-800">
       <div class="flex items-center justify-between">
-        <h3 id="spendTitle" class="text-base font-semibold text-slate-900 dark:text-white inline-flex items-center gap-2"><span data-icon="chart" data-class="w-4 h-4"></span>Spending</h3>
+        <h3 id="spendTitle" class="sr-only">Spending</h3>
+        <!-- This month or Year (renderSpend) -->
+        <div role="group" aria-label="Spending for" class="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-sm font-semibold">
+          <button data-action="setSpendTab" data-arg="month" id="stab_month" aria-pressed="true" class="hit px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white">This month</button>
+          <button data-action="setSpendTab" data-arg="year" id="stab_year" aria-pressed="false" class="hit px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400">Year</button>
+        </div>
         <button data-action="closeSpendModal" aria-label="Close" class="hit w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
       </div>
       <!-- Mine (your share of each spend) or Total (the cards as charged): also used by the Activity tab (setSpendView) -->
@@ -869,6 +877,6 @@
   <!-- The app itself (everything above is only the layout). It runs here, once the page above is in place: net.js
        (talking to the server, saves and the offline outbox) first, then app.js (everything else), which starts it. -->
   <script src="net.js?v=7f8dd5b19f"></script>
-  <script src="app.js?v=e32064b3f8"></script>
+  <script src="app.js?v=2a2eac3269"></script>
 </body>
 </html>

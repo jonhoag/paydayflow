@@ -129,6 +129,7 @@
     yearSummaries: {},    // month name -> the summary saved for the Year view (the real one keeps them on a hidden "_Year" tab)
     calls: [],            // log of { action, payload, start, end }
     db, db2, dbs, snapshot, MONTH, MONTH2,
+    monthList: MONTH_LIST, // the tabs the server lists (a test can add months)
     makeToken,
     gsiCallback: null,
     gsiAccount: null,     // the account Google would sign in automatically (null: none)
