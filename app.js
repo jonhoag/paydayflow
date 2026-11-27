@@ -25,6 +25,7 @@ const CACHE_PREFIX = 'pf_cache_';                      // + month name: that mon
 const TX_TS_PREFIX = 'pf_tx_ts_';                      // + month name: when this device added or edited each entry
 const CONFIG_KEY = 'pf_config';                        // the names the backend last sent (see applyConfig)
 const SPEND_OVERRIDES_KEY = 'pf_cat_overrides';        // your Spending category choices
+const SPEND_VIEW_KEY = 'pf_spend_view';                // Spending shows "mine" (your share) or "total"
 const OUTBOX_KEY = 'pf_outbox';                        // spends saved offline, still to send
 const LAST_ACCT_KEY = 'pf_last_acct';                  // the card the last spend went on (the Add form starts there)
 const SIGNED_OUT_FLAG = 'pf_signed_out';               // sessionStorage: this tab has just signed out
@@ -826,7 +827,7 @@ async function removePasskeyDevice(id) {
 // ---- Sign out: clears everything this device has saved and locks the app. The Google Sheet is never touched. ----
 // "Forget this device" first turns off this device's fingerprint sign-in on the server. Then the page reloads, so
 // nothing from the signed-in session stays in memory; a flag for this tab tells the fresh page to say so.
-const SIGN_OUT_KEEP = [THEME_KEY, PASSKEY_OFFER_DISMISSED_KEY];   // preferences, not data
+const SIGN_OUT_KEEP = [THEME_KEY, PASSKEY_OFFER_DISMISSED_KEY, SPEND_VIEW_KEY];   // preferences, not data
 let soArmed = null, soArmTimer = null, soBusy = false;
 
 function justSignedOut() {
@@ -1102,6 +1103,9 @@ window.addEventListener('storage', e => {
 
     // Segmented buttons: the chosen one gets the `on` classes, the rest `off`. `on` can be a function of the key, for
     // the buttons that colour their chosen state differently.
+    // Small two-way switches inside a sheet or box (the Owed tabs, Mine | Total).
+    const SEG_ON = 'hit px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white';
+    const SEG_OFF = 'hit px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400';
     function markChoice(prefix, keys, chosen, on, off) {
       keys.forEach(k => {
         const el = document.getElementById(prefix + k);
@@ -1176,27 +1180,66 @@ window.addEventListener('storage', e => {
       const own = overrides && overrides[key];
       return own && SPEND_CATEGORIES.indexOf(own) !== -1 ? own : guessCategory(key);
     }
-    function summariseSpend(st, overrides) {
+    // Money paid back for a card spend, by the spend's shop: a Nationwide row with money in whose words end with that
+    // shop's name ("kim waitrose" or "kim / lee waitrose" for "Waitrose"; "insurer dental care" for "Dental care";
+    // "savings ..." when your savings paid a share), still owed or already paid. Nationwide's own spends compete too, so
+    // "kim brighton taxi" belongs to a Nationwide "Brighton taxi", not to a card "Taxi"; the longest matching name wins
+    // (only card shops are looked up afterwards). An owed row carried over from `prev` (last month, as Start New Month copies
+    // unpaid ones: same words, same amount) was counted there, so it isn't counted again, even once it is paid back
+    // here. Anything else is left alone.
+    function paybacksByShop(st, cardShops, prev) {
+      const out = Object.create(null);
+      const checking = st && st.checking || [];
+      const own = checking.filter(r => Number(r.amount || 0) < 0).map(r => spendKey(r.desc)).filter(Boolean);
+      const shops = [...new Set(cardShops.concat(own))].sort((a, b) => b.length - a.length);
+      const carried = Object.create(null);   // "words|amount" -> how many owed rows last month
+      (prev && prev.checking || []).filter(r => r.need).forEach(r => {
+        const k = spendKey(r.desc) + '|' + Number(r.amount || 0).toFixed(2);
+        carried[k] = (carried[k] || 0) + 1;
+      });
+      checking.forEach(r => {
+        const amt = Number(r.amount || 0);
+        if (!(amt > 0)) return;
+        const key = spendKey(r.desc);
+        const ck = key + '|' + amt.toFixed(2);
+        if (carried[ck]) { carried[ck]--; return; }   // owed or paid back since: counted last month either way
+        const shop = shops.find(sh => key.endsWith(' ' + sh));
+        if (shop) out[shop] = (out[shop] || 0) + amt;   // only card shops are ever read back
+      });
+      return out;
+    }
+    // Amex and Barclays spending by category and shop, each with `charged` (as on the card) and `share` (yours: less
+    // what was paid back for it, never below £0), and the month's `charged`, `share` and `paidBack`. Pass last month
+    // as `prev` when there is one (see paybacksByShop). Categories and shops come largest first by `charged`.
+    function summariseSpend(st, overrides, prev) {
       const cats = {};
-      let total = 0;
       ['amex', 'barclays'].forEach(acct => (st && st[acct] || []).forEach(r => {
         const key = spendKey(r.desc);
         if (!key || SPEND_SKIP.test(key)) return;
         const amt = -Number(r.amount || 0);   // spends are negative in the sheet; refunds positive
         if (!amt) return;
         const cat = categoryFor(key, overrides);
-        const c = cats[cat] || (cats[cat] = { cat, total: 0, merchants: Object.create(null) });   // shops are keyed by sheet text (see groupOwed)
-        c.total += amt;
-        total += amt;
-        const m = c.merchants[key] || (c.merchants[key] = { key, name: String(r.desc).trim(), total: 0, count: 0 });
-        m.total += amt;
+        const c = cats[cat] || (cats[cat] = { cat, merchants: Object.create(null) });   // shops are keyed by sheet text (see groupOwed)
+        const m = c.merchants[key] || (c.merchants[key] = { key, name: String(r.desc).trim(), charged: 0, count: 0 });
+        m.charged += amt;
         m.count++;
       }));
+      const back = paybacksByShop(st, Object.values(cats).flatMap(c => Object.keys(c.merchants)), prev);
       const r2 = n => +n.toFixed(2);
-      const categories = Object.values(cats)
-        .map(c => ({ cat: c.cat, total: r2(c.total), merchants: Object.values(c.merchants).map(m => ({ key: m.key, name: m.name, total: r2(m.total), count: m.count })).sort((a, b) => b.total - a.total) }))
-        .sort((a, b) => b.total - a.total);
-      return { total: r2(total), categories };
+      const sum = { charged: 0, share: 0, paidBack: 0 };
+      const categories = Object.values(cats).map(c => {
+        const merchants = Object.values(c.merchants).map(m => {
+          const off = back[m.key] ? Math.min(back[m.key], Math.max(m.charged, 0)) : 0;
+          return { key: m.key, name: m.name, count: m.count, charged: r2(m.charged), share: r2(m.charged - off), off };
+        });
+        const cc = merchants.reduce((t, m) => t + m.charged, 0), cs = merchants.reduce((t, m) => t + m.share, 0);
+        sum.charged += cc;
+        sum.share += cs;
+        sum.paidBack += merchants.reduce((t, m) => t + m.off, 0);
+        merchants.forEach(m => delete m.off);
+        return { cat: c.cat, charged: r2(cc), share: r2(cs), merchants: merchants.sort((a, b) => b.charged - a.charged) };
+      }).sort((a, b) => b.charged - a.charged);
+      return { charged: r2(sum.charged), share: r2(sum.share), paidBack: r2(sum.paidBack), categories };
     }
     // Payday is the 30th (the last day in February), or the Friday before when that falls on a weekend.
     function paydayIn(year, month) {
@@ -1222,7 +1265,6 @@ window.addEventListener('storage', e => {
     }
     // </spending-core>
 
-    const SPEND_COLOURS = { 'Groceries': '#10b981', 'Eating out': '#f59e0b', 'Transport': '#0ea5e9', 'Bills & subscriptions': '#8b5cf6', 'Shopping': '#ec4899', 'Travel': '#14b8a6', 'Entertainment': '#f97316', 'Health': '#ef4444', 'Other': '#94a3b8' };
     let spendOpenCat = null;
     function loadSpendOverrides() {
       const o = lsJson(SPEND_OVERRIDES_KEY);
@@ -1291,87 +1333,116 @@ window.addEventListener('storage', e => {
       return i === -1 || !y ? 0 : Number(y[1]) * 12 + i;
     }
     const newestFirst = (a, b) => monthSortValue(b) - monthSortValue(a);
+    // "November" (or "Nov" when short) for a tab named "November Payday 2026"; another name as it is (its first word when short).
+    function monthLabel(name, short) {
+      const word = String(name).split(' ')[0];
+      if (!monthSortValue(name)) return short ? word : String(name);
+      return short ? word.slice(0, 3) : word;
+    }
     // The newest month: by name, whatever order the sheet's tabs are in (without names that say, the first tab).
     const newestMonth = months => months.slice().sort(newestFirst)[0];
     // Totals for every month this device has loaded before (the current one comes from live state), newest first.
-    function spendMonthTotals(overrides) {
+    function spendMonthTotals(overrides, field) {
+      const names = [...new Set((state.availableMonths || []).concat(activeMonth))].sort(newestFirst);
+      const stateOf = name => name === activeMonth ? state : savedMonth(name);
       const out = [];
-      [...new Set((state.availableMonths || []).concat(activeMonth))].sort(newestFirst).forEach(name => {
-        const st = name === activeMonth ? state : savedMonth(name);
-        if (st) out.push({ name, total: summariseSpend(st, overrides).total });
+      names.forEach((name, i) => {
+        const st = stateOf(name);
+        if (st) out.push({ name, total: summariseSpend(st, overrides, names[i + 1] ? stateOf(names[i + 1]) : null)[field] });
       });
       return out;
     }
 
     // The month before the one on screen: by name when the names say so ("October Payday 2026"), otherwise the next
     // tab along (the sheet keeps the newest first).
-    function previousMonthName() {
+    function monthBefore(name) {
       const months = state.availableMonths || [];
-      const v = monthSortValue(activeMonth);
+      const v = monthSortValue(name);
       const older = v ? months.filter(m => monthSortValue(m) && monthSortValue(m) < v).sort(newestFirst) : [];
       if (older.length) return older[0];
-      const i = months.indexOf(activeMonth);
+      const i = months.indexOf(name);
       return i > -1 && i + 1 < months.length ? months[i + 1] : null;
     }
+    function previousMonthName() { return monthBefore(activeMonth); }
     // Last month's figures from this device's saved copy. Without one, they're fetched once, quietly, and the
     // Spending details redrawn when they arrive.
     let prevMonthAsked = null;
     function previousMonthState(name) {
       const st = savedMonth(name);
       if (st) return st;
-      if (prevMonthAsked !== name) {
+      if (prevMonthAsked !== name && hasValidToken()) {   // not before sign-in, when it could only fail
         prevMonthAsked = name;
         apiCall('getCachedSheetState', { sheetName: name, forceRefresh: false })
           .then(s => {
             savePhoneCache(name, s, false);
             if (!document.getElementById('spendModal').classList.contains('hidden')) renderSpend();
+            renderActSpend();   // its carried-over owed rows are now known there too
           })
           .catch(() => {});
       }
       return null;
     }
+
+    // Against last month, in plain words (green is kept for the spending bars and what you've picked).
     function spendChangeHtml(now, before, monthLabel) {
       const c = compareSpend(now, before);
       if (c.kind === 'new') return ' · New';
       if (c.kind === 'same') return ' · Same as ' + esc(monthLabel);
-      const tone = c.kind === 'up' ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400';
-      return ' · <span class="' + tone + '">' + (c.kind === 'up' ? '▲ ' : '▼ ') + fmtGBP(c.diff) + ' vs ' + esc(monthLabel) + '</span>';
+      return ' · ' + (c.kind === 'up' ? '▲ ' : '▼ ') + fmtGBP(c.diff) + ' vs ' + esc(monthLabel);
     }
+
+    // Mine (your share: each card spend less what others paid back for it) or Total (the cards as charged). One choice
+    // for Spending and the Activity tab, kept on this device (a preference: Sign out keeps it).
+    let spendView = lsGet(SPEND_VIEW_KEY) === 'total' ? 'total' : 'mine';
+    function setSpendView(v) {
+      spendView = v === 'total' ? 'total' : 'mine';
+      lsSet(SPEND_VIEW_KEY, spendView);
+      renderSpend();
+      renderTransactions();   // the Activity tab's summary, and its list (a category chip may have gone)
+    }
+    // Which figure the summaries show: summariseSpend gives both.
+    const spendField = () => spendView === 'mine' ? 'share' : 'charged';
+    // A thin bar: this share of the whole, in the one accent colour.
+    const shareBar = pct => '<div class="mt-1.5 h-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bg-emerald-500" style="width:' + Math.max(0, Math.min(100, pct)) + '%"></div></div>';
 
     function renderSpend() {
       const overrides = loadSpendOverrides();
-      const sum = summariseSpend(state, overrides);
+      const k = spendField(), mine = k === 'share';
+      markChoice('sv_', ['mine', 'total'], spendView, SEG_ON, SEG_OFF);
       const prevName = previousMonthName();
       const prevState = prevName ? previousMonthState(prevName) : null;
-      const prevSum = prevState ? summariseSpend(prevState, overrides) : null;
-      const prevLabel = prevName && monthSortValue(prevName) ? prevName.slice(0, 3) : 'last month';
-      const catRows = sum.categories.filter(c => Math.abs(c.total) >= 0.005);
-      const ringCats = catRows.filter(c => c.total > 0);
+      const sum = summariseSpend(state, overrides, prevState);
+      const before = prevName && monthBefore(prevName);
+      const prevSum = prevState ? summariseSpend(prevState, overrides, before ? savedMonth(before) : null) : null;
+      const prevLabel = prevName && monthSortValue(prevName) ? monthLabel(prevName, true) : 'last month';
+      // A category all paid back stays (at £0.00), so its shops can still be seen and moved.
+      const catRows = sum.categories.filter(c => Math.abs(c.charged) >= 0.005).sort((a, b) => b[k] - a[k]);
       const opts = sel => ['<option value="">Automatic</option>'].concat(SPEND_CATEGORIES.map(c => '<option value="' + esc(c) + '"' + (c === sel ? ' selected' : '') + '>' + esc(c) + '</option>')).join('');
-      let html = '<div class="flex items-center gap-5">' + spendRing(ringCats, sum.total, 120, 13)
-        + '<div class="min-w-0"><div class="text-sm text-slate-500 dark:text-slate-400">Spent on cards</div>'
-        + '<div class="text-3xl font-semibold tracking-tight tabular-nums text-slate-900 dark:text-white">' + fmtGBP(sum.total) + '</div>'
-        + '<div class="text-sm text-slate-500 dark:text-slate-400 truncate">' + esc(activeMonth) + '</div></div></div>';
+      const sub = [mine ? 'of ' + fmtGBP(sum.charged) + ' charged' : fmtGBP(sum.paidBack) + ' paid back to you'];
+      if (prevSum) sub.push(esc(monthLabel(prevName)) + ': ' + fmtGBP(prevSum[k]));
+      let html = '<div id="spendHead"><div class="text-sm text-slate-500 dark:text-slate-400 truncate">' + (mine ? 'Your spending' : 'Spent on cards') + ' · ' + esc(monthLabel(activeMonth)) + '</div>'
+        + '<div class="text-3xl font-semibold tracking-tight tabular-nums text-slate-900 dark:text-white">' + fmtGBP(sum[k]) + '</div>'
+        + '<div class="text-xs text-slate-500 dark:text-slate-400 tabular-nums">' + sub.join(' · ') + '</div></div>';
       if (!catRows.length) html += '<p class="text-sm text-slate-500 dark:text-slate-400">No card spending recorded in this month yet.</p>';
       html += '<div class="divide-y divide-slate-100 dark:divide-slate-800/70">';
       catRows.forEach(c => {
-        const pct = sum.total > 0 ? Math.round(c.total / sum.total * 100) : 0;
+        const pct = sum[k] > 0 ? Math.round(c[k] / sum[k] * 100) : 0;
         const open = spendOpenCat === c.cat;
-        const colour = SPEND_COLOURS[c.cat] || '#94a3b8';
         const n = c.merchants.reduce((a, m) => a + m.count, 0);
         html += '<div>'
           + '<button data-cat="' + esc(c.cat) + '" data-action="toggleSpendCat" class="w-full text-left py-2.5 flex items-center gap-3" aria-expanded="' + open + '">'
-          + '<span class="w-9 h-9 rounded-xl shrink-0 inline-flex items-center justify-center" style="background:' + colour + '26;color:' + colour + '">' + icon(CAT_ICON_NAMES[c.cat] || 'cat_other', 'w-[18px] h-[18px]') + '</span>'
-          + '<span class="min-w-0 flex-1"><span class="block text-sm font-semibold text-slate-900 dark:text-white">' + esc(c.cat) + '</span>'
+          + '<span class="w-9 h-9 rounded-xl shrink-0 inline-flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">' + icon(CAT_ICON_NAMES[c.cat] || 'cat_other', 'w-[18px] h-[18px]') + '</span>'
+          + '<span class="min-w-0 flex-1"><span class="flex items-center justify-between gap-2"><span class="text-sm font-semibold text-slate-900 dark:text-white truncate">' + esc(c.cat) + '</span>'
+          + '<span class="tabular-nums text-sm font-semibold text-slate-900 dark:text-white">' + fmtGBP(c[k]) + '</span></span>'
           + '<span class="block text-xs text-slate-500 dark:text-slate-400">' + n + (n === 1 ? ' purchase' : ' purchases') + ' · ' + pct + '%'
-          + (prevSum ? spendChangeHtml(c.total, (prevSum.categories.find(x => x.cat === c.cat) || { total: 0 }).total, prevLabel) : '') + '</span></span>'
-          + '<span class="tabular-nums text-sm font-semibold text-slate-900 dark:text-white">' + fmtGBP(c.total) + '</span>'
+          + (prevSum ? spendChangeHtml(c[k], (prevSum.categories.find(x => x.cat === c.cat) || { [k]: 0 })[k], prevLabel) : '') + '</span>'
+          + shareBar(pct) + '</span>'
           + '<span class="text-slate-400">' + icon(open ? 'chevron_up' : 'chevron_down', 'w-4 h-4') + '</span></button>';
         if (open) {
           html += '<div class="pl-12 pb-2 divide-y divide-slate-100 dark:divide-slate-800/70 text-sm">';
-          c.merchants.forEach(m => {
+          c.merchants.slice().sort((a, b) => b[k] - a[k]).forEach(m => {
             html += '<div class="py-2 flex items-center gap-2"><div class="min-w-0 flex-1"><div class="truncate text-slate-700 dark:text-slate-200">' + esc(displayName(m.name)) + (m.count > 1 ? ' <span class="text-slate-500 dark:text-slate-400">×' + m.count + '</span>' : '') + '</div></div>'
-              + '<span class="tabular-nums text-slate-700 dark:text-slate-200">' + fmtGBP(m.total) + '</span>'
+              + '<span class="tabular-nums text-slate-700 dark:text-slate-200">' + fmtGBP(m[k]) + '</span>'
               + '<select data-key="' + esc(m.key) + '" data-change="setSpendCategory" aria-label="Category for ' + esc(m.name) + '" class="h-9 max-w-[7.5rem] rounded-full bg-transparent text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700 text-xs px-2">' + opts(overrides[m.key]) + '</select></div>';
           });
           html += '</div>';
@@ -1381,21 +1452,21 @@ window.addEventListener('storage', e => {
       html += '</div>';
       // Month by month: the months this device has loaded, oldest on the left, this month highlighted.
       // Full amounts ("£1,234.56") fit four bars across on a folded phone, six in the wider box.
-      const months = spendMonthTotals(overrides).slice(0, SPEND_WIDE_MQ.matches ? 6 : 4).reverse();
+      const months = spendMonthTotals(overrides, k).slice(0, SPEND_WIDE_MQ.matches ? 6 : 4).reverse();
       if (months.length > 1) {
         const mtop = Math.max(1, ...months.map(m => m.total));
-        const label = name => monthSortValue(name) ? String(name).slice(0, 3) : String(name).split(' ')[0];
         html += '<div><div class="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-2">Month by month</div><div class="flex items-end gap-2 h-28">';
         months.forEach(m => {
           const on = m.name === activeMonth;
           html += '<div class="flex-1 h-full flex flex-col items-center justify-end gap-1.5">'
             + '<span class="text-xs tabular-nums text-slate-500 dark:text-slate-400">' + fmtGBP(m.total) + '</span>'
             + '<div class="w-full max-w-[44px] rounded-md ' + (on ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-700') + '" style="height:' + Math.max(4, Math.round(Math.max(0, m.total) / mtop * 70)) + 'px"></div>'
-            + '<span class="text-xs ' + (on ? 'font-semibold text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400') + '">' + esc(label(m.name)) + '</span></div>';
+            + '<span class="text-xs ' + (on ? 'font-semibold text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400') + '">' + esc(monthLabel(m.name, true)) + '</span></div>';
         });
         html += '</div></div>';
       }
-      html += '<p class="text-xs text-slate-500 dark:text-slate-400">Amex and Barclays, as charged, before anything others pay back. Tap a category to see where it went; change a shop\'s category with its menu and it is remembered on all your devices.</p>';
+      html += '<p class="text-xs text-slate-500 dark:text-slate-400">' + (mine ? 'Mine: Amex and Barclays spends less what others (or your savings) paid back to Nationwide for them.' : 'Total: Amex and Barclays, as charged.')
+        + ' Tap a category to see where it went; change a shop\'s category with its menu and it is remembered on all your devices.</p>';
       document.getElementById('spendBody').innerHTML = html;
     }
 
@@ -2079,8 +2150,7 @@ window.addEventListener('storage', e => {
       splitPanelMode = mode;
       document.getElementById('panel_pending').classList.toggle('hidden', mode !== 'pending');
       document.getElementById('panel_settled').classList.toggle('hidden', mode !== 'settled');
-      markChoice('pill_', ['pending', 'settled'], mode,
-        'hit px-3 py-1 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white', 'hit px-3 py-1 rounded-lg text-slate-500 dark:text-slate-400');
+      markChoice('pill_', ['pending', 'settled'], mode, SEG_ON, SEG_OFF);
     }
 
     // Friends you split with: their quick-tap chips, the split rows and the "Paid back" list all use this list. The
@@ -2344,45 +2414,30 @@ window.addEventListener('storage', e => {
     }
     const CAT_ICON_NAMES = { 'Groceries': 'cat_groceries', 'Eating out': 'cat_eating', 'Transport': 'cat_transport', 'Bills & subscriptions': 'cat_bills', 'Shopping': 'cat_shopping', 'Travel': 'cat_travel', 'Entertainment': 'cat_entertainment', 'Health': 'cat_health', 'Other': 'cat_other' };
 
-    // A ring chart of category totals as SVG circles (one stroke segment per category).
-    function spendRing(cats, total, size, stroke, highlight) {
-      const r = (size - stroke) / 2, c = 2 * Math.PI * r, mid = size / 2;
-      let offset = 0;
-      const arcs = cats.map(cat => {
-        const len = c * cat.total / Math.max(total, 0.01);
-        const gap = cats.length > 1 ? Math.min(3, len / 3) : 0;
-        const dim = highlight && highlight !== cat.cat ? ' opacity="0.25"' : '';
-        const arc = `<circle cx="${mid}" cy="${mid}" r="${r}" fill="none" stroke="${SPEND_COLOURS[cat.cat] || '#94a3b8'}" stroke-width="${stroke}" stroke-dasharray="${Math.max(len - gap, 0.5)} ${c}" stroke-dashoffset="${-offset}" transform="rotate(-90 ${mid} ${mid})"${dim}/>`;
-        offset += len;
-        return arc;
-      }).join('');
-      return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="shrink-0" aria-hidden="true"><circle cx="${mid}" cy="${mid}" r="${r}" fill="none" stroke="rgba(148,163,184,.18)" stroke-width="${stroke}"/>${arcs}</svg>`;
-    }
-
     function renderActSpend() {
       const box = document.getElementById('actSpend');
       if (!box) return;
-      const sum = summariseSpend(state, loadSpendOverrides());
-      const cats = sum.categories.filter(c => c.total > 0.005);
+      const k = spendField();
+      const prevName = previousMonthName();
+      const sum = summariseSpend(state, loadSpendOverrides(), prevName ? previousMonthState(prevName) : null);
+      const cats = sum.categories.filter(c => c[k] > 0.005).sort((a, b) => b[k] - a[k]);
       if (actCat && !cats.some(c => c.cat === actCat)) actCat = null;
       const sel = actCat && cats.find(c => c.cat === actCat);
+      const what = k === 'share' ? (sel ? esc(sel.cat) + ', your share' : 'Your spending this month') : (sel ? esc(sel.cat) + ' on cards' : 'Spent on cards this month');
       box.innerHTML = `
         <div class="flex items-center gap-3.5 pb-3">
-          ${spendRing(cats, sum.total, 56, 7, actCat)}
           <div class="min-w-0 flex-1">
-            <div class="text-sm text-slate-500 dark:text-slate-400">${sel ? esc(sel.cat) + ' on cards' : 'Spent on cards this month'}</div>
-            <div class="text-2xl font-semibold tracking-tight tabular-nums text-slate-900 dark:text-white">${fmtGBP(sel ? sel.total : sum.total)}</div>
+            <div class="text-sm text-slate-500 dark:text-slate-400">${what}</div>
+            <div class="text-2xl font-semibold tracking-tight tabular-nums text-slate-900 dark:text-white">${fmtGBP(sel ? sel[k] : sum[k])}</div>
           </div>
-          <button data-action="openSpendModal" class="h-8 px-3 rounded-full border text-xs font-semibold border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300">Details</button>
+          <button data-action="openSpendModal" class="h-8 px-3 rounded-full border text-xs font-semibold border-slate-300 text-slate-700 dark:border-slate-700 dark:text-slate-200">Details</button>
         </div>
         ${cats.length ? `<div class="chip-row flex gap-2 overflow-x-auto">${cats.map(c => {
-          const on = actCat === c.cat, col = SPEND_COLOURS[c.cat] || '#94a3b8';
+          const on = actCat === c.cat;
           return `<button data-cat="${esc(c.cat)}" data-action="setActCat" aria-pressed="${on}"
-                    class="hit shrink-0 h-9 px-3 rounded-full border text-sm font-semibold inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-200 ${on ? '' : 'border-slate-200 dark:border-slate-700'}"
-                    style="${on ? `border-color:${col};background:${col}26` : ''}">
-                    <span class="w-2 h-2 rounded-full" style="background:${col}"></span>${esc(c.cat)}
-                    <span class="tabular-nums font-medium text-slate-500 dark:text-slate-400">${fmtGBP(c.total)}</span></button>`;
-        }).join('')}</div>` : '<p class="text-sm text-slate-500 dark:text-slate-400">No card spending recorded in this month yet.</p>'}`;
+                    class="hit shrink-0 h-9 px-3 rounded-full border text-sm font-semibold inline-flex items-center gap-1.5 ${on ? 'border-emerald-500 bg-emerald-500/10 text-slate-900 dark:text-white' : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'}">
+                    ${esc(c.cat)}<span class="tabular-nums font-medium text-slate-500 dark:text-slate-400">${fmtGBP(c[k])}</span></button>`;
+        }).join('')}</div>` : '<p class="text-sm text-slate-500 dark:text-slate-400">' + (k === 'share' && sum.charged > 0.005 ? 'All of this month\'s card spending was paid back.' : 'No card spending recorded in this month yet.') + '</p>'}`;
     }
 
     function renderTransactions() {
@@ -3336,6 +3391,7 @@ window.addEventListener('storage', e => {
       clearTxSearch: () => clearTxSearch(),
       renderTransactions: () => renderTransactions(),
       setActCat: el => setActCat(el.dataset.cat),
+      setSpendView: el => setSpendView(el.dataset.arg),
       openEditTxForRow: el => openEditTxForRow(el.dataset.acct, rowOf(el)),
       toggleSpendCat: el => toggleSpendCat(el.dataset.cat),
       setSpendCategory: el => setSpendCategory(el.dataset.key, el.value),

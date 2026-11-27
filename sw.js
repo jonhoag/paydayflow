@@ -8,11 +8,11 @@ const CACHE_NAME = 'paydayflow-v6';
 // changes this list, and so this file, which is how each device picks up a new version.
 const SITE_HASHES = {
   // <site-hashes>
-  '/': '1f4e0cf1baf40e9352cc0c758d8ba240b95194d54780b0a8822dd279ea2df60d',
+  '/': '168a10ebc992015fbc2e3f84cd2c332ac44f476b0c7d24cfafcf2d5534c1c3ae',
   '/guard.js': 'f8d4ca9cba1a71963b8f19262e9381ba7743f9a1f8c397ee3cb776437517a7cc',
   '/net.js': '7f8dd5b19faf5e10b89875210a4b53dc73da4b47e5607c19e79ed7fbc60723bf',
-  '/app.js': '955fb9db40b5f6f1ef57a55d981eea37139e27634f8cbe470e036921fb5efa89',
-  '/tailwind.css': 'a90f7e31568b8003dd034910529ca7cfffe6c3615d61a2572eacbee2ea908ab7',
+  '/app.js': '2182a2f2224ff123b4a0e843aa7d573d3b62cf5c4d31b1299931a52bf278b308',
+  '/tailwind.css': '4ffd4f4e538290e0ae0bd4317b3e72fd024462be3c3df65157e65cf488260e0e',
   '/manifest.json': 'f41e3736fbec8f5861c2d60e992c5b8133e1d06a9afdf527bf753728abb69784',
   '/icons/icon-192.png': '4d5d98ee6b7399e36c0608ae5214ef8bb0b2b5b6f93f0b2b78a0232a4f615da6',
   '/icons/icon-512.png': 'd0b21f1d59491bc8c691ca4e4a5a7e7323f2abe2c27ccee2bfa44bcfb631e918',

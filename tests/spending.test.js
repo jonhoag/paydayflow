@@ -56,23 +56,23 @@ const st = {
 
 test('payments, balance and start rows are not spending; checking is ignored', () => {
   const s = summariseSpend(st, {});
-  assert.strictEqual(s.total, +(60.25 + 39.5 + 14.2 + 40.75 - 6.5 + 7.3).toFixed(2));
+  assert.strictEqual(s.charged, +(60.25 + 39.5 + 14.2 + 40.75 - 6.5 + 7.3).toFixed(2));
 });
 
 test('same merchant in different spelling is grouped, and counted twice', () => {
   const groc = summariseSpend(st, {}).categories.find(c => c.cat === 'Groceries');
   assert.strictEqual(groc.merchants.length, 1);
   assert.strictEqual(groc.merchants[0].count, 2);
-  assert.strictEqual(groc.total, 99.75);
+  assert.strictEqual(groc.charged, 99.75);
 });
 
 test('a refund reduces its category rather than adding to it', () => {
   const shop = summariseSpend(st, {}).categories.find(c => c.cat === 'Shopping');
-  assert.strictEqual(shop.total, +(40.75 - 6.5).toFixed(2));
+  assert.strictEqual(shop.charged, +(40.75 - 6.5).toFixed(2));
 });
 
 test('categories come back largest first', () => {
-  const totals = summariseSpend(st, {}).categories.map(c => c.total);
+  const totals = summariseSpend(st, {}).categories.map(c => c.charged);
   assert.deepStrictEqual(totals, totals.slice().sort((a, b) => b - a));
 });
 
@@ -87,7 +87,7 @@ test('an unknown saved category is ignored (falls back to the guess)', () => {
 });
 
 test('empty or missing data gives a zero total, not an error', () => {
-  assert.strictEqual(summariseSpend(null, {}).total, 0);
+  assert.strictEqual(JSON.stringify(summariseSpend(null, {})), JSON.stringify({ charged: 0, share: 0, paidBack: 0, categories: [] }));
   assert.strictEqual(summariseSpend({ amex: [], barclays: [] }, {}).categories.length, 0);
 });
 
@@ -150,6 +150,64 @@ test('vs last month: up, down, the same within 50p, or new', () => {
   assert.strictEqual(compareSpend(20.3, 20).kind, 'same');
   assert.strictEqual(compareSpend(15, 0).kind, 'new');
   assert.strictEqual(compareSpend(15, undefined).kind, 'new');
+});
+
+// "Mine": each shop's spending less what was paid back for it on Nationwide (a money-in row ending with the shop's name).
+const shared = {
+  amex: [{ desc: 'Waitrose', amount: -80 }, { desc: 'Waitrose', amount: -20 }, { desc: 'Dental care', amount: -400 }, { desc: 'Bistro', amount: -60 }],
+  barclays: [{ desc: 'Bus', amount: -3 }, { desc: 'Tesco', amount: -10 }],
+  checking: [
+    { desc: 'kim Waitrose', amount: 50, need: true },        // still owed: counts
+    { desc: 'insurer health Dental care', amount: 300 },     // insurance paid back
+    { desc: 'kim / lee Bistro', amount: 45 },               // two people, one row
+    { desc: 'lee Tesco', amount: 25 },                       // more than the spend: stops at £0
+    { desc: 'paycheck', amount: 2000 }, { desc: 'Bus refund', amount: 3 },   // not paybacks
+    { desc: 'kim Mortgage', amount: 700 },                   // a Nationwide spend, not a card one: left alone
+    { desc: 'kim Bus', amount: -1.5 }                        // money out: not a payback
+  ]
+};
+const shopOf = (s, k) => s.categories.flatMap(c => c.merchants).find(m => m.key === k);
+test('your share: paybacks come off their shop; charged, share and paid back for the whole month', () => {
+  const s = summariseSpend(shared, {});
+  assert.deepStrictEqual(['waitrose', 'dental care', 'bistro', 'tesco', 'bus'].map(k => shopOf(s, k).share), [50, 100, 15, 0, 3]);
+  assert.deepStrictEqual(['waitrose', 'tesco'].map(k => shopOf(s, k).charged), [100, 10]);
+  assert.deepStrictEqual([s.charged, s.share, s.paidBack], [573, 168, 405]);
+  assert.deepStrictEqual(s.categories.map(c => +(c.charged - c.share).toFixed(2)).reduce((a, b) => a + b, 0), 405);
+});
+test('a payback still owed counts the same as one paid', () => {
+  const owed = summariseSpend({ amex: [{ desc: 'Bistro', amount: -40 }], checking: [{ desc: 'kim Bistro', amount: 15, need: true }] }, {});
+  const paid = summariseSpend({ amex: [{ desc: 'Bistro', amount: -40 }], checking: [{ desc: 'kim Bistro', amount: 15 }] }, {});
+  assert.deepStrictEqual([owed.share, paid.share], [25, 25]);
+});
+test('several paybacks for one shop add up (and stop at £0)', () => {
+  const s = summariseSpend({ amex: [{ desc: 'Bistro', amount: -60 }], checking: [{ desc: 'kim Bistro', amount: 20 }, { desc: 'lee Bistro', amount: 25 }, { desc: 'jo Bistro', amount: 30 }] }, {});
+  assert.deepStrictEqual([shopOf(s, 'bistro').share, s.paidBack], [0, 60]);
+});
+test('a shop with more refunded than spent is not paid back below nothing', () => {
+  const s = summariseSpend({ amex: [{ desc: 'Shoes', amount: -20 }, { desc: 'Shoes', amount: 30 }], checking: [{ desc: 'kim Shoes', amount: 10 }] }, {});
+  assert.deepStrictEqual([shopOf(s, 'shoes').charged, shopOf(s, 'shoes').share, s.paidBack], [-10, -10, 0]);
+});
+test('pennies add up exactly', () => {
+  const s = summariseSpend({ amex: [{ desc: 'Bistro', amount: -0.3 }], checking: [{ desc: 'kim Bistro', amount: 0.1 }, { desc: 'lee Bistro', amount: 0.2 }] }, {});
+  assert.deepStrictEqual([s.share, s.paidBack], [0, 0.3]);
+});
+test('the longest matching shop wins ("tesco express" before "express")', () => {
+  const s = summariseSpend({ amex: [{ desc: 'Express', amount: -10 }, { desc: 'Tesco express', amount: -20 }], checking: [{ desc: 'kim Tesco express', amount: 20 }] }, {});
+  assert.deepStrictEqual([shopOf(s, 'express').share, shopOf(s, 'tesco express').share], [10, 0]);
+});
+test('a payback for a Nationwide spend is not taken off a card shop with a shorter name', () => {
+  const s = summariseSpend({ amex: [{ desc: 'Taxi', amount: -15 }], checking: [{ desc: 'Brighton taxi', amount: -40 }, { desc: 'kim Brighton taxi', amount: 20 }] }, {});
+  assert.deepStrictEqual([shopOf(s, 'taxi').share, s.paidBack], [15, 0]);
+});
+test('a row that is only the shop name is not a payback', () => {
+  assert.strictEqual(summariseSpend({ amex: [{ desc: 'Tesco', amount: -20 }], checking: [{ desc: 'Tesco', amount: 20 }] }, {}).share, 20);
+});
+test('an owed payback carried over from last month is not counted again (owed or paid back since); a new one the same is', () => {
+  const last = { checking: [{ desc: 'kim Waitrose', amount: 50, need: true }] };
+  const now = { amex: [{ desc: 'Waitrose', amount: -90 }], checking: [{ desc: 'kim Waitrose', amount: 50, need: true }, { desc: 'kim Waitrose', amount: 50, need: true }] };
+  assert.deepStrictEqual([summariseSpend(now, {}, last).share, summariseSpend(now, {}).share], [40, 0]);
+  const paidSince = { amex: now.amex, checking: [{ desc: 'kim Waitrose', amount: 50 }] };   // the carried one paid back this month: still not counted again
+  assert.strictEqual(summariseSpend(paidSince, {}, last).share, 90);
 });
 
 finish();

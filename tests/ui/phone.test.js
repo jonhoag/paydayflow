@@ -249,9 +249,9 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     assert.ok(names.length >= 2, 'expected grocery rows, got ' + JSON.stringify(names));
     const cats = await page.evaluate(n => n.map(x => categoryFor(x, loadSpendOverrides())), names);
     assert.ok(cats.every(c => c === 'Groceries'), JSON.stringify(names));
-    assert.ok((await page.textContent('#actSpend')).includes('Groceries on cards'));
+    assert.ok((await page.textContent('#actSpend')).includes('Groceries, your share'));
     await page.click('#actSpend button[data-cat="Groceries"]');
-    assert.ok((await page.textContent('#actSpend')).includes('Spent on cards this month'));
+    assert.ok((await page.textContent('#actSpend')).includes('Your spending this month'));
   });
 
   await step('Activity tab: the account filters and search fold away behind one button; each left on shows as a chip that clears it', async () => {
@@ -319,11 +319,12 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     assert.deepStrictEqual(home, tab.slice(0, 4));
   });
 
-  await step('spending details: ring chart, open a category, change a shop\'s category, Escape closes', async () => {
+  await step('spending details: Mine | Total, open a category, change a shop\'s category, Escape closes', async () => {
     await page.click('nav [data-nav="activity"]');
     await page.click('#actSpend button:has-text("Details")');
     assert.ok(await visible(page, '#spendModal'));
-    assert.ok(await page.$('#spendBody svg circle'));
+    assert.strictEqual(await page.getAttribute('#sv_mine', 'aria-pressed'), 'true');
+    assert.ok(!(await page.$('#spendModal svg circle')), 'the ring is gone');
     await page.click('#spendBody button[data-cat="Groceries"]');
     const c = await sendsAndSettles(page, 'setCategoryChoice', () => page.selectOption('#spendBody select', 'Shopping'));
     assert.ok(c && c.category === 'Shopping', JSON.stringify(c));
