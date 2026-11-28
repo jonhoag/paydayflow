@@ -11,7 +11,7 @@ const assert = require('assert');
 const { step: test, finish } = require('./lib/steps').makeSteps();
 
 const UNDER_TEST = ['parseAmount', 'equalShares', 'getNextMonthName', 'failureKind', 'serverError', 'describePasskeyError', 'sheetFigures', 'usableMonth', 'splitPersonKey', 'owedPerson', 'sharesOf'];
-const NEEDS = ['displayName', 'MONTHS', 'isConnectionError', 'ACCTS', 'MONTH_LISTS', 'sumAmounts', 'halfOf'];
+const NEEDS = ['displayName', 'MONTHS', 'isConnectionError', 'ACCTS', 'MONTH_LISTS', 'sumAmounts', 'halfOf', 'SPEND_SKIP', 'SHARE_ROWS_MAX'];
 
 // The app's scripts (APP_SCRIPTS: net.js, app.js), which share one scope.
 const app = require('../build-sw').APP_SCRIPTS.map(f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n')).join('\n');
@@ -228,6 +228,34 @@ test('rows still saving are not shares', () => {
   const st = shareMonth([pizza]);
   st.checking.push({ acct: 'checking', row: 102, desc: 'kim Pizza night', amount: 18, clientTs: 4997, need: true, pending: true });
   assert.strictEqual(kindOf(st, pizza), '100_me');
+});
+
+test('by save time the words don\'t matter: a spend renamed since keeps its shares (locked one too)', () => {
+  const st = shareMonth([['amex', 9, 'Pizza', -36, 5000], ['checking', 14, 'kim Pizza night', 18, 4997, false]]);
+  const r = sharesOf(st, itemOf(['amex', 9, 'Pizza', -36, 5000]));
+  assert.deepStrictEqual([r.kind, r.locked, r.olds.length], ['half', true, 1]);
+});
+test('a share deleted from the middle: the others are still found (no stop at the gap)', () => {
+  const r = sharesOf(shareMonth([pizza, ['checking', 16, 'lee Pizza night', 10, 4996, true]]), itemOf(pizza));
+  same(r.entries, [{ person: 'lee', amount: 10 }]);
+});
+test('a share whose time was dropped (pruned) is found by its words beside the timed ones', () => {
+  const r = sharesOf(shareMonth([pizza, ['checking', 14, 'kim Pizza night', 10, 4997, true], ['checking', 16, 'lee Pizza night', 10, 0, true]]), itemOf(pizza));
+  same(r.entries, [{ person: 'kim', amount: 10 }, { person: 'lee', amount: 10 }]);
+});
+test('a timed share with no spend stamped just above it (its spend moved before this change): can\'t tell, never Just me', () => {
+  const st = shareMonth([['barclays', 4, 'Pizza night', -36, 9000], ['checking', 14, 'kim Pizza night', 18, 4997, false]]);
+  assert.strictEqual(kindOf(st, ['barclays', 4, 'Pizza night', -36, 9000]), 'unknown');
+});
+test('money in typed in the sheet beside an "I owe" with its words: can\'t tell, never taken as its share', () => {
+  const st = shareMonth([['amex', 9, 'Dinner', 40], ['checking', 20, 'kim Dinner', -20, 6000, true]]);
+  assert.strictEqual(kindOf(st, ['amex', 9, 'Dinner', 40]), 'unknown');
+});
+test('a card payment, and a share for a name not in the list ("dave Pizza night" beside "Pizza night"), have no Who\'s paying', () => {
+  const st = shareMonth([pizza, ['checking', 30, 'dave Pizza night', 10, 0, false], ['amex', 11, 'Amex CC Payment', 100, 8000], ['checking', 31, 'Amex CC Payment', -100, 7999]]);
+  assert.strictEqual(sharesOf(st, itemOf(['checking', 30, 'dave Pizza night', 10])), null);
+  assert.strictEqual(sharesOf(st, itemOf(['amex', 11, 'Amex CC Payment', 100, 8000])), null);
+  assert.strictEqual(sharesOf(st, itemOf(['checking', 31, 'Amex CC Payment', -100, 7999])), null);
 });
 
 // ---- postReadToServer: a read with no reply in time is sent once more (a stuck request at Google, 2026-11-20) ----

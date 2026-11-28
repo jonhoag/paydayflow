@@ -185,7 +185,7 @@
       if (!/^\S+$/.test(person) || person === 'savings' || person === 'marcus' || !(money(p.grossAmount) > 0)) throw new Error('An I owe needs a person and your share.');
       if (p.clientId && seenClientIds.has(p.clientId)) return snapshot(d, n);
       if (p.clientId) seenClientIds.add(p.clientId);
-      pushRow(d, 'checking', person + ' ' + p.merchant, -money(p.grossAmount), true, Date.now() - 3);
+      pushRow(d, 'checking', person + ' ' + p.merchant, -money(p.grossAmount), true, Date.now());   // its own time: never another spend's share
       return snapshot(d, n);
     },
     // Like the server: the spend edited (or moved) with its shares. Every old share is checked first (what it holds,

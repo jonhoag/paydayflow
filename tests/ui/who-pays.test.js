@@ -140,6 +140,41 @@ uiSuite(async ({ open, step, errors, dropExpectedSyncErrors }) => {
     await page.click('#btnIOweDone');   // the step remembers the name and amount
     const p = await sendsAndSettles(page, 'addIOwe', () => page.click('#btnSubmitTx'));
     assert.deepStrictEqual([p.person, Number(p.grossAmount)], ['mary-jane', 12.5]);
+    // Someone you only owe: their line in Owed says so, in words.
+    const mj = await page.evaluate(() => [...document.querySelectorAll('.owed-groups > div')].map(g => g.textContent.replace(/\s+/g, ' ')).find(t => /Mary-Jane/.test(t)));
+    assert.ok(/1 item · you owe Mary-Jane £12\.50/.test(mj), mj);
+  });
+
+  await step('the step\'s choices count only on Done: closing it keeps Kim; the next Add starts with an empty name box', async () => {
+    await fillAdd('40', 'Lunch');
+    await page.click('#whoRow');
+    await page.click('#whoListRows [data-arg="iowe"]');
+    assert.strictEqual(await page.evaluate(() => [document.getElementById('iOweName').value, document.getElementById('iOweName').classList.contains('hidden')].join('|')), '|true',
+      'the last name typed is still there');
+    await page.click('#iOweWho [data-person="kim"]');
+    await page.click('#btnIOweDone');
+    await page.click('#whoRow');
+    await page.click('#whoListRows [data-arg="iowe"]');
+    await page.click('#iOweWho [data-person=""]');
+    await page.fill('#iOweName', 'savings');
+    await page.click('#iOweShare [data-arg="other"]');
+    await page.click('[data-action="closeWhoList"]');
+    assert.strictEqual(await page.textContent('#btnSubmitTx'), 'Save: I owe Kim £20.00');
+    const p = await sendsAndSettles(page, 'addIOwe', () => page.click('#btnSubmitTx'));
+    assert.deepStrictEqual([p.person, Number(p.grossAmount)], ['kim', 20]);
+  });
+
+  await step('a group split can\'t give a share to "savings" (that row is the Marcus share\'s)', async () => {
+    await fillAdd('30', 'Cinema');
+    await pick('custom');
+    await page.click('#personChips button:has-text("Other")');
+    await page.fill('#dynamicSplitRows .split-name >> nth=1', 'Savings');
+    await page.fill('#dynamicSplitRows .split-amt >> nth=1', '5');
+    const before = (await calls(page, 'addTransactionBundle')).length;
+    await page.click('#btnSubmitTx');
+    assert.ok(/kept for Marcus/.test(await page.textContent('#dynamicSplitRowsErr')));
+    assert.strictEqual((await calls(page, 'addTransactionBundle')).length, before);
+    await page.evaluate(() => closeAddModal());
   });
 
   await step('a share bigger than the whole bill is refused on the sheet', async () => {
@@ -208,6 +243,25 @@ uiSuite(async ({ open, step, errors, dropExpectedSyncErrors }) => {
     await sendsAndSettles(page, 'editOrMoveTransaction', () => page.click('#btnSaveEditTx'));
     assert.strictEqual((await calls(page, 'editSpendSplit')).length, splits);
     assert.deepStrictEqual(await rowOf('checking', 'kim Grocer'), { row: kim.row, amount: 30, need: false });
+  });
+
+  await step('locked: a group split\'s box stays shut; renamed and moved in one save is refused; moved alone, the shares go with it as they are', async () => {
+    await openEdit('amex', 'Grocer');
+    assert.deepStrictEqual([(await row()).main, (await row()).right, await page.evaluate(() => document.getElementById('customSplitBox').classList.contains('hidden'))],
+      ['Split with others', 'Locked', true], 'the group box of a locked split is open');
+    await page.click('#etx_barclays');
+    await page.fill('#editTxDesc', 'Grocers');
+    await page.click('#btnSaveEditTx');
+    assert.ok(/two saves/.test(await page.textContent('#editTxDescErr')));
+    await page.fill('#editTxDesc', 'Grocer');
+    const kim = await rowOf('checking', 'kim Grocer');
+    const p = await sendsAndSettles(page, 'editSpendSplit', () => page.click('#btnSaveEditTx'));
+    assert.deepStrictEqual([p.oldAcct, p.newAcct, p.oldShares, p.splits, Number(p.marcusShare)],
+      ['amex', 'barclays', [{ acct: 'checking', row: kim.row, expect: { desc: 'kim Grocer', amount: 30, need: false } }], [{ person: 'kim', amount: 30, need: true }], 0]);
+    assert.deepStrictEqual(await rowOf('checking', 'kim Grocer'), { row: kim.row, amount: 30, need: false }, 'the paid-back share changed');
+    await openEdit('barclays', 'Grocer');   // found again by the new time
+    assert.deepStrictEqual([(await row()).main, (await row()).right], ['Split with others', 'Locked']);
+    await page.evaluate(() => closeEditTxModal());
   });
 
   await step('the server refusing a paid-back change (another device) says so, and the screen goes back', async () => {

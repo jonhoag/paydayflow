@@ -2596,6 +2596,8 @@ window.addEventListener('storage', e => {
     function splitPersonKey(name) {
       return String(name || '').trim().toLowerCase().replace(/\s+/g, '-');
     }
+    // A name a share can go under: one word, and not one the sheet uses for itself (the "savings" row of a Marcus share).
+    const validSplitName = key => /^\S+$/.test(key) && key !== 'savings' && key !== 'marcus';
     function owedPerson(desc) {
       const parts = String(desc || '').trim().split(/\s+/);
       return { key: (parts[0] || '').toLowerCase(), name: displayName(parts[0] || '').replace(/-([a-z])/g, (m, c) => '-' + c.toUpperCase()), what: displayName(parts.slice(1).join(' ')) || displayName(desc) };
@@ -2658,7 +2660,7 @@ window.addEventListener('storage', e => {
           <button data-action="setView" data-arg="pending" class="w-full py-2 flex items-center gap-3 text-left">
             ${avatar(g)}
             <span class="min-w-0 flex-1"><span class="block text-sm font-semibold text-slate-900 dark:text-white truncate">${esc(g.name)}</span>
-              <span class="block text-xs text-slate-600 dark:text-slate-300">${g.total < 0 ? 'You owe ' + esc(g.name) : count(g)}</span></span>
+              <span class="block text-xs text-slate-600 dark:text-slate-300">${g.total <= -0.005 ? 'You owe ' + esc(g.name) : count(g)}</span></span>
             <span class="tabular-nums text-sm font-semibold ${amtTone(g.total)}">${fmtSigned(g.total)}</span>
             <span class="text-slate-400">${icon('chevron_right', 'w-4 h-4')}</span>
           </button>`).join('')}
@@ -2670,7 +2672,7 @@ window.addEventListener('storage', e => {
             <div class="flex items-center gap-3 py-1">
               ${avatar(g)}
               <span class="min-w-0 flex-1"><span class="block text-sm font-semibold text-slate-900 dark:text-white truncate">${esc(g.name)}</span>
-                <span class="block text-xs text-slate-600 dark:text-slate-300 tabular-nums">${count(g)} · ${g.total < 0
+                <span class="block text-xs text-slate-600 dark:text-slate-300 tabular-nums">${count(g)} · ${g.total <= -0.005
                   ? `<span class="text-rose-600 dark:text-rose-400">you owe ${esc(g.name)} ${fmtGBP(-g.total)}</span>` : fmtSigned(g.total)}</span></span>
               ${g.items.length > 1 ? `<button data-person="${esc(g.key)}" data-action="handleSettlePerson" class="hit ${pill}">All paid back</button>` : ''}
             </div>
@@ -2977,7 +2979,10 @@ window.addEventListener('storage', e => {
       document.getElementById('addModal').classList.remove('hidden');
       document.getElementById('inpAmount').focus();   // the number pad comes straight up
     }
-    function closeAddModal() { document.getElementById('addModal').classList.add('hidden'); }
+    function closeAddModal() {
+      closeWhoList();
+      document.getElementById('addModal').classList.add('hidden');
+    }
 
     function setTxDirection(dir) {
       txDirection = dir;
@@ -3071,6 +3076,7 @@ window.addEventListener('storage', e => {
       const locked = whoSheet === 'edit' && editShares && (editShares.locked || editShares.unknown);
       const w = whoWords(formSplit, isRefund, gross);
       document.getElementById('lblWho').textContent = isRefund ? 'Whose money is it?' : "Who's Paying?";
+      document.getElementById('customSplitBox').classList.toggle('hidden', formSplit !== 'custom' || !!locked);
       const row = document.getElementById('whoRow');
       row.disabled = !!locked;
       row.setAttribute('aria-label', (isRefund ? 'Whose money is it: ' : "Who's paying: ") + w.main + ', ' + w.sub + (locked ? '' : '. Change'));
@@ -3122,7 +3128,7 @@ window.addEventListener('storage', e => {
       }).join('');
     }
     function pickWho(kind) {
-      if (kind === 'iowe') return showWhoStep(true);
+      if (kind === 'iowe') return openIOweStep();
       selectSplit(kind);
       closeWhoList();
     }
@@ -3130,42 +3136,56 @@ window.addEventListener('storage', e => {
     // ---- Someone paid for me ----
     // Your share of the whole bill (the Amount box): half, all of it, or an amount typed in the step.
     const iOweShareOf = gross => iOwe.share === 'all' ? +gross.toFixed(2) : iOwe.share === 'other' ? iOwe.amount : halfOf(gross);
+    // The step works on a copy (iOweDraft), which becomes the choice only on Done: closing the list or going back to it
+    // leaves the choice made before as it was.
+    let iOweDraft = null;
+    function openIOweStep() {
+      iOweDraft = { ...iOwe };
+      const typed = !!iOwe.person && !PEOPLE.includes(iOwe.person);
+      const name = document.getElementById('iOweName'), amt = document.getElementById('iOweAmt');
+      name.value = typed ? iOwe.person : '';
+      name.classList.toggle('hidden', !typed);
+      amt.value = iOwe.share === 'other' && iOwe.amount ? iOwe.amount.toFixed(2) : '';
+      ['iOweName', 'iOweAmt'].forEach(clearFieldError);
+      showWhoStep(true);
+    }
     function renderIOweStep() {
-      const gross = amountIn('inpAmount') || 0;
+      const gross = amountIn('inpAmount') || 0, d = iOweDraft;
       const chip = (on, attrs, label) => `<button type="button" ${attrs} aria-pressed="${on}" class="${on ? CHIP_ON : chipOff('')} hit hit-32">${label}</button>`;
-      const typed = iOwe.person && !PEOPLE.includes(iOwe.person);
-      const otherOpen = typed || !document.getElementById('iOweName').classList.contains('hidden');
-      document.getElementById('iOweWho').innerHTML = PEOPLE.map(p => chip(p === iOwe.person, `data-action="pickIOwePerson" data-person="${esc(p)}"`, esc(nameOf(p))))
+      const otherOpen = !document.getElementById('iOweName').classList.contains('hidden');
+      document.getElementById('iOweWho').innerHTML = PEOPLE.map(p => chip(!otherOpen && p === d.person, `data-action="pickIOwePerson" data-person="${esc(p)}"`, esc(nameOf(p))))
         .concat(chip(otherOpen, 'data-action="pickIOwePerson" data-person=""', '＋ Other')).join('');
       document.getElementById('lblIOweShare').textContent = gross > 0 ? 'Your share of ' + fmtGBP(gross) : 'Your share';
       document.getElementById('iOweShare').innerHTML = [['half', 'Half ' + fmtGBP(halfOf(gross))], ['all', 'All ' + fmtGBP(gross)], ['other', 'Other amount']]
-        .map(([k, label]) => chip(iOwe.share === k, `data-action="pickIOweShare" data-arg="${k}"`, label)).join('');
-      document.getElementById('iOweAmt').classList.toggle('hidden', iOwe.share !== 'other');
+        .map(([k, label]) => chip(d.share === k, `data-action="pickIOweShare" data-arg="${k}"`, label)).join('');
+      document.getElementById('iOweAmt').classList.toggle('hidden', d.share !== 'other');
     }
+    // A name chip, or "＋ Other" (key ''), which opens a box for a name typed in (read on Done).
     function pickIOwePerson(key) {
       clearFieldError('iOweName');
       const box = document.getElementById('iOweName');
       box.classList.toggle('hidden', !!key);
-      iOwe.person = key || splitPersonKey(box.value);
+      iOweDraft.person = key;
       renderIOweStep();
       if (!key) box.focus();
     }
     function pickIOweShare(k) {
       clearFieldError('iOweAmt');
-      iOwe.share = k;
+      iOweDraft.share = k;
       renderIOweStep();
       if (k === 'other') document.getElementById('iOweAmt').focus();
     }
     function doneIOwe() {
-      const name = document.getElementById('iOweName');
-      if (!name.classList.contains('hidden')) iOwe.person = splitPersonKey(name.value);
-      if (!iOwe.person) return showFieldError('iOweName', name.classList.contains('hidden') ? 'Pick who paid' : 'Add their name');
-      if (iOwe.person === 'savings' || iOwe.person === 'marcus') return showFieldError('iOweName', 'Pick a person');
-      if (iOwe.share === 'other') {
+      const d = { ...iOweDraft }, name = document.getElementById('iOweName');
+      if (!name.classList.contains('hidden')) d.person = splitPersonKey(name.value);
+      if (!d.person) return showFieldError('iOweName', name.classList.contains('hidden') ? 'Pick who paid' : 'Add their name');
+      if (!validSplitName(d.person)) return showFieldError('iOweName', 'Pick a person');
+      if (d.share === 'other') {
         const amt = checkedAmount('iOweAmt', true);
         if (amt === null) return;
-        iOwe.amount = +amt.toFixed(2);
+        d.amount = +amt.toFixed(2);
       }
+      iOwe = d;
       selectSplit('iowe');
       closeWhoList();
     }
@@ -3307,6 +3327,7 @@ window.addEventListener('storage', e => {
       if (formSplit !== 'custom') return '';
       if (customSplitEntries.some(e => e.bad)) return 'Each share needs an amount like 12.50';
       if (customSplitEntries.some(e => e.amount > 0 && !(e.person || '').trim())) return 'Add a name for each share';
+      if (customSplitEntries.some(e => splitPersonKey(e.person) === 'savings')) return '"Savings" is kept for Marcus: use another name';
       const { gross, splits, marcusShare } = buildSplitData();
       const others = splits.reduce((a, b) => a + b.amount, 0) + marcusShare;
       if (others - gross > 0.005) return 'The shares come to ' + fmtGBP(others) + ', more than ' + fmtGBP(gross);
@@ -3375,6 +3396,7 @@ window.addEventListener('storage', e => {
       if (!(share > 0)) return showFieldError('inpAmount', 'Add the amount');
       if (share - gross > 0.005) return showFieldError('inpAmount', 'Your share (' + fmtGBP(share) + ') is more than the whole bill');
       const person = splitPersonKey(iOwe.person);
+      if (!validSplitName(person)) { openWhoList(); return openIOweStep(); }   // (Done checks it, so only if that was skipped)
       addPendingTx('checking', 99, person + ' ' + merchant, -share, true, Date.now());
       closeAddModal();
       document.getElementById('inpMerchant').value = '';
@@ -3524,76 +3546,78 @@ window.addEventListener('storage', e => {
 
     // The share rows saved with a spend (see addTransactionBundle): one "<person> <shop>" Nationwide row per person, and
     // for a savings share a Marcus row "<shop>" with a Nationwide row "savings <shop>". The sheet doesn't link them to
-    // their spend, so they are found by their save times (the server stamps the spend T, Marcus T-1, savings T-2 and
-    // person i T-3-i), or failing that by their words, which only works when no other spend that month has the same
-    // words. Returns null for an entry that is itself a share or an "I owe" (nothing to split); { unknown: true } when
-    // its shares can't be told apart from another spend's; else { olds, kind, entries, locked }: the share rows
-    // (with what each held), the choice they make ('100_me', 'half', 'all', 'marcus' or 'custom' with its entries),
-    // and locked when one has been paid back (or was never put in Owed), which an edit must not change.
+    // their spend, so they are found by their save times: the server stamps the spend T, Marcus T-1, savings T-2 and
+    // person i T-3-i (SHARE_TS_BACK in Code.js; the test page's shareRows the same), and keeps them in step when the spend
+    // is edited with its shares (editSpendSplit). A time is the spend's own, so a share found by it counts whatever it
+    // says (the spend may have been renamed since). Shares with no time (typed in the sheet, or their time since
+    // dropped) are found by their words, which only works when no other spend that month has the same words.
+    // Returns null for an entry that can't be split (a share, an "I owe", a card payment, a Marcus row);
+    // { unknown: true } when its shares can't be told apart from another spend's (or a share's time links it to none);
+    // else { olds, kind, entries, locked }: the share rows (with what each held), the choice they make ('100_me',
+    // 'half', 'all', 'marcus' or 'custom' with its entries: { person, amount }, Marcus as 'marcus'), and locked when one
+    // has been paid back (or was never put in Owed), which an edit must not change.
+    const SHARE_ROWS_MAX = 12;   // as many person shares as the server writes for one spend
     function sharesOf(st, item) {
       const desc = String(item.desc || '').trim(), low = desc.toLowerCase(), amount = Number(item.amount);
-      if (!desc || !amount || item.acct === 'marcus') return null;
-      if (item.acct === 'checking' && (item.need || SETTLED_PREFIX.test(desc))) return null;
-      const sign = amount < 0 ? 1 : -1;   // the shares' sign: + on money out (they owe you), - on money in (you pass it on)
+      if (!desc || !amount || item.acct === 'marcus' || SPEND_SKIP.test(low)) return null;
       const rows = acct => (st[acct] || []).filter(r => !r.pending && !(acct === item.acct && r.row === item.row)).map(r => ({ ...r, acct }));
       const same = (a, b) => String(a).trim().toLowerCase() === b;
-      const personOf = r => { const m = /^(\S+) (.+)$/.exec(String(r.desc).trim()); return m && m[2].toLowerCase() === low && m[1].toLowerCase() !== 'savings' ? m[1].toLowerCase() : null; };
+      const words = r => { const m = /^(\S+) (.+)$/.exec(String(r.desc).trim()); return m ? [m[1].toLowerCase(), m[2].toLowerCase()] : [null, null]; };
+      const spends = ['amex', 'barclays', 'checking'].flatMap(rows);
+      // A Nationwide row that is itself someone's share ("kim Tesco" beside a "Tesco") or still owed: nothing to split.
+      if (item.acct === 'checking' && (item.need || SETTLED_PREFIX.test(desc) || spends.some(r => same(r.desc, words(item)[1] || '\u0000')))) return null;
+      const sign = amount < 0 ? 1 : -1;   // the shares' sign: + on money out (they owe you), - on money in (you pass it on)
       const T = Number(item.clientTs) || 0;
-      let marcus = [], savings = [], people = [];
+      const isSavings = r => words(r)[0] === 'savings';
+      const marcus = [], savings = [], people = [];
       if (T) {
-        marcus = rows('marcus').filter(r => r.clientTs === T - 1 && same(r.desc, low));
-        savings = rows('checking').filter(r => r.clientTs === T - 2 && same(r.desc, 'savings ' + low));
-        for (let i = 0; ; i++) {
-          const p = rows('checking').find(r => r.clientTs === T - 3 - i && personOf(r));
-          if (!p) break;
-          people.push(p);
-        }
+        marcus.push(...rows('marcus').filter(r => r.clientTs === T - 1));
+        savings.push(...rows('checking').filter(r => r.clientTs === T - 2 && isSavings(r)));
+        for (let i = 0; i < SHARE_ROWS_MAX; i++) people.push(...rows('checking').filter(r => r.clientTs === T - 3 - i && words(r)[0] && !isSavings(r)));
       }
-      if (!marcus.length && !savings.length && !people.length) {
-        // By words. A spend with a save time would have stamped its shares too, so then a row with a save time of its own
-        // belongs to another spend: only rows without one (typed in the sheet, or their time since dropped) can be its.
-        const free = r => !T || !r.clientTs;
-        marcus = rows('marcus').filter(r => free(r) && same(r.desc, low) && Math.sign(r.amount) === -sign);
-        savings = rows('checking').filter(r => free(r) && same(r.desc, 'savings ' + low) && Math.sign(r.amount) === sign);
-        people = rows('checking').filter(r => free(r) && personOf(r) && Math.sign(r.amount) === sign);
-        const found = marcus.length + savings.length + people.length;
-        // Another spend (not a Marcus share) with the same words: whose shares these are can't be told.
-        const twin = ['amex', 'barclays', 'checking'].some(a => rows(a).some(r => same(r.desc, low)));
-        const twice = marcus.length > 1 || savings.length > 1 || new Set(people.map(personOf)).size < people.length;
-        if (found && (twin || twice)) return { unknown: true };
-      }
+      // By words: rows with no save time of their own. One with a time is another spend's (stamped beside it), or its
+      // spend can't be found, so it is never taken by its words.
+      const found = new Set([...marcus, ...savings, ...people].map(r => r.acct + '|' + r.row));
+      const timed = [], add = list => r => { if (found.has(r.acct + '|' + r.row)) return; if (r.clientTs) timed.push(r); else list.push(r); };
+      rows('marcus').filter(r => same(r.desc, low) && Math.sign(r.amount) === -sign).forEach(add(marcus));
+      rows('checking').filter(r => same(r.desc, 'savings ' + low) && Math.sign(r.amount) === sign).forEach(add(savings));
+      rows('checking').filter(r => !isSavings(r) && words(r)[1] === low && Math.sign(r.amount) === sign).forEach(add(people));
+      const byWords = [...marcus, ...savings, ...people].some(r => !r.clientTs);
+      // A timed row with these words whose spend isn't stamped just above it: whose share it is can't be told.
+      const stray = timed.some(r => !spends.some(s => same(s.desc, low) && s.clientTs > r.clientTs && s.clientTs - r.clientTs <= 3 + SHARE_ROWS_MAX));
+      // Another spend with the same words (a Marcus share has them too, so not in Marcus), or the same share twice.
+      const twin = spends.some(r => same(r.desc, low));
+      const twice = marcus.length > 1 || savings.length > 1 || new Set(people.map(r => words(r)[0])).size < people.length;
+      if (stray || twice || (byWords && twin)) return { unknown: true };
       const olds = marcus.concat(savings, people).map(r => ({ acct: r.acct, row: r.row, desc: r.desc, amount: Number(r.amount), need: !!r.need }));
       const locked = olds.some(r => r.acct === 'checking' && !r.need);
-      const splits = people.map(r => ({ person: personOf(r), amount: Math.abs(Number(r.amount)) }));
+      const entries = people.map(r => ({ person: words(r)[0], amount: Math.abs(Number(r.amount)) }));
       const marcusShare = Math.abs(Number((savings[0] || marcus[0] || { amount: 0 }).amount));
+      if (marcusShare) entries.push({ person: 'marcus', amount: marcusShare });
       const gross = Math.abs(amount), near = (a, b) => Math.abs(a - b) < 0.005;
       let kind = 'custom';
-      if (!splits.length && !marcusShare) kind = '100_me';
-      else if (!splits.length && near(marcusShare, gross) && marcus.length && savings.length) kind = 'marcus';
-      else if (splits.length === 1 && !marcusShare && splits[0].person === QUICK_SPLIT) {
-        if (near(splits[0].amount, halfOf(gross))) kind = 'half';
-        else if (near(splits[0].amount, gross)) kind = 'all';
+      if (!entries.length) kind = '100_me';
+      else if (!people.length && near(marcusShare, gross) && marcus.length && savings.length) kind = 'marcus';
+      else if (entries.length === 1 && entries[0].person === QUICK_SPLIT) {
+        if (near(entries[0].amount, halfOf(gross))) kind = 'half';
+        else if (near(entries[0].amount, gross)) kind = 'all';
       }
-      const entries = splits.map(sp => ({ person: sp.person, amount: sp.amount })).concat(marcusShare ? [{ person: 'marcus', amount: marcusShare }] : []);
-      return { olds, kind, entries, locked, splits, marcusShare };
+      return { olds, kind, entries, locked };
     }
 
     // Under the row in the Edit sheet: why it can't be changed, or what saving will do to Owed.
     function renderWhoNote(isRefund) {
-      const note = document.getElementById('whoNote');
+      const note = document.getElementById('whoNote'), sh = whoSheet === 'edit' ? editShares : null;
       let text = '', tone = 'text-slate-500 dark:text-slate-400';
-      if (whoSheet === 'edit' && editShares && editShares.unknown) {
+      if (sh && sh.unknown) {
         text = "Another spend this month has the same name, so its shares can't be told apart. Change them in Owed.";
-      } else if (whoSheet === 'edit' && editShares && editShares.locked) {
-        const paid = editShares.olds.find(r => r.acct === 'checking' && !r.need);
-        const who = owedPerson(paid.desc).key === 'savings' ? 'The savings' : owedPerson(paid.desc).name + "'s";
-        text = who + " share has been paid back. To change who's paying, untick it under Paid back in Owed first.";
-      } else if (whoSheet === 'edit' && editShares) {
-        const was = new Map(editShares.splits.map(s => [s.person, s.amount])), now = new Map();
-        if (editShares.marcusShare) was.set('marcus', editShares.marcusShare);
+      } else if (sh && sh.locked) {
+        const paid = owedPerson(sh.olds.find(r => r.acct === 'checking' && !r.need).desc);
+        text = (paid.key === 'savings' ? 'The savings' : paid.name + "'s") + " share has been paid back. To change who's paying, untick it under Paid back in Owed first.";
+      } else if (sh) {
+        const was = new Map(sh.entries.map(e => [e.person, e.amount]));
         const { splits, marcusShare } = buildSplitData();
-        splits.forEach(s => now.set(s.person, s.amount));
-        if (marcusShare) now.set('marcus', marcusShare);
+        const now = new Map(splits.map(s => [s.person, s.amount]).concat(marcusShare ? [['marcus', marcusShare]] : []));
         const name = k => k === 'marcus' ? 'Marcus' : nameOf(k), parts = [];
         was.forEach((amt, k) => { if (!now.has(k)) parts.push('takes ' + name(k) + "'s " + fmtGBP(amt) + ' off Owed'); });
         now.forEach((amt, k) => {
@@ -3601,8 +3625,8 @@ window.addEventListener('storage', e => {
           else if (Math.abs(was.get(k) - amt) >= 0.005) parts.push('makes ' + name(k) + "'s share " + fmtGBP(amt));
         });
         if (parts.length) {
-          const wasWords = whoWords(editShares.kind, isRefund, 0).main;
-          text = (editShares.kind !== formSplit && editShares.kind !== '100_me' ? 'Was ' + wasWords + '. ' : '') + 'Saving ' + parts.join(', ').replace(/, ([^,]*)$/, ' and $1') + '.';
+          const wasWords = whoWords(sh.kind, isRefund, 0).main;
+          text = (sh.kind !== formSplit && sh.kind !== '100_me' ? 'Was ' + wasWords + '. ' : '') + 'Saving ' + parts.join(', ').replace(/, ([^,]*)$/, ' and $1') + '.';
           tone = 'font-medium text-amber-700 dark:text-amber-300';
         }
       }
@@ -3639,11 +3663,19 @@ window.addEventListener('storage', e => {
       if (rawAbs === null) return;
       if (!newDesc) return showFieldError('editTxDesc', 'Add where it was');
       // The shares go with the spend (editSpendSplit) when they can change: found, none paid back, and there are some
-      // now or some wanted. Otherwise only the spend's own row changes, as before.
-      const sh = editShares && !editShares.unknown && !editShares.locked ? editShares : null;
-      const withShares = !!sh && (sh.olds.length > 0 || formSplit !== '100_me');
-      if (withShares && showSplitProblem()) return;
-      const split = withShares ? buildSplitData() : null;
+      // now or some wanted. Shares that can't change (one is paid back) still go with a spend moved to another card, just
+      // as they are (`keep`), so they take its new save time and are found again next time; but not renamed in the same
+      // save, which would rename the paid-back share too. Otherwise only the spend's own row changes, as before.
+      const sh = editShares && !editShares.unknown ? editShares : null;
+      let split = null;
+      if (sh && sh.locked) {
+        if (newAcct !== oldAcct && newDesc !== expect.desc) return showFieldError('editTxDesc', 'A share is paid back, so change the card and the name in two saves');
+        if (newAcct !== oldAcct && sh.olds.length) split = { keep: true, marcusShare: (sh.entries.find(e => e.person === 'marcus') || { amount: 0 }).amount,
+          splits: sh.entries.filter(e => e.person !== 'marcus').map(e => ({ person: e.person, amount: e.amount, need: true })) };
+      } else if (sh && (sh.olds.length > 0 || formSplit !== '100_me')) {
+        if (showSplitProblem()) return;
+        split = buildSplitData();
+      }
 
       const newAmount = +(rawAbs * editTxSign).toFixed(2);
       const now = Date.now();
@@ -3665,7 +3697,7 @@ window.addEventListener('storage', e => {
           const moved = addPendingTx(newAcct, 98, newDesc, newAmount, false, now);
           undos.push(takeOut(state[newAcct], moved));
         }
-        if (split) {
+        if (split && !split.keep) {
           // The old shares go and the new ones show as "saving..." until the sheet's figures come back.
           sh.olds.forEach(o => {
             const r = (state[o.acct] || []).find(x => x.row === o.row && !x.pending && x.desc === o.desc && Number(x.amount) === o.amount);
@@ -4062,11 +4094,10 @@ window.addEventListener('storage', e => {
       selectAcct: el => selectAcct(el.dataset.arg),
       openWhoList: () => openWhoList(),
       closeWhoList: () => closeWhoList(),
-      whoListBack: () => showWhoStep(false),
+      whoListBack: () => showWhoStep(false),   // (the step's choices are left as they were before it opened)
       pickWho: el => pickWho(el.dataset.arg),
       pickIOwePerson: el => pickIOwePerson(el.dataset.person),
       pickIOweShare: el => pickIOweShare(el.dataset.arg),
-      iOweNameInput: el => { iOwe.person = splitPersonKey(el.value); },
       doneIOwe: () => doneIOwe(),
       togglePersonChip: el => togglePersonChip(el.dataset.person),
       addBlankPersonRow: () => addBlankPersonRow(),
