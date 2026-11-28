@@ -413,12 +413,11 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     await page.evaluate(() => closeAddModal());
   });
 
-  await step('the quick-split buttons are named by the server, and a local shop word from it picks the category', async () => {
-    await page.evaluate(() => openAddModal());
-    assert.strictEqual((await page.textContent('#sp_half')).trim(), 'Half w/ Kim');
-    assert.strictEqual((await page.textContent('#sp_all')).trim(), "All Kim's");
-    assert.ok(await visible(page, '#sp_half') && await visible(page, '#sp_all'));
-    await page.evaluate(() => closeAddModal());
+  await step('the quick-split choices are named by the server, and a local shop word from it picks the category', async () => {
+    await page.evaluate(() => { openAddModal(); openWhoList(); });
+    assert.ok((await page.textContent('#whoListRows [data-arg="half"]')).includes('Half with Kim'));
+    assert.ok((await page.textContent('#whoListRows [data-arg="all"]')).includes("All Kim's"));
+    await page.evaluate(() => { closeWhoList(); closeAddModal(); });
     assert.strictEqual(await page.evaluate(() => categoryFor('Bowling alley', {})), 'Entertainment');
     assert.strictEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('pf_config')).quickSplit), 'kim', 'names are not kept on this device');
   });
@@ -439,7 +438,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
     await page.waitForFunction(() => apiInflight === 0);
     await page.evaluate(() => { openAddModal(); selectSplit('custom'); });
     assert.deepStrictEqual(await page.$$eval('#personChips button[id^="chip_"]', b => b.map(x => x.id)), ['chip_kim', 'chip_lee', 'chip_robin', 'chip_sam', 'chip_jo', 'chip_marcus']);
-    assert.ok(await visible(page, '#sp_half'));
+    assert.ok(await page.evaluate(() => whoChoices(false).includes('half')), 'Half is no longer offered');
     await page.evaluate(() => closeAddModal());
   });
 

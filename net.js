@@ -205,7 +205,9 @@ function handleSaveError(what, err) {
   console.error(what + ' error:', err);
   // The server refuses an edit or delete when the row changed on another device since this screen loaded.
   const stale = !!err && err.code === 'STALE';
-  showToast(stale ? 'That entry changed on another device, so nothing was changed. Showing the latest.' : "Couldn't save " + what + ' - refreshing from your sheet.');
+  // A changed split with a share paid back meanwhile (on another device): the server says what to do.
+  showToast(stale ? 'That entry changed on another device, so nothing was changed. Showing the latest.'
+    : err && err.code === 'SHARE_PAID_BACK' ? plainError(err) : "Couldn't save " + what + ' - refreshing from your sheet.');
   refreshFromSheet();
 }
 
@@ -306,9 +308,10 @@ function retrySetAside() {
   if (!IS_GAS_ENV && navigator.onLine === false) return;
   saveOutbox(loadOutbox().map(x => x.setAside ? { ...x, setAside: undefined, tries: undefined, sentAt: undefined } : x));
 }
-// A card payment (it carries payFrom) has its own action, so a backend from before it refuses it instead of saving
-// only the card's half; everything else about sending, queueing and resending is the same as for a spend.
-const spendAction = payload => payload.payFrom ? 'addCardPayment' : 'addTransactionBundle';
+// A card payment (it carries payFrom) and an "I owe" (iOwe: someone else paid, you owe them your share) have their own
+// actions, so a backend from before them refuses them instead of saving them as an ordinary spend; everything else
+// about sending, queueing and resending is the same as for a spend.
+const spendAction = payload => payload.iOwe ? 'addIOwe' : payload.payFrom ? 'addCardPayment' : 'addTransactionBundle';
 // `onSaved` runs once the sheet's figures after this save are on screen (not when it is queued or set aside).
 function sendNewSpend(payload, onSaved) {
   if (!IS_GAS_ENV && navigator.onLine === false) {

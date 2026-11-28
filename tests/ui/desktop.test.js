@@ -214,7 +214,7 @@ uiSuite(async ({ browser, open, step }) => {
   ({ ctx, page } = await open(desk, 'demo=1&noconfig=1'));
   await step('with no names known yet, the quick-split buttons stay hidden and a split still saves', async () => {
     await page.evaluate(() => { openAddModal(); });
-    assert.ok(!(await visible(page, '#sp_half')) && !(await visible(page, '#sp_all')), 'quick-split buttons showed without a name');
+    assert.deepStrictEqual(await page.evaluate(() => whoChoices(false)), ['100_me', 'custom', 'marcus', 'iowe'], 'Half / All offered without a name');
     await page.evaluate(() => selectSplit('half'));
     assert.strictEqual(await page.evaluate(() => formSplit), '100_me', 'a hidden quick split could still be chosen');
     await page.evaluate(() => selectSplit('custom'));

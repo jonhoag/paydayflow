@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://script.google.com">
   <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Styles are pre-built into tailwind.css (see build-css.js); the service worker keeps a copy for offline use. -->
-  <link rel="stylesheet" href="tailwind.css?v=1b008bb101">
+  <link rel="stylesheet" href="tailwind.css?v=edfd2afe7c">
   <style>
     /* Inter, served from this site (SIL Open Font License: fonts/OFL.txt): one variable file per set of characters,
        fetched only when the page uses them. Text shows in the fallback font until it arrives. */
@@ -585,7 +585,7 @@
         </div>
       </div>
 
-      <div>
+      <div id="addAcctBlock">
         <p id="lblAcct" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Card / Account</p>
         <div role="group" aria-labelledby="lblAcct" class="grid grid-cols-4 gap-1.5 text-xs font-semibold">
           <button type="button" data-action="selectAcct" data-arg="amex" id="acct_amex" class="min-h-[44px] rounded-xl bg-emerald-500 text-slate-950">Amex</button>
@@ -595,18 +595,18 @@
         </div>
       </div>
 
-      <!-- Who's paying: for a spend and for a refund / money in alike -->
-      <div class="space-y-3">
+      <!-- Who's paying (for money in: whose money is it?): one row, and a tap opens the list (whoListModal). The block
+           moves into the Edit sheet while that is open (placeWho), so Add and Edit share it. -->
+      <div id="whoBlock" class="space-y-2.5">
         <div>
           <p id="lblWho" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Who's Paying?</p>
-          <div role="group" aria-labelledby="lblWho" class="flex flex-wrap gap-1.5 text-xs font-semibold">
-            <button type="button" data-action="selectSplit" data-arg="100_me" id="sp_100_me" class="hit hit-32 px-2.5 py-1.5 rounded-xl bg-emerald-500 text-slate-950">Just Me</button>
-            <!-- "Half w/ ..." and "All ...'s": named from the backend (renderQuickSplit), hidden until it has said who -->
-            <button type="button" data-action="selectSplit" data-arg="half" id="sp_half" style="display:none" class="hit hit-32 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"></button>
-            <button type="button" data-action="selectSplit" data-arg="all" id="sp_all" style="display:none" class="hit hit-32 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"></button>
-            <button type="button" data-action="selectSplit" data-arg="custom" id="sp_custom" class="hit hit-32 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Group / Custom Split</button>
-            <button type="button" data-action="selectSplit" data-arg="marcus" id="sp_marcus" class="hit hit-32 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">From Marcus</button>
-          </div>
+          <button type="button" id="whoRow" data-action="openWhoList" aria-haspopup="dialog" aria-describedby="lblWho"
+                  class="w-full min-h-[52px] flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 text-left">
+            <span id="whoMain" class="text-sm font-semibold whitespace-nowrap text-slate-900 dark:text-white">Just me</span>
+            <span id="whoSub" class="min-w-0 truncate text-xs text-slate-500 dark:text-slate-400"></span>
+            <span id="whoRight" class="shrink-0 ml-auto inline-flex items-center text-xs font-semibold"></span>
+          </button>
+          <p id="whoNote" class="hidden mt-1.5 text-xs leading-snug"></p>
         </div>
 
         <!-- DYNAMIC MULTI-PERSON / GROUP SPLIT DRAWER -->
@@ -633,15 +633,15 @@
           <div id="dynamicSplitRows" class="space-y-1.5 pt-1"></div>
           <p id="dynamicSplitRowsErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
         </div>
-      </div>
 
-      <!-- Summary Pill -->
-      <div class="bg-slate-50 dark:bg-slate-800/80 rounded-xl px-3 py-2.5 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
-        <div id="cleanSplitPill" class="font-medium text-slate-700 dark:text-slate-200 leading-snug min-w-0">Personal spend • <strong>£0.00</strong></div>
-        <label id="needToggleWrap" class="hit hidden flex items-center gap-1.5 text-slate-500 dark:text-slate-300 cursor-pointer font-medium shrink-0 ml-2">
-          <input id="chkNeed" type="checkbox" checked class="rounded text-emerald-500" />
-          <span>Add to "Owed"</span>
-        </label>
+        <!-- Only when someone else is in it, and only on Add (an edit always puts new shares in Owed). The label is the
+             whole 44px tap area itself: one drawn over the group box above would take its taps. -->
+        <div id="needToggleWrap" class="hidden flex justify-end -my-1.5">
+          <label class="min-h-[44px] flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-300 cursor-pointer font-medium">
+            <input id="chkNeed" type="checkbox" checked class="rounded text-emerald-500" />
+            <span>Add to "Owed"</span>
+          </label>
+        </div>
       </div>
 
       <div class="sheet-foot">
@@ -717,7 +717,7 @@
       <div class="space-y-2.5">
         <div>
           <label for="editTxAmt" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Amount (£)</label>
-          <input id="editTxAmt" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" data-enter="editTxDesc"
+          <input id="editTxAmt" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="next" data-enter="editTxDesc" data-input="onGrossAmountInput"
                  class="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-[28px] leading-9 tabular-nums font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
           <p id="editTxAmtErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
         </div>
@@ -739,6 +739,9 @@
         </div>
       </div>
 
+      <!-- Who's paying: the Add sheet's block is moved in here while this sheet is open (placeWho) -->
+      <div id="editWhoSlot"></div>
+
       <div class="sheet-foot flex gap-2">
         <button type="button" data-action="deleteCurrentTx" class="min-h-[44px] px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 font-bold text-xs transition">
           <span class="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><span data-icon="trash" data-class="w-3.5 h-3.5"></span>Delete</span>
@@ -746,6 +749,42 @@
         <button type="button" id="btnSaveEditTx" data-action="saveEditedTx" class="min-h-[44px] flex-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">
           Save changes
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- WHO'S PAYING LIST: opens over the Add or Edit sheet (a tap on the Who's paying row). One big row per choice; a tap
+       picks it and closes the list. "Someone paid for me" opens a second step in the same sheet (renderWhoList). -->
+  <div id="whoListModal" class="kb-sheet hidden fixed inset-0 z-[60] bg-slate-900/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div role="dialog" aria-modal="true" aria-labelledby="whoListTitle" class="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-3 shadow-2xl border border-slate-200 dark:border-slate-800">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="min-w-0 flex items-center text-sm font-bold text-slate-900 dark:text-white">
+          <button type="button" id="whoListBack" data-action="whoListBack" aria-label="Back to the list" class="hidden hit w-8 h-8 -ml-2 inline-flex items-center justify-center rounded-lg text-lg">‹</button>
+          <span id="whoListTitle">Who's paying?</span>
+        </h3>
+        <button data-action="closeWhoList" aria-label="Close" class="hit w-10 h-10 -mr-2 inline-flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 text-lg font-bold">✕</button>
+      </div>
+
+      <div id="whoListRows" role="radiogroup" aria-labelledby="whoListTitle"
+           class="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 divide-y divide-slate-200 dark:divide-slate-700 overflow-hidden"></div>
+
+      <!-- Someone paid for me: who paid, and your share (it goes in Owed as you owing them; nothing on your cards) -->
+      <div id="iOweStep" class="hidden space-y-3">
+        <div>
+          <p id="lblIOweWho" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Who paid?</p>
+          <div id="iOweWho" role="group" aria-labelledby="lblIOweWho" class="flex flex-wrap gap-1.5 text-xs font-semibold"></div>
+          <input id="iOweName" type="text" autocomplete="off" placeholder="Their name" aria-label="Their name" data-input="iOweNameInput"
+                 class="hidden mt-2 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
+          <p id="iOweNameErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
+        </div>
+        <div>
+          <p id="lblIOweShare" class="text-xs font-medium text-slate-500 dark:text-slate-400 block mb-1">Your share</p>
+          <div id="iOweShare" role="group" aria-labelledby="lblIOweShare" class="flex flex-wrap gap-1.5 text-xs font-semibold"></div>
+          <input id="iOweAmt" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-label="Your share (£)"
+                 class="hidden mt-2 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm tabular-nums text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500" />
+          <p id="iOweAmtErr" class="hidden mt-1 text-xs text-rose-700 dark:text-rose-400"></p>
+        </div>
+        <button type="button" id="btnIOweDone" data-action="doneIOwe" class="w-full min-h-[44px] rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm transition">Done</button>
       </div>
     </div>
   </div>
@@ -876,7 +915,7 @@
 
   <!-- The app itself (everything above is only the layout). It runs here, once the page above is in place: net.js
        (talking to the server, saves and the offline outbox) first, then app.js (everything else), which starts it. -->
-  <script src="net.js?v=7f8dd5b19f"></script>
-  <script src="app.js?v=557e8af837"></script>
+  <script src="net.js?v=91fae22874"></script>
+  <script src="app.js?v=982c6b5ac9"></script>
 </body>
 </html>

@@ -10,8 +10,8 @@ const vm = require('vm');
 const assert = require('assert');
 const { step: test, finish } = require('./lib/steps').makeSteps();
 
-const UNDER_TEST = ['parseAmount', 'equalShares', 'getNextMonthName', 'failureKind', 'serverError', 'describePasskeyError', 'sheetFigures', 'usableMonth', 'splitPersonKey', 'owedPerson'];
-const NEEDS = ['displayName', 'MONTHS', 'isConnectionError', 'ACCTS', 'MONTH_LISTS', 'sumAmounts'];
+const UNDER_TEST = ['parseAmount', 'equalShares', 'getNextMonthName', 'failureKind', 'serverError', 'describePasskeyError', 'sheetFigures', 'usableMonth', 'splitPersonKey', 'owedPerson', 'sharesOf'];
+const NEEDS = ['displayName', 'MONTHS', 'isConnectionError', 'ACCTS', 'MONTH_LISTS', 'sumAmounts', 'halfOf'];
 
 // The app's scripts (APP_SCRIPTS: net.js, app.js), which share one scope.
 const app = require('../build-sw').APP_SCRIPTS.map(f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n')).join('\n');
@@ -25,8 +25,9 @@ function appPart(name) {
 }
 const sandbox = {};
 vm.createContext(sandbox);
-vm.runInContext(NEEDS.concat(UNDER_TEST).map(appPart).join('\n') + '\nthis.api = { ' + UNDER_TEST.join(', ') + ' };', sandbox);
-const { parseAmount, equalShares, getNextMonthName, failureKind, serverError, describePasskeyError, sheetFigures, usableMonth, splitPersonKey, owedPerson } = sandbox.api;
+// sharesOf reads the names the backend sent (applyConfig): here, the test page's.
+vm.runInContext("let QUICK_SPLIT = 'kim', SETTLED_PREFIX = /^(kim|lee|robin|sam|jo|savings)\\b/i;\n" + NEEDS.concat(UNDER_TEST).map(appPart).join('\n') + '\nthis.api = { ' + UNDER_TEST.join(', ') + ' };', sandbox);
+const { parseAmount, equalShares, getNextMonthName, failureKind, serverError, describePasskeyError, sheetFigures, usableMonth, splitPersonKey, owedPerson, sharesOf } = sandbox.api;
 
 const same = (a, b) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), b);   // arrays made inside the sandbox
 
@@ -152,6 +153,81 @@ test('a one-word name is just lower-cased; nothing typed is nothing', () => {
   assert.strictEqual(splitPersonKey(' Sam '), 'sam');
   assert.strictEqual(splitPersonKey(''), '');
   assert.strictEqual(splitPersonKey(undefined), '');
+});
+
+// ---- sharesOf: which rows are a saved spend's shares (the Edit sheet's Who's paying) ----
+// A month as the page holds it: rows with their account, and the server's save times (clientTs) where it has them.
+const shareMonth = rows => {
+  const st = { checking: [], amex: [], barclays: [], marcus: [], budgets: [] };
+  rows.forEach(([acct, row, desc, amount, clientTs, need]) => st[acct].push({ acct, row, desc, amount, clientTs: clientTs || 0, need: !!need }));
+  return st;
+};
+const pizza = ['amex', 9, 'Pizza night', -36, 5000];
+const kindOf = (st, item) => { const r = sharesOf(st, { acct: item[0], row: item[1], desc: item[2], amount: item[3], clientTs: item[4] || 0 }); return r && (r.unknown ? 'unknown' : r.kind); };
+const itemOf = item => ({ acct: item[0], row: item[1], desc: item[2], amount: item[3], clientTs: item[4] || 0 });
+test('a spend with no shares is Just me, with nothing to replace', () => {
+  const r = sharesOf(shareMonth([pizza]), itemOf(pizza));
+  assert.strictEqual(r.kind, '100_me');
+  same(r.olds, []);
+});
+test('found by save time: half with the quick-split person', () => {
+  const r = sharesOf(shareMonth([pizza, ['checking', 14, 'kim Pizza night', 18, 4997, true]]), itemOf(pizza));
+  assert.strictEqual(r.kind, 'half');
+  same(r.olds, [{ acct: 'checking', row: 14, desc: 'kim Pizza night', amount: 18, need: true }]);
+  assert.strictEqual(r.locked, false);
+});
+test('found by save time: all of it, From Marcus, and a group (with savings) as custom', () => {
+  assert.strictEqual(kindOf(shareMonth([pizza, ['checking', 14, 'kim Pizza night', 36, 4997, true]]), pizza), 'all');
+  assert.strictEqual(kindOf(shareMonth([pizza, ['marcus', 6, 'Pizza night', -36, 4999], ['checking', 15, 'savings Pizza night', 36, 4998, true]]), pizza), 'marcus');
+  const r = sharesOf(shareMonth([pizza, ['marcus', 6, 'Pizza night', -6, 4999], ['checking', 15, 'savings Pizza night', 6, 4998, true],
+    ['checking', 14, 'kim Pizza night', 10, 4997, true], ['checking', 16, 'lee Pizza night', 10, 4996, true]]), itemOf(pizza));
+  assert.strictEqual(r.kind, 'custom');
+  same(r.entries, [{ person: 'kim', amount: 10 }, { person: 'lee', amount: 10 }, { person: 'marcus', amount: 6 }]);
+  assert.strictEqual(r.olds.length, 4);
+});
+test('by save time, a share of another spend with the same words is not taken', () => {
+  const st = shareMonth([pizza, ['amex', 10, 'Pizza night', -20, 7000], ['checking', 14, 'kim Pizza night', 10, 6997, true]]);
+  assert.strictEqual(kindOf(st, pizza), '100_me');   // pizza (T 5000) has none; the share is T-3 of the other spend
+  assert.strictEqual(kindOf(st, ['amex', 10, 'Pizza night', -20, 7000]), 'half');
+});
+test('no save times: found by words, with the right sign', () => {
+  const st = shareMonth([['amex', 9, 'Pizza night', -36], ['checking', 14, 'kim Pizza night', 18, 0, true], ['checking', 15, 'lee Pizza night', -5, 0, true]]);
+  const r = sharesOf(st, itemOf(['amex', 9, 'Pizza night', -36]));
+  assert.strictEqual(r.kind, 'half');   // lee's minus row is not a share of a spend (it would be on money in)
+  assert.strictEqual(r.olds.length, 1);
+});
+test("no save times and another spend with the same words: can't tell (unknown), never a guess", () => {
+  const st = shareMonth([['amex', 9, 'Tesco', -36], ['barclays', 4, 'Tesco', -10], ['checking', 14, 'kim Tesco', 18, 0, true]]);
+  assert.strictEqual(kindOf(st, ['amex', 9, 'Tesco', -36]), 'unknown');
+  const twice = shareMonth([['amex', 9, 'Tesco', -36], ['checking', 14, 'kim Tesco', 18, 0, true], ['checking', 15, 'kim Tesco', 5, 0, true]]);
+  assert.strictEqual(kindOf(twice, ['amex', 9, 'Tesco', -36]), 'unknown');
+});
+test('a From Marcus share has the same words as its spend, which is no reason to give up', () => {
+  const st = shareMonth([['amex', 9, 'Tesco', -36], ['marcus', 6, 'Tesco', -36], ['checking', 15, 'savings Tesco', 36, 0, true]]);
+  assert.strictEqual(kindOf(st, ['amex', 9, 'Tesco', -36]), 'marcus');
+});
+test('a share paid back (or never put in Owed) locks it', () => {
+  const r = sharesOf(shareMonth([pizza, ['checking', 14, 'kim Pizza night', 18, 4997, false]]), itemOf(pizza));
+  assert.strictEqual(r.locked, true);
+});
+test('money in: shares are minus rows ("Pay Kim"), half to the quick-split person', () => {
+  const refund = ['amex', 9, 'Refund', 40, 5000];
+  assert.strictEqual(kindOf(shareMonth([refund, ['checking', 14, 'kim Refund', -20, 4997, true]]), refund), 'half');
+});
+test('an entry that is itself a share, an "I owe", or a Marcus row has no Who\'s paying (null)', () => {
+  const st = shareMonth([['checking', 14, 'kim Pizza night', 18, 4997, true], ['checking', 20, 'kim Dinner', -20, 0, true], ['marcus', 6, 'Tesco', -36]]);
+  assert.strictEqual(sharesOf(st, itemOf(['checking', 14, 'kim Pizza night', 18, 4997])), null);
+  assert.strictEqual(sharesOf(st, { ...itemOf(['checking', 20, 'kim Dinner', -20]), need: true }), null);
+  assert.strictEqual(sharesOf(st, itemOf(['marcus', 6, 'Tesco', -36])), null);
+});
+test('a Nationwide spend of its own can be split', () => {
+  const nw = ['checking', 22, 'Chemist', -12, 8000];
+  assert.strictEqual(kindOf(shareMonth([nw, ['checking', 23, 'kim Chemist', 6, 7997, true]]), nw), 'half');
+});
+test('rows still saving are not shares', () => {
+  const st = shareMonth([pizza]);
+  st.checking.push({ acct: 'checking', row: 102, desc: 'kim Pizza night', amount: 18, clientTs: 4997, need: true, pending: true });
+  assert.strictEqual(kindOf(st, pizza), '100_me');
 });
 
 // ---- postReadToServer: a read with no reply in time is sent once more (a stuck request at Google, 2026-11-20) ----

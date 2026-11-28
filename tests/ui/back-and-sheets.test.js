@@ -61,7 +61,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   });
   await step('screen readers: form boxes have labels, sheets are dialogs with a title, chosen buttons say so', async () => {
     const r = await page.evaluate(() => {
-      const unlabelled = ['monthSelector', 'inpAmount', 'inpMerchant', 'editTxAmt', 'editTxDesc', 'nmName', 'nmPaycheck', 'nmSavings', 'inpBudName', 'inpBudAmt', 'txSearch', 'payAmount']
+      const unlabelled = ['monthSelector', 'inpAmount', 'inpMerchant', 'editTxAmt', 'editTxDesc', 'nmName', 'nmPaycheck', 'nmSavings', 'inpBudName', 'inpBudAmt', 'txSearch', 'payAmount', 'iOweName', 'iOweAmt']
         .filter(id => { const el = document.getElementById(id); return !(el.labels && el.labels.length) && !el.getAttribute('aria-label'); });
       const dialogs = SHEETS.map(([id]) => { const d = document.querySelector('#' + id + ' [role="dialog"]'); const t = d && document.getElementById(d.getAttribute('aria-labelledby'));
         return d && d.getAttribute('aria-modal') === 'true' && t && t.textContent.trim() ? 'ok' : id; });
@@ -75,7 +75,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
       return { unlabelled, dialogs, pressed, sameSheets, current: [...document.querySelectorAll('nav [data-nav]')].map(b => b.getAttribute('aria-current')),
         toast: [info, failure] };
     });
-    assert.deepStrictEqual(r, { unlabelled: [], dialogs: Array(8).fill('ok'), pressed: ['false', 'true', 'false', 'false'],
+    assert.deepStrictEqual(r, { unlabelled: [], dialogs: Array(9).fill('ok'), pressed: ['false', 'true', 'false', 'false'],
       sameSheets: true, current: ['page', null, null, null], toast: ['status/polite', 'alert/assertive'] });
     await page.click('nav button[data-nav="pending"]');
     assert.deepStrictEqual(await page.$$eval('nav [data-nav]', bs => bs.map(b => b.getAttribute('aria-current'))), [null, null, 'page', null]);
@@ -261,7 +261,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
   // The Add sheet's small split controls (Jon kept their look, 2026-11-08): each has a hidden tap area of at least
   // 24px (as big as it can be, up to 44px, without reaching a neighbour), and adding it changes nothing on screen.
   const SMALL_TAPS = { equal: '#customSplitBox button[data-action="applyEqualGroupSplit"]', includeMe: '#customSplitBox label:has(#chkEqualIncludeMe)',
-    remove: '#dynamicSplitRows button[data-action="removePersonRow"]', owed: '#needToggleWrap' };
+    remove: '#dynamicSplitRows button[data-action="removePersonRow"]', owed: '#needToggleWrap label' };
   // Where each one's tap area is (from its ::after), and every way it could go wrong: too small, a point in it that
   // doesn't reach it, overlapping another control, or taking a tap from one.
   const smallTaps = page => page.evaluate(sels => {
@@ -372,7 +372,7 @@ uiSuite(async ({ errors, open, step, dropExpectedSyncErrors }) => {
         const sheet = p9.locator('#addModal [role="dialog"]');
         const withTaps = [await addSheetLayout(p9), await sheet.screenshot()];
         await p9.evaluate(sels => Object.values(sels).forEach(sel => document.querySelectorAll(sel).forEach(el => el.classList.remove('hit', 'hit-36', 'hit-32'))), SMALL_TAPS);
-        assert.ok(/x16$/.test((await smallTaps(p9)).sizes.owed0), 'the tap areas were not taken away');
+        assert.ok(!/x36$/.test((await smallTaps(p9)).sizes.includeMe0), 'the tap areas were not taken away');   // (Add to Owed has none: its label is 44px itself)
         assert.deepStrictEqual(await addSheetLayout(p9), withTaps[0], 'the tap areas move something in the Add sheet');
         const diff = await pictureDiff(p9, withTaps[1], await sheet.screenshot());
         assert.ok(!diff, 'the tap areas change how the Add sheet looks: ' + diff);

@@ -96,7 +96,7 @@
   // Refusals carry a code, like the real server's (ERROR CODES in Code.js; tests/private/mock-contract.test.js checks the
   // list matches). MOCK.failWith and MOCK.authError are { code, error }, or just words, which are sent as ERROR.
   const ERROR_CODES = ['AUTH_REQUIRED', 'AUTH_EXPIRED', 'AUTH_FAILED', 'AUTH_THROTTLED', 'AUTH_PASSKEY_UNKNOWN', 'AUTH_PASSKEY_PENDING',
-    'FORBIDDEN', 'AUTH_UNAVAILABLE', 'BUSY', 'STALE', 'SAVED_NO_STATE', 'EXISTS', 'REAUTH'];
+    'FORBIDDEN', 'AUTH_UNAVAILABLE', 'BUSY', 'STALE', 'SAVED_NO_STATE', 'EXISTS', 'REAUTH', 'SHARE_PAID_BACK'];
   const coded = (code, error) => Object.assign(new Error(error), { code });
   const refusal = f => {
     const r = f && typeof f === 'object' ? { ok: false, code: f.code || 'ERROR', error: f.error || f.message } : { ok: false, code: 'ERROR', error: f };
@@ -144,18 +144,24 @@
     if (p.clientId) seenClientIds.add(p.clientId);
     // Like the server: the spend on its card (and a payment's other half out of payFrom); a savings share as a Marcus
     // row and a "savings" Nationwide row; each person's share as "<person> <shop>" (owed to you on a spend, by you on a refund).
-    const now = Date.now(), sign = p.isRefund ? -1 : 1, money = x => +Math.abs(Number(x) || 0).toFixed(2);
+    const now = Date.now(), sign = p.isRefund ? -1 : 1;
     const add = (...a) => pushRow(d, ...a);
     add(p.account, p.merchant, -sign * money(p.grossAmount), false, now);
     if (p.payFrom) add(p.payFrom, p.merchant, -money(p.grossAmount), false, now - 1);
-    const mAmt = money(p.marcusShare);
+    shareRows(p.merchant, sign, p).forEach(s => add(s.acct, s.desc, s.amount, s.need, now - s.back));
+    return snapshot(d, n);
+  }
+  const money = x => +Math.abs(Number(x) || 0).toFixed(2);
+  // The share rows of a spend (sign 1 on money out, -1 on money in), and how far before the spend's time each is stamped.
+  function shareRows(merchant, sign, p) {
+    const out = [], mAmt = money(p.marcusShare);
     if (mAmt > 0) {
-      add('marcus', p.merchant, -sign * mAmt, false, now - 1);
-      add('checking', 'savings ' + p.merchant, sign * mAmt, p.markNeed, now - 2);
+      out.push({ acct: 'marcus', desc: merchant, amount: -sign * mAmt, need: false, back: 1 });
+      out.push({ acct: 'checking', desc: 'savings ' + merchant, amount: sign * mAmt, need: !!p.markNeed, back: 2 });
     }
     (p.splits || []).filter(sp => sp && Number(sp.amount) > 0)   // a share of 0 or less is left out
-      .forEach((sp, i) => add('checking', String(sp.person).trim().toLowerCase() + ' ' + p.merchant, +(sign * money(sp.amount)).toFixed(2), sp.need, now - 3 - i));
-    return snapshot(d, n);
+      .forEach((sp, i) => out.push({ acct: 'checking', desc: String(sp.person).trim().toLowerCase() + ' ' + merchant, amount: +(sign * money(sp.amount)).toFixed(2), need: !!sp.need, back: 3 + i }));
+    return out;
   }
   const handlers = {
     getCachedSheetState: (p, d, n) => snapshot(d, n),
@@ -169,7 +175,51 @@
     },
     addTransactionBundle: (p, d, n) => {
       if (p.payFrom) throw new Error('A card payment is sent as addCardPayment.');
+      if (p.iOwe) throw new Error('An I owe is sent as addIOwe.');
       return saveSpend(p, d, n);
+    },
+    // Like the server: someone paid and you owe them your share (grossAmount): one Nationwide row "<person> <what>",
+    // minus your share, in Owed; no card row. A repeat of one already saved is ignored.
+    addIOwe: (p, d, n) => {
+      const person = String(p.person || '').trim().toLowerCase();
+      if (!/^\S+$/.test(person) || person === 'savings' || person === 'marcus' || !(money(p.grossAmount) > 0)) throw new Error('An I owe needs a person and your share.');
+      if (p.clientId && seenClientIds.has(p.clientId)) return snapshot(d, n);
+      if (p.clientId) seenClientIds.add(p.clientId);
+      pushRow(d, 'checking', person + ' ' + p.merchant, -money(p.grossAmount), true, Date.now() - 3);
+      return snapshot(d, n);
+    },
+    // Like the server: the spend edited (or moved) with its shares. Every old share is checked first (what it holds,
+    // and its Owed tick: STALE); unchanged shares are kept as they are; one paid back (not ticked) that would change
+    // refuses the lot (SHARE_PAID_BACK); the rest are re-written. Times: spend T, Marcus T-1, savings T-2, person i T-3-i.
+    editSpendSplit: (p, d, n) => {
+      const it = d[p.oldAcct].find(r => r.row === Number(p.row));
+      checkExpect(it, p);
+      if (!it) return snapshot(d, n);
+      const olds = (p.oldShares || []).map(o => {
+        const r = (d[o.acct] || []).find(x => x.row === Number(o.row));
+        checkExpect(r, o);
+        if (o.acct === 'checking' && !!r.need !== !!(o.expect && o.expect.need)) throw coded('STALE', 'This entry was changed on another device.');
+        return { ...o, r };
+      });
+      const wanted = shareRows(p.newDesc, Number(p.newAmount) < 0 ? 1 : -1, p), left = olds.slice(), kept = [], fresh = [];
+      wanted.forEach(w => {
+        const i = left.findIndex(o => o.acct === w.acct && o.r.desc === w.desc && Math.abs(o.r.amount - w.amount) < 0.005);
+        if (i > -1) kept.push({ w, o: left.splice(i, 1)[0] }); else fresh.push(w);
+      });
+      if (left.some(o => o.acct === 'checking' && !o.r.need)) throw coded('SHARE_PAID_BACK', "A share of this spend has been paid back, so who's paying can't be changed. Untick it under Paid back in Owed first.");
+      const ts = timesOf(d), T = (p.newAcct === p.oldAcct && ts[p.oldAcct + '|' + it.row]) || Date.now();
+      left.forEach(o => { d[o.acct].splice(d[o.acct].indexOf(o.r), 1); delete ts[o.acct + '|' + o.r.row]; });
+      kept.forEach(({ w, o }) => { ts[o.acct + '|' + o.r.row] = T - w.back; });
+      fresh.forEach(w => pushRow(d, w.acct, w.desc, w.amount, w.need, T - w.back));
+      it.desc = p.newDesc; it.amount = p.newAmount;
+      if (p.newAcct && p.newAcct !== p.oldAcct) {
+        d[p.oldAcct].splice(d[p.oldAcct].indexOf(it), 1);
+        delete ts[p.oldAcct + '|' + it.row];
+        it.row = nextRow(d[p.newAcct]);
+        d[p.newAcct].push(it);
+      }
+      ts[(p.newAcct || p.oldAcct) + '|' + it.row] = T;
+      return snapshot(d, n);
     },
     editOrMoveTransaction: (p, d, n) => {
       const it = d[p.oldAcct].find(r => r.row === Number(p.row));
