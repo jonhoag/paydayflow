@@ -11,27 +11,27 @@ const narrow = { ...phone, viewport: { width: 344, height: 847 } };
 uiSuite(async ({ open, step }) => {
   {
     const { ctx, page } = await open(narrow);
-    // The summary may run onto a second line, but every part is whole and inside the box, and "Add to Owed" stays one line.
+    // The Who's paying row: its words whole (none cut off), each on one line, and "Add to Owed" on one line, at the right.
     const pill = () => page.evaluate(() => {
-      const p = document.getElementById('cleanSplitPill'), box = p.getBoundingClientRect();
-      const parts = [...p.querySelectorAll(':scope > span')].map(s => { const r = s.getBoundingClientRect(); return { text: s.textContent, inside: r.left >= box.left - 1 && r.right <= box.right + 1, oneLine: r.height < 24 }; });
-      const tick = document.getElementById('needToggleWrap').getBoundingClientRect();
-      return { text: p.textContent, overflows: p.scrollWidth > p.clientWidth + 1, parts, tickOneLine: tick.height < 30, tickRight: tick.left > box.right - 1 };
+      const row = document.getElementById('whoRow').getBoundingClientRect(), oneLine = id => document.getElementById(id).getBoundingClientRect().height < 24;
+      const sub = document.getElementById('whoSub'), tick = document.querySelector('#needToggleWrap label span').getBoundingClientRect();
+      return { parts: [document.getElementById('whoMain').textContent, sub.textContent], text: sub.textContent, overflows: sub.scrollWidth > sub.clientWidth + 1,
+        oneLine: oneLine('whoMain') && oneLine('whoSub') && row.height < 60, tickOneLine: tick.height < 30, tickRight: tick.right > row.right - 2 };
     });
     for (const [what, setup, want] of [
-      ['half split', () => selectSplit('half'), ['You pay: £71.25', 'Kim: £71.25']],
-      ['group of three', () => { selectSplit('custom'); togglePersonChip('lee'); togglePersonChip('robin'); }, ['You pay: £35.61', '3 people owe: £106.89']],
-      ['refund, half', () => { setTxDirection('refund'); selectSplit('half'); }, ['You keep: +£71.25', 'Pay Kim: −£71.25']],
+      ['half split', () => selectSplit('half'), ['Half with Kim', 'Kim owes £71.25']],
+      ['group of three', () => { selectSplit('custom'); togglePersonChip('lee'); togglePersonChip('robin'); }, ['Split with others', '£106.89 owed']],
+      ['refund, half', () => { setTxDirection('refund'); selectSplit('half'); }, ['Half to Kim', 'you pay Kim £71.25']],
     ]) {
-      await step(`344px split summary (${what}): nothing cut off, it wraps between parts, the name is capitalised`, async () => {
+      await step(`344px Who's paying row (${what}): nothing cut off or wrapped, the name is capitalised`, async () => {
         try {
           await page.evaluate(() => openAddModal());
           await page.fill('#inpAmount', '142.50');
           await page.evaluate(setup);
           const r = await pill();
-          assert.deepStrictEqual(r.parts.map(p => p.text), want, r.text);
-          assert.ok(!r.overflows, 'the summary is cut off: ' + r.text);
-          assert.ok(r.parts.every(p => p.inside && p.oneLine), JSON.stringify(r.parts));
+          assert.deepStrictEqual(r.parts, want, r.text);
+          assert.ok(!r.overflows, 'the row is cut off: ' + r.text);
+          assert.ok(r.oneLine, 'the row wraps');
           assert.ok(r.tickOneLine && r.tickRight, '"Add to Owed" should stay on one line, to the right');
         } finally { await page.evaluate(() => { setTxDirection('spend'); closeAddModal(); document.getElementById('inpAmount').value = ''; }); }
       });

@@ -111,7 +111,7 @@ uiSuite(async ({ watch, open, step }) => {
       assert.deepStrictEqual(await shares(), ['21.25'], 'you and Kim, half each');
       await page.click('#chip_lee');
       assert.deepStrictEqual(await shares(), ['14.17', '14.17']);
-      assert.ok((await page.textContent('#cleanSplitPill')).includes('You pay: £14.16'), await page.textContent('#cleanSplitPill'));
+      assert.strictEqual(await page.textContent('#whoSub'), '£28.34 owed');
       await page.click('#chip_lee');
       assert.deepStrictEqual(await shares(), ['21.25'], 'taking Lee off shares it again');
       await page.fill('#inpAmount', '50');
@@ -131,7 +131,7 @@ uiSuite(async ({ watch, open, step }) => {
       await page.click('#chip_kim');   // the only person, off again
       assert.strictEqual(await page.$$eval('#dynamicSplitRows .split-amt', i => i.length), 0);
       assert.ok(!(await page.getAttribute('#chip_kim', 'class')).includes('bg-emerald-500'), 'the chip still looks picked');
-      assert.ok((await page.textContent('#cleanSplitPill')).includes('You pay: £42.50'), await page.textContent('#cleanSplitPill'));
+      assert.strictEqual(await page.textContent('#whoSub'), 'pick people below');
       assert.deepStrictEqual(await page.evaluate(() => buildSplitData().splits), []);
     } finally { await resetAddForm(); }
   });
