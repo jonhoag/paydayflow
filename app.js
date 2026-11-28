@@ -3564,8 +3564,12 @@ window.addEventListener('storage', e => {
       const same = (a, b) => String(a).trim().toLowerCase() === b;
       const words = r => { const m = /^(\S+) (.+)$/.exec(String(r.desc).trim()); return m ? [m[1].toLowerCase(), m[2].toLowerCase()] : [null, null]; };
       const spends = ['amex', 'barclays', 'checking'].flatMap(rows);
-      // A Nationwide row that is itself someone's share ("kim Tesco" beside a "Tesco") or still owed: nothing to split.
-      if (item.acct === 'checking' && (item.need || SETTLED_PREFIX.test(desc) || spends.some(r => same(r.desc, words(item)[1] || '\u0000')))) return null;
+      // The spend a timed row was saved with: one stamped just above it (see SHARE_TS_BACK), whatever either says now.
+      const parentOf = r => r.clientTs ? spends.find(s => s.clientTs > r.clientTs && s.clientTs - r.clientTs <= 2 + SHARE_ROWS_MAX) : null;
+      // A Nationwide row that is itself someone's share (stamped beside its spend, or "kim Tesco" signed against a
+      // "Tesco"), or is still owed: nothing to split.
+      if (item.acct === 'checking' && (item.need || SETTLED_PREFIX.test(desc) || parentOf(item)
+        || spends.some(r => same(r.desc, words(item)[1] || '\u0000') && Math.sign(r.amount) === -Math.sign(amount)))) return null;
       const sign = amount < 0 ? 1 : -1;   // the shares' sign: + on money out (they owe you), - on money in (you pass it on)
       const T = Number(item.clientTs) || 0;
       const isSavings = r => words(r)[0] === 'savings';
@@ -3583,8 +3587,9 @@ window.addEventListener('storage', e => {
       rows('checking').filter(r => same(r.desc, 'savings ' + low) && Math.sign(r.amount) === sign).forEach(add(savings));
       rows('checking').filter(r => !isSavings(r) && words(r)[1] === low && Math.sign(r.amount) === sign).forEach(add(people));
       const byWords = [...marcus, ...savings, ...people].some(r => !r.clientTs);
-      // A timed row with these words whose spend isn't stamped just above it: whose share it is can't be told.
-      const stray = timed.some(r => !spends.some(s => same(s.desc, low) && s.clientTs > r.clientTs && s.clientTs - r.clientTs <= 3 + SHARE_ROWS_MAX));
+      // A timed share with these words whose spend isn't stamped just above it: whose it is can't be told. (On money in a
+      // minus row like that is an "I owe", saved on its own, so not a share at all.)
+      const stray = sign > 0 && timed.some(r => !parentOf(r));
       // Another spend with the same words (a Marcus share has them too, so not in Marcus), or the same share twice.
       const twin = spends.some(r => same(r.desc, low));
       const twice = marcus.length > 1 || savings.length > 1 || new Set(people.map(r => words(r)[0])).size < people.length;
@@ -3664,14 +3669,12 @@ window.addEventListener('storage', e => {
       if (!newDesc) return showFieldError('editTxDesc', 'Add where it was');
       // The shares go with the spend (editSpendSplit) when they can change: found, none paid back, and there are some
       // now or some wanted. Shares that can't change (one is paid back) still go with a spend moved to another card, just
-      // as they are (`keep`), so they take its new save time and are found again next time; but not renamed in the same
-      // save, which would rename the paid-back share too. Otherwise only the spend's own row changes, as before.
+      // as they are (keepShares: only their save times follow the spend's), so they are found again next time.
+      // Otherwise only the spend's own row changes, as before.
       const sh = editShares && !editShares.unknown ? editShares : null;
       let split = null;
       if (sh && sh.locked) {
-        if (newAcct !== oldAcct && newDesc !== expect.desc) return showFieldError('editTxDesc', 'A share is paid back, so change the card and the name in two saves');
-        if (newAcct !== oldAcct && sh.olds.length) split = { keep: true, marcusShare: (sh.entries.find(e => e.person === 'marcus') || { amount: 0 }).amount,
-          splits: sh.entries.filter(e => e.person !== 'marcus').map(e => ({ person: e.person, amount: e.amount, need: true })) };
+        if (newAcct !== oldAcct && sh.olds.length) split = { keep: true };
       } else if (sh && (sh.olds.length > 0 || formSplit !== '100_me')) {
         if (showSplitProblem()) return;
         split = buildSplitData();
@@ -3710,7 +3713,7 @@ window.addEventListener('storage', e => {
         ? apiCall('editSpendSplit', {
           sheetName: activeMonth, oldAcct, newAcct, row, newDesc, newAmount, expect,
           oldShares: sh.olds.map(o => ({ acct: o.acct, row: o.row, expect: { desc: o.desc, amount: o.amount, need: o.need } })),
-          splits: split.splits, marcusShare: split.marcusShare, markNeed: true
+          ...(split.keep ? { keepShares: true } : { splits: split.splits, marcusShare: split.marcusShare, markNeed: true })
         })
         : apiCall('editOrMoveTransaction', { sheetName: activeMonth, oldAcct, newAcct, row, newDesc, newAmount, expect }));
     }

@@ -247,9 +247,21 @@ test('a timed share with no spend stamped just above it (its spend moved before 
   const st = shareMonth([['barclays', 4, 'Pizza night', -36, 9000], ['checking', 14, 'kim Pizza night', 18, 4997, false]]);
   assert.strictEqual(kindOf(st, ['barclays', 4, 'Pizza night', -36, 9000]), 'unknown');
 });
-test('money in typed in the sheet beside an "I owe" with its words: can\'t tell, never taken as its share', () => {
+test('money in beside an "I owe" with its words (saved on its own, no spend above it): not a share of it', () => {
   const st = shareMonth([['amex', 9, 'Dinner', 40], ['checking', 20, 'kim Dinner', -20, 6000, true]]);
-  assert.strictEqual(kindOf(st, ['amex', 9, 'Dinner', 40]), 'unknown');
+  assert.strictEqual(kindOf(st, ['amex', 9, 'Dinner', 40]), '100_me');
+});
+test('a Nationwide spend whose last words are another spend\'s ("Iced Coffee" beside "Coffee", both money out) can be split', () => {
+  const st = shareMonth([['amex', 9, 'Coffee', -3, 5000], ['checking', 22, 'Iced Coffee', -4, 8000]]);
+  assert.strictEqual(kindOf(st, ['checking', 22, 'Iced Coffee', -4, 8000]), '100_me');
+});
+test('a share of a spend renamed since is still a share (by its time): no Who\'s paying on it', () => {
+  const st = shareMonth([['amex', 9, 'Pizza Hut', -36, 5000], ['checking', 14, 'dave Pizza', 18, 4997, false]]);
+  assert.strictEqual(sharesOf(st, { ...itemOf(['checking', 14, 'dave Pizza', 18, 4997]), need: false }), null);
+});
+test('another "Tesco" beside the share of a "Tesco" renamed since: that share is the renamed one\'s, not stray', () => {
+  const st = shareMonth([['amex', 9, 'Tesco Express', -36, 1000], ['checking', 14, 'kim Tesco', 18, 997, false], ['amex', 10, 'Tesco', -20, 2000]]);
+  assert.strictEqual(kindOf(st, ['amex', 10, 'Tesco', -20, 2000]), '100_me');
 });
 test('a card payment, and a share for a name not in the list ("dave Pizza night" beside "Pizza night"), have no Who\'s paying', () => {
   const st = shareMonth([pizza, ['checking', 30, 'dave Pizza night', 10, 0, false], ['amex', 11, 'Amex CC Payment', 100, 8000], ['checking', 31, 'Amex CC Payment', -100, 7999]]);

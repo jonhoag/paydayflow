@@ -201,7 +201,11 @@
         if (o.acct === 'checking' && !!r.need !== !!(o.expect && o.expect.need)) throw coded('STALE', 'This entry was changed on another device.');
         return { ...o, r };
       });
-      const wanted = shareRows(p.newDesc, Number(p.newAmount) < 0 ? 1 : -1, p), left = olds.slice(), kept = [], fresh = [];
+      // keepShares: the shares stay as they are; only their times follow the spend's.
+      let person = 0;
+      const back = o => o.acct === 'marcus' ? 1 : /^savings\s/i.test(o.r.desc) ? 2 : 3 + person++;
+      const wanted = p.keepShares === true ? olds.map(o => ({ acct: o.acct, desc: o.r.desc, amount: o.r.amount, back: back(o) }))
+        : shareRows(p.newDesc, Number(p.newAmount) < 0 ? 1 : -1, p), left = olds.slice(), kept = [], fresh = [];
       wanted.forEach(w => {
         const i = left.findIndex(o => o.acct === w.acct && o.r.desc === w.desc && Math.abs(o.r.amount - w.amount) < 0.005);
         if (i > -1) kept.push({ w, o: left.splice(i, 1)[0] }); else fresh.push(w);

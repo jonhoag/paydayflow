@@ -245,21 +245,18 @@ uiSuite(async ({ open, step, errors, dropExpectedSyncErrors }) => {
     assert.deepStrictEqual(await rowOf('checking', 'kim Grocer'), { row: kim.row, amount: 30, need: false });
   });
 
-  await step('locked: a group split\'s box stays shut; renamed and moved in one save is refused; moved alone, the shares go with it as they are', async () => {
+  await step('locked: a group split\'s box stays shut; moved (and renamed), the shares go with it just as they are', async () => {
     await openEdit('amex', 'Grocer');
     assert.deepStrictEqual([(await row()).main, (await row()).right, await page.evaluate(() => document.getElementById('customSplitBox').classList.contains('hidden'))],
       ['Split with others', 'Locked', true], 'the group box of a locked split is open');
     await page.click('#etx_barclays');
-    await page.fill('#editTxDesc', 'Grocers');
-    await page.click('#btnSaveEditTx');
-    assert.ok(/two saves/.test(await page.textContent('#editTxDescErr')));
-    await page.fill('#editTxDesc', 'Grocer');
+    await page.fill('#editTxDesc', 'Grocers');   // renamed too: the shares keep their own words
     const kim = await rowOf('checking', 'kim Grocer');
     const p = await sendsAndSettles(page, 'editSpendSplit', () => page.click('#btnSaveEditTx'));
-    assert.deepStrictEqual([p.oldAcct, p.newAcct, p.oldShares, p.splits, Number(p.marcusShare)],
-      ['amex', 'barclays', [{ acct: 'checking', row: kim.row, expect: { desc: 'kim Grocer', amount: 30, need: false } }], [{ person: 'kim', amount: 30, need: true }], 0]);
+    assert.deepStrictEqual([p.oldAcct, p.newAcct, p.newDesc, p.oldShares, p.keepShares, p.splits],
+      ['amex', 'barclays', 'Grocers', [{ acct: 'checking', row: kim.row, expect: { desc: 'kim Grocer', amount: 30, need: false } }], true, undefined]);
     assert.deepStrictEqual(await rowOf('checking', 'kim Grocer'), { row: kim.row, amount: 30, need: false }, 'the paid-back share changed');
-    await openEdit('barclays', 'Grocer');   // found again by the new time
+    await openEdit('barclays', 'Grocers');   // found again by the new time
     assert.deepStrictEqual([(await row()).main, (await row()).right], ['Split with others', 'Locked']);
     await page.evaluate(() => closeEditTxModal());
   });
